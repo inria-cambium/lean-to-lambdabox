@@ -1,0 +1,107 @@
+import Lean
+import LeanToLambdaBox
+import LeanToLambdaBox.Printing
+
+set_option compiler.enableNew true
+set_option trace.Compiler.init true
+-- set_option trace.Compiler.result true
+set_option pp.match false
+
+#print Nat
+
+def asdf := do
+  let stx ← `(fun x:Unit => x)
+  let e ← Lean.Elab.Term.elabTerm stx .none
+  let res := e
+  let t ← Lean.Compiler.LCNF.CompilerM.run (Erasure.erase e)
+  let s := Serialize.to_sexpr t
+  let res := s
+  return res
+
+#eval asdf
+
+#print Inhabited
+
+/-
+inductive myfalse: Prop where
+
+-- codegen here is fine because this is a type with no constructors
+def elim_myfalse_into_type (mf: myfalse): Nat := nomatch mf
+#print elim_myfalse_into_type
+
+-- codegen complains here because this is not one of the hardcoded exceptions
+def elim_true_into_type (t: True): Nat := match t with | .intro => 0
+
+def elim_and_into_type (w: True ∧ True): Nat := match w with | .intro .. => 0
+
+def projection (p: Nat × Bool): Bool := p.snd
+
+#print Nat.noConfusionType
+def nc_ok n1 n2 := @Nat.noConfusion Unit (.succ n1) (.succ n2)
+-- Cannot see which constructor n2 starts with
+def nc_fail n1 n2 := @Nat.noConfusion Unit (.succ n1) n2
+
+def f (x: Nat) := match x with | .zero => 0 | .succ n => n
+#print f
+
+def br := @Bool.rec
+def nr := @Nat.rec
+
+#print Nat.casesOn
+#print Prod
+#check Prod.casesOn
+#print Vector
+
+inductive opt
+  | some (n: Nat)
+  | none
+with
+  @[computed_field]
+  dummy: opt -> Unit
+  | _ => .unit
+
+/-- Works here, with alternatives of the form fun ..args => frobnicate (constructor ..args) directly passed to casesOn. -/
+def foo_arg_manual (x: opt): opt := opt.casesOn x (fun n => id <| .some n) (id <| .none)
+/--
+Does not work, because the elaborator generates a definition for match_1 which is basically an eta-expansion of casesOn
+with the motive and minor premises themselves eta-expanded
+(plus one extra unit argument for the .none branch, probably because the constructor takes 0 arguments).
+ToLCNF gets expressions after inlining of auxiliary matcher definitions done by inlineMatchers, so it sees something like
+`(fun x h_1 h_2 => opt.casesOn x (fun n => h_1 n) (h_2 Unit.unit)) (fun n => id (.some n)) (fun _ => .none)`,
+and visitCasesImplementedBy will not be able to recognize the discriminee being reconstructed (though it would after some reduction).
+-/
+def foo_arg_sugary (x: opt): opt := match x with | .some n => id (.some n) | .none => id .none
+#print foo_arg_sugary
+#print foo_arg_sugary.match_1
+/--
+Doesn't work because here the reconstructed discriminee is not the argument of an application
+but rather the applicand (to zero arguments).
+-/
+def foo_manual (x: opt): opt := opt.casesOn x (fun n => .some n) .none
+-- Doubly doesn't work.
+def foo_sugary (x: opt): opt := match x with | .some n => .some n | .none => .none
+-- Doesn't work because visitCasesImplementedBy only checks direct arguments of frobnicate, not subexpressions.
+def foo_in_arg_manual (x: opt): opt := opt.casesOn x (fun n => id <| id (.some n)) (id <| id .none)
+
+def foo_test (x: opt): opt := match x with | a@(.some _) => a | .none => .none
+#print foo_test
+#print foo_test.match_1
+
+#print Nat.noConfusion
+
+mutual
+  inductive spam
+    | foo (e: egg)
+  inductive egg
+    | bar (s: spam)
+    | baz
+end
+
+set_option eval.derive.repr true
+#print spam
+#eval (do
+  let .inductInfo asdf ← Lean.getConstInfo ``egg | unreachable!
+  return asdf.all
+)
+#print egg
+-/
