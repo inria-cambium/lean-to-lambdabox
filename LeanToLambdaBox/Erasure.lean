@@ -10,13 +10,43 @@ namespace Erasure
 
 /-- The monad in ToLCNF has caches, a local context and toAny as a set of fvars, all as mutable state for some reason.
     Here I just have a read-only local context, in order to be able to use MetaM's type inference, and keep the complexity low.
-    If this is much too slow, try caching stuff again. -/
+    If this is much too slow, try caching stuff again.
+    Why not do this straight-up in MetaM?
+    -/
 abbrev EraseM := ReaderT LocalContext CompilerM
 
 def run (x : EraseM α) : CompilerM α :=
   x |>.run {}
 
-/-- Run an action of MetaM in PrepareM using PrepareM's local context of Lean types. -/
+-- TODO: Have this return a result in EraseM and get the binder name from context?
+def fvar_to_name (x: FVarId): EraseM ppname := do
+  let n := (← read).fvarIdToDecl |>.find! x |>.userName
+  return .named n.toString
+
+def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (← fvar_to_name x) (abstract x body)
+
+def mkLetIn (x: FVarId) (val body: neterm): EraseM neterm := do return .letIn (← fvar_to_name x) val (abstract x body)
+
+/--
+In Rocq it is mutual blocks which are named, so I'm just making something up here.
+-/
+def to_inductive_id (indinfo: InductiveVal): inductive_id :=
+  let idx := indinfo.all.findIdx? (. = indinfo.name) |>.get!
+  let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
+  { mutual_block_name, idx }
+
+/-- Maybe I want this to be reversed, idk -/
+def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
+  let mut body := body
+  let names ← xs.mapM fvar_to_name
+  for (fvarid, i) in xs.reverse.zipIdx do
+    body := toBvar fvarid i body
+  return (names, body)
+
+def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): neterm :=
+  .case (to_inductive_id indInfo, indInfo.numParams) discr alts
+
+/-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
 @[inline] def liftMetaM (x : MetaM α) : EraseM α := do
   x.run' { lctx := ← read }
 
@@ -113,7 +143,7 @@ where
     else
       forallMonocular type fun fvarid bodytype => do
         let res ← go bodytype f (args.push (.fvar fvarid))
-        return mkLambda fvarid res
+        mkLambda fvarid res
 
 /--
 TODO: The function ToLCNF.isTypeFormerType has an auxiliary function "quick"
@@ -158,7 +188,7 @@ where
   This is beyond the scope of what I want to do here for the moment.
   -/
   visitLambda (e : Expr) : EraseM neterm :=
-    lambdaMonocular e (fun fvarid body => do return mkLambda fvarid (← visit body))
+    lambdaMonocular e (fun fvarid body => do mkLambda fvarid (← visit body))
 
   visitLet (e : Expr): EraseM neterm :=
     /-
@@ -166,7 +196,7 @@ where
     since all occurrences of the variable must be erased anyway.
     Keep this optimization?
     -/
-    letMonocular e (fun fvarid val body => do return mkLetIn fvarid (← visit val) (← visit body))
+    letMonocular e (fun fvarid val body => do mkLetIn fvarid (← visit val) (← visit body))
 
   visitProj (s : Name) (i : Nat) (e : Expr) : EraseM neterm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
@@ -277,6 +307,6 @@ where
   -/
   visitAlt (numFields : Nat) (e : Expr) : EraseM (List ppname × neterm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
-      return mkAlt (fvarids.toList) (← visit e)
+      mkAlt (fvarids.toList) (← visit e)
 
 end Erasure

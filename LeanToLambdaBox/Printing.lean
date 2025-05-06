@@ -1,9 +1,7 @@
 import LeanToLambdaBox
 
-abbrev atom := String
-
 inductive sexpr: Type where
-  | atom (a: atom)
+  | atom (a: String)
   | list (l: List sexpr)
 deriving Inhabited
 
@@ -20,16 +18,18 @@ class Serialize (α: Type): Type where
 open Serialize
 #print to_sexpr
 
+def quote_atom (s: String): sexpr := "\"" ++ s ++ "\"" |> .atom
+
 instance : Serialize Nat where
   to_sexpr | n => .atom n.repr
 
 instance : Serialize ppname where
   to_sexpr
-  | .named name => .list [ .atom "nNamed", .atom name ]
+  | .named name => .list [ .atom "nNamed", quote_atom name ]
   | .anon => .atom "nAnon"
 
 instance : Serialize ident where
-  to_sexpr | i => .atom i 
+  to_sexpr := quote_atom
 
 instance [Serialize α]: Serialize (List α) where
   to_sexpr | l => l |>.map to_sexpr |> .list
@@ -77,3 +77,13 @@ mutual
 end
 
 instance : Serialize neterm where to_sexpr := neterm.to_sexpr
+
+/-- The Rocq/Coq lexer expects `"` characters in string literals to be represented by the sequence `""`. This is cursed. -/
+def rocq_escape (s: String): String :=
+  s.toList |>.map (fun c: Char => if c = '"' then [c, c] else [c]) |>.flatten |>.asString
+
+/-- Print with surrounding `"` characters and internal `"` characters doubled, for copy-pasting into Rocq. -/
+def rocq_print (s: String): IO Unit := do
+  IO.print '"'
+  IO.print <| rocq_escape s
+  IO.print '"'

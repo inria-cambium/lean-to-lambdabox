@@ -100,29 +100,3 @@ partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
     .fix (defs.map fun nd => { nd with body := toBvar x (lvl + def_count) nd.body }) i
 
 def abstract (x: FVarId) (e: neterm): neterm := toBvar x 0 e
-
--- TODO: Have this return a result in EraseM and get the binder name from context?
-def fvar_to_name (x: FVarId): ppname := .named x.name.toString
-
-def mkLambda (x: FVarId) (body: neterm): neterm := .lambda (fvar_to_name x) (abstract x body)
-
-def mkLetIn (x: FVarId) (val body: neterm): neterm := .letIn (fvar_to_name x) val (abstract x body)
-
-/--
-In Rocq it is mutual blocks which are named, so I'm just making something up here.
--/
-def to_inductive_id (indinfo: InductiveVal): inductive_id :=
-  let idx := indinfo.all.findIdx? (. = indinfo.name) |>.get!
-  let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
-  { mutual_block_name, idx }
-
-/-- Maybe I want this to be reversed, idk -/
-def mkAlt (xs: List FVarId) (body: neterm): List ppname × neterm := Id.run do
-  let mut body := body
-  let names := xs.map fvar_to_name
-  for (fvarid, i) in xs.reverse.zipIdx do
-    body := toBvar fvarid i body
-  return (names, body)
-
-def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): neterm :=
-  .case (to_inductive_id indInfo, indInfo.numParams) discr alts
