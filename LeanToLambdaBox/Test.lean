@@ -3,24 +3,21 @@ import LeanToLambdaBox
 import LeanToLambdaBox.Printing
 
 set_option compiler.enableNew true
-set_option trace.Compiler.init true
+-- set_option trace.Compiler.init true
 -- set_option trace.Compiler.result true
 set_option pp.match false
 
 #print Nat
+#print Nat.casesOn
 
 def asdf := do
-  let stx ← `(fun x:Unit => x)
+  let stx ← `(@Nat.zero)
   let e ← Lean.Elab.Term.elabTerm stx .none
-  let res := e
   let t ← Lean.Compiler.LCNF.CompilerM.run (Erasure.erase e)
   let s := Serialize.to_sexpr t
-  let res := s
-  return res
+  return s.toString
 
 #eval asdf
-
-#print Inhabited
 
 /-
 inductive myfalse: Prop where

@@ -1,4 +1,3 @@
-Print LoadPath.
 Require Import MetaCoq.ErasurePlugin.Loader.
 
 Definition f (n: nat): nat := match n with O => O | S n => n end.
@@ -8,3 +7,4 @@ Definition i := let U := unit in idat U.
 
 MetaCoq Erase i.
 
+MetaCoq Erase (fun x: unit => x).

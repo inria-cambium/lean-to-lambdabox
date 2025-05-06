@@ -7,6 +7,13 @@ inductive sexpr: Type where
   | list (l: List sexpr)
 deriving Inhabited
 
+def sexpr.toString: sexpr -> String
+  | atom a => a
+  | list l => "(" ++ (l.map sexpr.toString |> String.intercalate " ") ++ ")"
+
+instance : ToString sexpr where
+  toString := sexpr.toString
+
 class Serialize (α: Type): Type where
   to_sexpr: α → sexpr
 
