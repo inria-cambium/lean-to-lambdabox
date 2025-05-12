@@ -2,6 +2,10 @@ import Lean
 import LeanToLambdaBox
 import LeanToLambdaBox.Printing
 
+/-
+This file is for interactive experimentation, with results printed in the infoview.
+-/
+
 set_option compiler.enableNew true
 -- set_option trace.Compiler.init true
 -- set_option trace.Compiler.result true
@@ -15,7 +19,8 @@ set_option hygiene false
   let e: Lean.Expr ← Lean.Elab.Term.elabTerm stx .none
   let t: neterm ← Lean.Compiler.LCNF.CompilerM.run (Erasure.erase e)
   let s: sexpr := Serialize.to_sexpr t
-  rocq_print s.toString
+  IO.print s.toString
+  -- rocq_print s.toString
 
 /-
 inductive myfalse: Prop where

@@ -1,16 +1,8 @@
 From MetaCoq.Utils Require Import bytestring.
-From MetaCoq.Erasure Require Import EAst EPretty.
-From LambdaBox.serialization Require Import SerializeEAst.
-Require Import String.
+From MetaCoq.Erasure Require Import EAst.
 
-(* A dummy term returned in case there is a deserialization error. *)
-Axiom ErrorTerm: term.
-Definition unwrap (x: CeresDeserialize.error + term) :=
-  match x with
-  | inl err => ErrorTerm
-  | inr t => t
-  end
-.
+Import List.ListNotations.
+Local Open Scope list_scope.
 
 (* Setting up an environment in which nat is defined, for testing/pretty-printing purposes. *)
 Definition empty_path: Kernames.modpath := Kernames.MPfile nil.
@@ -34,17 +26,9 @@ Definition nat_body: one_inductive_body := {|
 Definition nat_decl: global_decl := InductiveDecl {|
   ind_finite := BasicAst.Finite;
   ind_npars := 0;
-  ind_bodies := cons nat_body nil
+  ind_bodies := [nat_body]
 |}.
 (* It is important that the mutual block is named "Nat". *)
 Definition nat_entry: Kernames.kername*global_decl := ((empty_path, "Nat"%bs), nat_decl).
 
-Definition nat_env: global_context := cons nat_entry nil.
-
-Definition Sterm: string :=
-"(tLambda (nNamed ""n"") (tLambda (nNamed ""zero_case"") (tLambda (nNamed ""succ_case"") (tCase ((inductive ((MPfile ()) ""Nat"") 0) 0) (tRel 2) ((() (tRel 1)) (((nNamed ""n"")) (tApp (tRel 1) (tRel 0))))))))"
-.
-
-Definition t := unwrap (term_of_string Sterm).
-
-Eval cbv in (print_program (nat_env, t)).
+Definition nat_env: global_context := [nat_entry].

@@ -16,7 +16,6 @@ class Serialize (α: Type): Type where
   to_sexpr: α → sexpr
 
 open Serialize
-#print to_sexpr
 
 def quote_atom (s: String): sexpr := "\"" ++ s ++ "\"" |> .atom
 

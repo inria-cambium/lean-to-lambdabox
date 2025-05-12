@@ -7,4 +7,5 @@ name = "LeanToLambdaBox"
 
 [[lean_exe]]
 name = "lean_to_lambdabox"
+supportInterpreter = true
 root = "Main"
