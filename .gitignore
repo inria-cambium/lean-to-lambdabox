@@ -7,3 +7,5 @@
 .CoqMakefile.d
 CoqMakefile
 CoqMakefile.conf
+*.ast
+*.mlf

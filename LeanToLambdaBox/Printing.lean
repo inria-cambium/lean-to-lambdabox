@@ -1,4 +1,4 @@
-import LeanToLambdaBox
+import LeanToLambdaBox.Basic
 
 inductive sexpr: Type where
   | atom (a: String)

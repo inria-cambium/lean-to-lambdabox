@@ -2,6 +2,7 @@ import Lean.Compiler.LCNF.ToLCNF
 import Lean.Meta
 
 import LeanToLambdaBox.Basic
+import LeanToLambdaBox.Printing
 
 open Lean
 open Lean.Compiler.LCNF
@@ -13,12 +14,11 @@ namespace Erasure
     If this is much too slow, try caching stuff again.
     Why not do this straight-up in MetaM?
     -/
-abbrev EraseM := ReaderT LocalContext CompilerM
+abbrev EraseM := ReaderT LocalContext CoreM
 
-def run (x : EraseM α) : CompilerM α :=
+def run (x : EraseM α) : CoreM α :=
   x |>.run {}
 
--- TODO: Have this return a result in EraseM and get the binder name from context?
 def fvar_to_name (x: FVarId): EraseM ppname := do
   let n := (← read).fvarIdToDecl |>.find! x |>.userName
   return .named n.toString
@@ -50,7 +50,7 @@ def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × n
 @[inline] def liftMetaM (x : MetaM α) : EraseM α := do
   x.run' { lctx := ← read }
 
-/-- Similar to Meta.withLocalDecl, but in PrepareM.
+/-- Similar to Meta.withLocalDecl, but in EraseM.
     k will be passed some fresh FVarId and run in a context in which it is bound. -/
 def withLocalDecl (n: Name) (type: Expr) (bi: BinderInfo) (k: FVarId -> EraseM α): EraseM α := do
   let fvarid <- mkFreshFVarId;
@@ -165,7 +165,7 @@ def isErasable (e : Expr) : EraseM Bool :=
 /--
 Copied over from toLCNF, then quite heavily pruned and modified.
 -/
-partial def erase (e : Expr) : CompilerM neterm :=
+partial def erase_term (e : Expr) : CoreM neterm :=
   run (visit e)
 where
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
@@ -303,10 +303,15 @@ where
   Visit a `matcher`/`casesOn` alternative.
   On the Lean side, e should be a function taking numFields arguments.
   For λbox, I think we only need the body, as the neterm.cases constructor includes the bindings.
-  TODO: think about how to handle variable binding 
   -/
   visitAlt (numFields : Nat) (e : Expr) : EraseM (List ppname × neterm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
       mkAlt (fvarids.toList) (← visit e)
+
+elab "#erase_term" t:term : command => Elab.Command.liftTermElabM do
+  let e: Expr ← t |> Elab.Term.elabTerm (expectedType? := .none)
+  let nt: neterm ← erase_term e
+  let s: String := nt |> Serialize.to_sexpr |>.toString
+  logInfo s
 
 end Erasure

@@ -20,7 +20,7 @@ Definition main: IO unit :=
     | inl err => "error"%string
     | inr term => bytestring.String.to_string (print_program (nat_env, term))
     end in
-  print_endline out
+  print_string out
 .
 
 (*
