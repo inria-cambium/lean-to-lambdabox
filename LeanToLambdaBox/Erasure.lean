@@ -3,24 +3,41 @@ import Lean.Meta
 
 import LeanToLambdaBox.Basic
 import LeanToLambdaBox.Printing
+import Std.Data
 
 open Lean
 open Lean.Compiler.LCNF
 
 namespace Erasure
 
+/--
+State carried by EraseM to handle constants and inductive types registered in the global environment.
+-/
+structure ErasureState: Type where
+  inductives: Std.HashMap Name inductive_id
+  constants: Std.HashMap Name kername
+  /-- This field is only updated, not read. -/
+  gdecls: global_declarations
+deriving Inhabited
+
+structure ErasureContext: Type where
+  lctx: LocalContext
+  fixvars: Option (Std.HashMap Name FVarId)
+deriving Inhabited
+
 /-- The monad in ToLCNF has caches, a local context and toAny as a set of fvars, all as mutable state for some reason.
     Here I just have a read-only local context, in order to be able to use MetaM's type inference, and keep the complexity low.
     If this is much too slow, try caching stuff again.
-    Why not do this straight-up in MetaM?
-    -/
-abbrev EraseM := ReaderT LocalContext CoreM
 
-def run (x : EraseM α) : CoreM α :=
-  x |>.run {}
+    Above the local context there is also a state handling the global environment of the extracted program.
+    -/
+abbrev EraseM := StateT ErasureState <| ReaderT ErasureContext CoreM
+
+def run (x : EraseM α) : CoreM (α × ErasureState) :=
+  x |>.run default |>.run default
 
 def fvar_to_name (x: FVarId): EraseM ppname := do
-  let n := (← read).fvarIdToDecl |>.find! x |>.userName
+  let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
   return .named n.toString
 
 def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (← fvar_to_name x) (abstract x body)
@@ -30,10 +47,23 @@ def mkLetIn (x: FVarId) (val body: neterm): EraseM neterm := do return .letIn (�
 /--
 In Rocq it is mutual blocks which are named, so I'm just making something up here.
 -/
-def to_inductive_id (indinfo: InductiveVal): inductive_id :=
-  let idx := indinfo.all.findIdx? (. = indinfo.name) |>.get!
-  let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
-  { mutual_block_name, idx }
+def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
+  if let .some iid := (← get).inductives.get? indinfo.name then
+    return iid
+  else
+    let names := indinfo.all
+    let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
+    let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
+      modify (fun s => { s with inductives := s.inductives.insert ind_name { mutual_block_name, idx }})
+      let .inductInfo inf ← getConstInfo ind_name | unreachable!
+      let ind_ctors ← inf.ctors.mapM fun ctor_name => do
+        let .ctorInfo ci ← getConstInfo ctor_name | unreachable!
+        return { cstr_name := toString ctor_name, cstr_nargs := ci.numFields }
+      let ind_name := toString ind_name
+      return { ind_name, ind_ctors }
+    let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
+    modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
+    return (← get).inductives.get? indinfo.name |>.get!
 
 /-- Maybe I want this to be reversed, idk -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
@@ -43,23 +73,33 @@ def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
     body := toBvar fvarid i body
   return (names, body)
 
-def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): neterm :=
-  .case (to_inductive_id indInfo, indInfo.numParams) discr alts
+def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm :=
+  do return .case (← to_inductive_id indInfo, indInfo.numParams) discr alts
+
+/-- Check binding order here as well, may be wrong. -/
+def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef neterm) := do
+  let mut body := body
+  for (n, i) in fixvarnames.reverse.zipIdx do
+    body := toBvar ((← read).fixvars.get!.get! n) i body
+  return { name := .named name.toString, body }
+
+/-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
+def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
 
 /-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
 @[inline] def liftMetaM (x : MetaM α) : EraseM α := do
-  x.run' { lctx := ← read }
+  x.run' { lctx := (← read).lctx }
 
 /-- Similar to Meta.withLocalDecl, but in EraseM.
     k will be passed some fresh FVarId and run in a context in which it is bound. -/
 def withLocalDecl (n: Name) (type: Expr) (bi: BinderInfo) (k: FVarId -> EraseM α): EraseM α := do
   let fvarid <- mkFreshFVarId;
-  withReader (fun lctx => lctx.mkLocalDecl fvarid n type bi) (k fvarid)
+  withReader (fun ctx => { ctx with lctx := ctx.lctx.mkLocalDecl fvarid n type bi }) (k fvarid)
 
 /-- Like Meta.withLetDecl. -/
 def withLocalDef (n: Name) (type val: Expr) (nd: Bool) (k: FVarId -> EraseM α): EraseM α := do
   let fvarid <- mkFreshFVarId;
-  withReader (fun lctx => lctx.mkLetDecl fvarid n type val nd) (k fvarid)
+  withReader (fun ctx => { ctx with lctx := ctx.lctx.mkLetDecl fvarid n type val nd }) (k fvarid)
 
 /--
 A version of Meta.lambdaTelescope that
@@ -70,12 +110,12 @@ Panics if applied to something which is not of the form .lambda ..
 -/
 def lambdaMonocular {α} [Inhabited α] (e: Expr) (k: FVarId -> Expr -> EraseM α): EraseM α := do
   let .lam binderName type body bi := e | unreachable!
-  withLocalDecl binderName type bi (fun fvarid => k fvarid <| body.instantiate #[.fvar fvarid])
+  withLocalDecl binderName type bi (fun fvarid => k fvarid <| body.instantiate1 (.fvar fvarid))
 /-- Destructures a let-expression for handling by a continuation in an appropriate context. The continuation gets an FVarId for the bound variable and bound value and body as expressions. Panics if applied to an expression which is not of the form .letE ..
 -/
 def letMonocular {α} [Inhabited α] (e: Expr) (k: FVarId -> Expr -> Expr -> EraseM α): EraseM α := do
   let .letE binderName type val body nd := e | unreachable!
-  withLocalDef binderName type val nd (fun fvarid => k fvarid val (body.instantiate #[.fvar fvarid]))
+  withLocalDef binderName type val nd (fun fvarid => k fvarid val (body.instantiate1 (.fvar fvarid)))
 
 /--
 Destructures a type expression of the form `∀ a: A, B`,
@@ -85,7 +125,7 @@ Panics if applied to an expression which is not of the form .forallE ..
 -/
 def forallMonocular {α} [Inhabited α] (t: Expr) (k: FVarId -> Expr -> EraseM α) := do
   let Expr.forallE binderName type body bi := t | unreachable!
-  withLocalDecl binderName type bi (fun fvarid => k fvarid <| body.instantiate #[.fvar fvarid])
+  withLocalDecl binderName type bi (fun fvarid => k fvarid <| body.instantiate1 <| .fvar fvarid)
 
 /--
 Given an expression `e` and its type, which is assumed to be of the form `∀ a:A, B`,
@@ -103,7 +143,7 @@ def lambdaMonocularOrIntro {α} [Inhabited α] (e type: Expr) (k: Expr -> Expr -
       Here I use the binder name and info from the type-level forall binder we are under.
       It might be better to get it from the lambda binder.
       -/
-      k (body.instantiate #[.fvar fvarid]) bodytype fvarid
+      k (body.instantiate1 <| .fvar fvarid) bodytype fvarid
     else
       -- Here in any case I must use the binder name and info from the forall binder.
       k (.app e (.fvar fvarid)) bodytype fvarid
@@ -152,43 +192,63 @@ Maybe putting it back makes things faster.
 -/
 def isErasable (e : Expr) : EraseM Bool :=
   liftMetaM do
-    -- TODO: ToLCNF includes an explicit check for isLcProof, but I think the type information should be enough to erase those.
     let type ← Meta.inferType e
     -- Erase evidence of propositions
+    -- ToLCNF includes an explicit check for isLcProof, but I think the type information should be enough to erase those here.
     if (← Meta.isProp type) then
       return true
     -- Erase types and type formers
     if (← Meta.isTypeFormerType type) then
       return true
     return false
+      
+/--
+This is used to detect if a definition is recursive.
+Occurrences of `name` in types may or may not be detected, but I don't think this matters in practice.
+-/
+def name_occurs (name: Name) (e: Expr): Bool :=
+  match e with
+  | .const n' .. => name == n'
+  | .bvar .. | .fvar .. | .mvar .. | .sort .. | .forallE .. /- these are types, so ignoring -/ | .lit .. => .false
+  | .lam _ _ e _ | .mdata _ e | .proj _ _ e => name_occurs name e
+  | .app a b | .letE _ _ a b _ => name_occurs name a || name_occurs name b
 
 /--
 Copied over from toLCNF, then quite heavily pruned and modified.
+
+This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
 -/
-partial def erase_term (e : Expr) : CoreM neterm :=
-  run (visit e)
+partial def erase (e : Expr) : CoreM program := do
+  let (t, s) ← run (visitExpr e)
+  return (s.gdecls, t)
+
 where
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
-  visit (e : Expr) : EraseM neterm := do
+  visitExpr (e : Expr) : EraseM neterm := do
     if (← isErasable e) then
       return .box
     match e with
     | .app ..      => visitApp e
     | .const ..    => visitApp e -- treat as an application to zero args to handle special constants
     | .proj s i e  => visitProj s i e
-    | .mdata _ e   => visit e -- metadata is ignored
+    | .mdata _ e   => visitExpr e -- metadata is ignored
     | .lam ..      => visitLambda e
     | .letE ..     => visitLet e
-    | .lit _     => todo! -- Literals unsupported for now. Add support for at least nat?
+    | .lit l     => visitLiteral l
     | .fvar fvarId => pure (.fvar fvarId)
     | .forallE .. | .mvar .. | .bvar .. | .sort ..  => unreachable!
+
+  visitLiteral: Literal -> EraseM neterm
+    | .natVal (n+1) => visitConstructor ``Nat.succ #[.lit <| .natVal n]
+    | .natVal 0 => visitConstructor ``Nat.zero #[]
+    | .strVal _ => panic! "strings not supported for now"
 
   /-
   The original in ToLCNF also handles eta-reduction of implicit lambdas introduced by the elaborator.
   This is beyond the scope of what I want to do here for the moment.
   -/
   visitLambda (e : Expr) : EraseM neterm :=
-    lambdaMonocular e (fun fvarid body => do mkLambda fvarid (← visit body))
+    lambdaMonocular e (fun fvarid body => do mkLambda fvarid (← visitExpr body))
 
   visitLet (e : Expr): EraseM neterm :=
     /-
@@ -196,12 +256,12 @@ where
     since all occurrences of the variable must be erased anyway.
     Keep this optimization?
     -/
-    letMonocular e (fun fvarid val body => do mkLetIn fvarid (← visit val) (← visit body))
+    letMonocular e (fun fvarid val body => do mkLetIn fvarid (← visitExpr val) (← visitExpr body))
 
   visitProj (s : Name) (i : Nat) (e : Expr) : EraseM neterm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
-    let projinfo: projectioninfo := { ind_type := to_inductive_id indinfo, param_count := indinfo.numParams, field_idx := i }
-    return .proj projinfo (← visit e)
+    let projinfo: projectioninfo := { ind_type := ← to_inductive_id indinfo, param_count := indinfo.numParams, field_idx := i }
+    return .proj projinfo (← visitExpr e)
 
   /--
   When visiting expressions of the form f g, it is not sufficient to just recurse on f and g.
@@ -213,18 +273,21 @@ where
   visitApp (e : Expr) : EraseM neterm :=
     -- Compile let_fun as let-expressions, not functions
     if let some (args, n, t, v, b) := e.letFunAppArgs? then
-      visit <| mkAppN (.letE n t v b (nonDep := true)) args
+      visitExpr <| mkAppN (.letE n t v b (nonDep := true)) args
     -- The applicand is a constant, check for special cases
     else if let .const .. := e.getAppFn then
       visitConstApp e
     -- The applicand is not a constant, so we just normally recurse.
     else
-      e.withApp fun f args => do visitAppArgs (← visit f) args
+      e.withApp fun f args => do visitAppArgs (← visitExpr f) args
 
-  /-- Constants which are not special will just be translated to Rocq kernames. -/
+  /-- A constant which is being defined in the current mutual block will be replaced with a free variable (to be bound by mkDef later).
+  Other constants should previously have been added to the (λbox-side) context and will just be translated to Rocq kernames. -/
   visitConst (e: Expr): EraseM neterm := do
     let .const declName _ := e | unreachable!
-    return .const (to_kername declName)
+    if let .some id := (← read).fixvars.bind (fun map => map[declName]?) then
+      return .fvar id
+    return .const (← get_constant_kername declName)
     
   /--
   Special handling of
@@ -254,8 +317,8 @@ where
     let .ctorInfo info ← getConstInfo ctorname | unreachable!
     let idx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
-    let indid := to_inductive_id indinfo
-    return .construct indid idx (← args.toList.mapM visit)
+    let indid ← to_inductive_id indinfo
+    return .construct indid idx (← args.toList.mapM visitExpr)
 
   /--
   Automatically defined projection functions out of structures are inlined,
@@ -273,7 +336,7 @@ where
         let .const declName us := f | unreachable!
         let info ← getConstInfo declName
         let f ← Core.instantiateValueLevelParams info us
-        visit (f.beta args)
+        visitExpr (f.beta args)
 
   /-- Normal application of a function to some arguments. -/
   visitAppArgs (f : neterm) (args : Array Expr) : EraseM neterm := do
@@ -283,20 +346,20 @@ where
       return .box
     else
     -/
-      args.foldlM (fun e arg => do return neterm.app e (← visit arg)) f
+      args.foldlM (fun e arg => do return neterm.app e (← visitExpr arg)) f
 
   visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM neterm := do
     let mut alts := #[]
     let typeName := casesInfo.declName.getPrefix
-    let discr ← visit args[casesInfo.discrPos]!
+    let discr ← visitExpr args[casesInfo.discrPos]!
     let .inductInfo indVal ← getConstInfo typeName | unreachable!
     for i in casesInfo.altsRange, numFields in casesInfo.altNumParams do
       let alt ← visitAlt numFields args[i]!
       alts := alts.push alt
-    let mut ret := mkCase indVal discr alts.toList
+    let mut ret ← mkCase indVal discr alts.toList
     -- The casesOn function may be overapplied, so handle the extra arguments.
     for arg in args[casesInfo.arity:] do
-      ret := .app ret (← visit arg)
+      ret := .app ret (← visitExpr arg)
     return ret
 
   /--
@@ -306,12 +369,56 @@ where
   -/
   visitAlt (numFields : Nat) (e : Expr) : EraseM (List ppname × neterm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
-      mkAlt (fvarids.toList) (← visit e)
+      mkAlt (fvarids.toList) (← visitExpr e)
 
-elab "#erase_term" t:term : command => Elab.Command.liftTermElabM do
-  let e: Expr ← t |> Elab.Term.elabTerm (expectedType? := .none)
-  let nt: neterm ← erase_term e
-  let s: String := nt |> Serialize.to_sexpr |>.toString
-  logInfo s
+  get_constant_kername (n: Name): EraseM kername := do
+    if let .some kn := (← get).constants.get? n then
+      return kn
+    else
+     visitMutual n
+     return (← get).constants.get! n
+
+  /--
+  Add all the declarations in the Lean-side mutual block of `name` to the global_declarations,
+  and add their mappings to kernames to the erasure state.
+  -/
+  visitMutual (name: Name): EraseM Unit := do
+    -- Use original recursive definition, not the elaborated one with recursors, if available.
+    let ci := (← Compiler.LCNF.getDeclInfo? name).get!
+    let names := ci.all -- possibly these are ._unsafe_rec
+    let nonrecursive: Bool := names.length == 1 && !(name_occurs name (ci.value! (allowOpaque := true)))
+    if nonrecursive
+    then -- translate into a single nonrecursive constant declaration
+      let t: neterm ← ci.value! (allowOpaque := true) |> visitExpr
+      let kn := to_kername name
+      modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
+    else -- translate into a mutual fixpoint declaration
+      let ids ← names.mapM (fun _ => mkFreshFVarId)
+      withReader (fun env => { env with fixvars := .some <| Std.HashMap.ofList <| names.zip ids }) do
+        let defs: List edef ← names.mapM (fun n => do
+          let ci ← getConstInfo n
+          let e: Expr := ci.value! (allowOpaque := true)
+          -- TODO: eta-expand fixpoints (I think this must be done, unsure how far)
+          let t: neterm ← visitExpr e
+          mkDef (remove_unsafe_rec n) names t
+        )
+        for (n, i) in names.zipIdx do
+          let n := remove_unsafe_rec n
+          let kn := to_kername n
+          modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.some <| .fix defs i⟩) })
+
+syntax (name := erasestx) "#erase" ppSpace term (ppSpace "to" ppSpace str)? : command
+
+elab_rules : command
+  | `(command| #erase $t:term $[to $path?:str]?) => Elab.Command.liftTermElabM do
+    let e: Expr ← t |> Elab.Term.elabTerm (expectedType? := .none)
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let e ← Lean.instantiateMVars e
+    let p: program ← erase e
+    let s: String := p |> Serialize.to_sexpr |>.toString
+    match path? with
+    | .some path => do
+        IO.FS.writeFile path.getString s
+    | .none => logInfo s
 
 end Erasure

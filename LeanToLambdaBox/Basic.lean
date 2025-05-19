@@ -2,8 +2,6 @@ import Lean
 
 open Lean (Name FVarId InductiveVal)
 
-def todo! {α} [Inhabited α]: α := unreachable!
-
 abbrev ident := String
 abbrev dirpath := List String
 
@@ -14,7 +12,7 @@ inductive modpath where
 deriving BEq, Inhabited
 
 /--
-Mimicing MetaRocq kernames.
+Mimicking MetaRocq kernames.
 -/
 structure kername where
   mp: modpath
@@ -62,9 +60,13 @@ structure edef {term: Type} where
   /-- The body typically (necessarily?) starts with a certain number (at least rarg + 1) of lambda constructor applications, one for each argument. -/
   body: term
   /-- Principal/structural argument for recursion. -/
-  principal_arg_idx: Nat 
+  principal_arg_idx: Nat := 0 -- this doesn't matter computationally and is just needed in the proof of correctness, so it's safe to let this be 0
   deriving BEq, Inhabited
 
+/--
+Basically `term` as defined in `MetaRocq/Erasure/EAst.v`, with an extra constructor `.fvar` to mimic Lean's locally nameless representation.
+This is very useful when using the standard API to navigate Lean expressions and build a `neterm`.
+-/
 inductive neterm where
   | box: neterm
   /-- A bound variable, accessed as a de Bruijn index. -/
@@ -100,3 +102,50 @@ partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
     .fix (defs.map fun nd => { nd with body := toBvar x (lvl + def_count) nd.body }) i
 
 def abstract (x: FVarId) (e: neterm): neterm := toBvar x 0 e
+
+structure constructor_body where
+  cstr_name: ident
+  cstr_nargs: Nat
+deriving Inhabited
+
+-- should be unused
+structure projection_body where
+  proj_name: ident
+
+inductive allowed_eliminations where
+  | IntoSProp
+  | IntoPropSProp
+  | IntoSetPropSProp
+  | IntoAny
+deriving Inhabited
+
+structure one_inductive_body where
+  ind_name : ident
+  /-- True iff the inductive lives in Prop. -/
+  ind_propositional : Bool := true -- I think, since erasure should remove anything which ends up in Prop
+  /-- Allowed eliminations. -/
+  ind_kelim : allowed_eliminations := .IntoAny -- I think, but this shouldn't matter
+  ind_ctors : List constructor_body
+  ind_projs : List projection_body := [] -- I think this is only about giving user-visible names to projections, and can safely be left empty
+deriving Inhabited
+
+inductive recursivity_kind where
+  | Finite
+  | CoFinite -- Lean doesn't have primitive coinductive types, but including this here anyway to match the MetaCoq side.
+  | BiFinite
+
+structure mutual_inductive_body where
+  ind_finite : recursivity_kind := .Finite
+  ind_npars : Nat
+  ind_bodies : List one_inductive_body
+
+structure constant_body where
+  cst_body: Option neterm
+
+inductive global_decl where
+  | ConstantDecl (body: constant_body)
+  | InductiveDecl (body: mutual_inductive_body)
+
+-- The first declarations to be added to the context are the deepest/first-consed in the list.
+abbrev global_declarations := List (kername × global_decl)
+abbrev program: Type := global_declarations × neterm

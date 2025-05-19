@@ -77,6 +77,49 @@ end
 
 instance : Serialize neterm where to_sexpr := neterm.to_sexpr
 
+instance : Serialize constructor_body where
+  to_sexpr | ⟨name, nargs⟩  => .list [ .atom "constructor_body", to_sexpr name, to_sexpr nargs ]
+
+instance : Serialize projection_body where
+  to_sexpr | ⟨proj_name⟩ => .list [ .atom "projection_body", to_sexpr proj_name ]
+
+instance : Serialize allowed_eliminations where
+  to_sexpr
+  | .IntoSProp => .atom "IntoSProp"
+  | .IntoPropSProp => .atom "IntoPropSProp"
+  | .IntoSetPropSProp => .atom "IntoSetPropSProp"
+  | .IntoAny => .atom "IntoAny"
+
+instance : Serialize Bool where
+  to_sexpr
+  | .true => .atom "true"
+  | .false => .atom "false"
+
+instance : Serialize one_inductive_body where
+  to_sexpr | ⟨name, prop, kelim, ctors, projs⟩ => .list [ .atom "one_inductive_body", to_sexpr name, to_sexpr prop, to_sexpr kelim, to_sexpr ctors, to_sexpr projs ]
+
+instance : Serialize recursivity_kind where
+  to_sexpr
+  | .Finite => .atom "Finite"
+  | .CoFinite => .atom "CoFinite"
+  | .BiFinite => .atom "BiFinite"
+
+instance : Serialize mutual_inductive_body where
+  to_sexpr | ⟨finite, nparams, bodies⟩ => .list [ .atom "mutual_inductive_body", to_sexpr finite, to_sexpr nparams, to_sexpr bodies ]
+
+instance : [Serialize α] -> Serialize (Option α) where
+  to_sexpr
+  | .none => .atom "None"
+  | .some a => .list [.atom "Some", to_sexpr a]
+
+instance : Serialize constant_body where
+  to_sexpr | ⟨cb⟩ => .list [.atom "constant_body", to_sexpr cb] 
+
+instance : Serialize global_decl where
+  to_sexpr
+  | .ConstantDecl cb => .list [ .atom "ConstantDecl", to_sexpr cb ]
+  | .InductiveDecl mib => .list [ .atom "InductiveDecl", to_sexpr mib ]
+
 /-- The Rocq/Coq lexer expects `"` characters in string literals to be represented by the sequence `""`. This is cursed. -/
 def rocq_escape (s: String): String :=
   s.toList |>.map (fun c: Char => if c = '"' then [c, c] else [c]) |>.flatten |>.asString
