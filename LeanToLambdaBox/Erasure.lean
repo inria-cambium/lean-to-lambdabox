@@ -63,7 +63,7 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
       return { ind_name, ind_ctors }
     let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
-    return (← get).inductives.get? indinfo.name |>.get!
+    return (← get).inductives[indinfo.name]!
 
 /-- Maybe I want this to be reversed, idk -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
@@ -76,15 +76,15 @@ def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
 def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm :=
   do return .case (← to_inductive_id indInfo, indInfo.numParams) discr alts
 
+/-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
+def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
+
 /-- Check binding order here as well, may be wrong. -/
 def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef neterm) := do
   let mut body := body
   for (n, i) in fixvarnames.reverse.zipIdx do
-    body := toBvar ((← read).fixvars.get!.get! n) i body
+    body := toBvar ((← read).fixvars.get![remove_unsafe_rec n]!) i body
   return { name := .named name.toString, body }
-
-/-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
-def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
 
 /-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
 @[inline] def liftMetaM (x : MetaM α) : EraseM α := do
@@ -208,7 +208,7 @@ Occurrences of `name` in types may or may not be detected, but I don't think thi
 -/
 def name_occurs (name: Name) (e: Expr): Bool :=
   match e with
-  | .const n' .. => name == n'
+  | .const n' .. => name == remove_unsafe_rec n'
   | .bvar .. | .fvar .. | .mvar .. | .sort .. | .forallE .. /- these are types, so ignoring -/ | .lit .. => .false
   | .lam _ _ e _ | .mdata _ e | .proj _ _ e => name_occurs name e
   | .app a b | .letE _ _ a b _ => name_occurs name a || name_occurs name b
@@ -285,7 +285,7 @@ where
   Other constants should previously have been added to the (λbox-side) context and will just be translated to Rocq kernames. -/
   visitConst (e: Expr): EraseM neterm := do
     let .const declName _ := e | unreachable!
-    if let .some id := (← read).fixvars.bind (fun map => map[declName]?) then
+    if let .some id := (← read).fixvars.bind (fun hmap => hmap[remove_unsafe_rec declName]?) then
       return .fvar id
     return .const (← get_constant_kername declName)
     
@@ -372,11 +372,12 @@ where
       mkAlt (fvarids.toList) (← visitExpr e)
 
   get_constant_kername (n: Name): EraseM kername := do
+    let n := remove_unsafe_rec n
     if let .some kn := (← get).constants.get? n then
       return kn
     else
      visitMutual n
-     return (← get).constants.get! n
+     return (← get).constants[n]!
 
   /--
   Add all the declarations in the Lean-side mutual block of `name` to the global_declarations,
@@ -394,11 +395,11 @@ where
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
     else -- translate into a mutual fixpoint declaration
       let ids ← names.mapM (fun _ => mkFreshFVarId)
-      withReader (fun env => { env with fixvars := .some <| Std.HashMap.ofList <| names.zip ids }) do
+      withReader (fun env => { env with fixvars := names.map remove_unsafe_rec |>.zip ids |> Std.HashMap.ofList |> .some }) do
         let defs: List edef ← names.mapM (fun n => do
-          let ci ← getConstInfo n
+          let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
-          -- TODO: eta-expand fixpoints (I think this must be done, unsure how far)
+          -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
           let t: neterm ← visitExpr e
           mkDef (remove_unsafe_rec n) names t
         )
