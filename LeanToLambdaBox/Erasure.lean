@@ -38,7 +38,12 @@ def run (x : EraseM α) : CoreM (α × ErasureState) :=
 
 def fvar_to_name (x: FVarId): EraseM ppname := do
   let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
-  return .named n.toString
+  let s: String := n.toString
+  -- check if s is ASCII graphic, otherwise the λbox parser will complain
+  if s.all (fun c => 33 <= c.toNat /\ c.toNat < 127) then
+    return .named n.toString
+  else
+    return .anon
 
 def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (← fvar_to_name x) (abstract x body)
 
