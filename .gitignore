@@ -1,11 +1,3 @@
 /.lake
-*.aux
-*.glob
-*.vo
-*.vok
-*.vos
-.CoqMakefile.d
-CoqMakefile
-CoqMakefile.conf
 *.ast
 *.mlf
