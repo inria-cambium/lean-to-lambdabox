@@ -61,11 +61,19 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
     let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
       modify (fun s => { s with inductives := s.inductives.insert ind_name { mutual_block_name, idx }})
       let .inductInfo inf ← getConstInfo ind_name | unreachable!
-      let ind_ctors ← inf.ctors.mapM fun ctor_name => do
+      let ind_ctors: List constructor_body ← inf.ctors.mapM fun ctor_name => do
         let .ctorInfo ci ← getConstInfo ctor_name | unreachable!
         return { cstr_name := toString ctor_name, cstr_nargs := ci.numFields }
       let ind_name := toString ind_name
-      return { ind_name, ind_ctors }
+      let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
+      let ind_projs: List projection_body ←
+        if is_struct then
+          let .ctorInfo ci ← getConstInfo inf.ctors[0]! | unreachable!
+          let num_fields := ci.numFields
+          pure (List.range num_fields |>.map toString |>.map projection_body.mk)
+        else
+          pure []
+      return { ind_name, ind_ctors, ind_projs }
     let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
@@ -323,7 +331,8 @@ where
     let idx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
     let indid ← to_inductive_id indinfo
-    return .construct indid idx (← args.toList.mapM visitExpr)
+    -- Instead of making this a "real" use of .construct, in the stage of λbox I am targeting constructor application is function application
+    visitAppArgs (.construct indid idx []) args
 
   /--
   Automatically defined projection functions out of structures are inlined,

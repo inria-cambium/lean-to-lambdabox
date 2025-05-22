@@ -122,11 +122,11 @@ deriving Inhabited
 structure one_inductive_body where
   ind_name : ident
   /-- True iff the inductive lives in Prop. -/
-  ind_propositional : Bool := true -- I think, since erasure should remove anything which ends up in Prop
+  ind_propositional : Bool := false -- I think, since erasure should remove anything which ends up in Prop
   /-- Allowed eliminations. -/
   ind_kelim : allowed_eliminations := .IntoAny -- I think, but this shouldn't matter
   ind_ctors : List constructor_body
-  ind_projs : List projection_body := [] -- I think this is only about giving user-visible names to projections, and can safely be left empty
+  ind_projs : List projection_body -- This is only about giving user-visible names to projections, but `lbox` complains about wellformedness if it is empty.
 deriving Inhabited
 
 inductive recursivity_kind where

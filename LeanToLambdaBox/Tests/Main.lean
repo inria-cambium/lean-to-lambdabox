@@ -12,3 +12,5 @@ open Erasure Tests
 #erase demo3 to "demo3.ast"
 
 #erase list_sum to "list_sum.ast"
+
+#erase cube to "cube.ast"
