@@ -1,0 +1,4 @@
+name = "from_lean_common"
+
+[[lean_lib]]
+name = "FromLeanCommon"

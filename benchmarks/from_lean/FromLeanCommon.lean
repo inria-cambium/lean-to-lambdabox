@@ -1,17 +1,12 @@
-namespace Tests
-
 set_option linter.unusedVariables false
 
 def demo0 (u: Unit): List Unit := [.unit, .unit, .unit]
 
 -- TODO: The real Lean compiler performs csimp substitutions and replaces structurally recursive definitions of
 -- common functions with tail-recursive implementations.
--- My erasure does not do this and probably this is bad for performance.
-def demo1 (u: Unit): List Bool := List.replicate 500 true |>.append <| List.replicate 500 false
-/-
-set_option pp.all true
-#print demo1
--/
+-- My erasure does not (yet) do this and probably this is bad for performance.
+-- TODO: also test version using typeclass search to generate HAppend instance from "++" notation
+def demo1 (u: Unit): List Bool := List.replicate 500 true |>.append <| List.replicate 300 false
 
 def repeat2 (x y: α) (n: Nat): List α :=
   match n with
@@ -25,4 +20,3 @@ def demo3 (u: Unit) := and
 def list_sum (u: Unit) := List.replicate 100 1 |>.foldl Nat.add 0
 
 def cube (u: Unit) := 1000^3
-end Tests
