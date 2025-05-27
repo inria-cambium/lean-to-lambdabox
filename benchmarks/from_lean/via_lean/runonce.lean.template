@@ -1,0 +1,7 @@
+import FromLeanCommon
+
+@[noinline]
+def discardValue (_ : α) : IO Unit := pure ()
+
+set_option compiler.extract_closed false in
+def main: IO Unit := discardValue <| {{testfunction}} ()

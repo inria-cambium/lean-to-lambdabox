@@ -19,4 +19,4 @@ def demo3 (u: Unit) := and
 
 def list_sum (u: Unit) := List.replicate 100 1 |>.foldl Nat.add 0
 
-def cube (u: Unit) := 1000^3
+def cube (u: Unit) := 100^3

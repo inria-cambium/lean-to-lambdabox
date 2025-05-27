@@ -1,0 +1,11 @@
+import FromLeanCommon
+
+@[noinline]
+def discardValue (_ : α) : IO Unit := pure ()
+
+set_option compiler.extract_closed false in
+def main (args: List String): IO Unit :=
+  let n: Nat := args[0]!.toNat!
+  for _ in [:n] do 
+    discardValue <| {{testfunction}} ()
+  return
