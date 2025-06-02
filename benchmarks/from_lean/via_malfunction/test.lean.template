@@ -1,0 +1,4 @@
+import FromLeanCommon
+import LeanToLambdaBox
+
+#erase {{testfunction}} to "{{extractiondir}}/{{testfunction}}.ast"

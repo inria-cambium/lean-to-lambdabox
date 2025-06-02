@@ -1,7 +1,11 @@
 import FromLeanCommon
 
-@[noinline]
-def discardValue (_ : α) : IO Unit := pure ()
+@[noinline, never_extract]
+def test (u: Unit) := {{testfunction}} u
 
-set_option compiler.extract_closed false in
-def main: IO Unit := discardValue <| {{testfunction}} ()
+@[noinline]
+def opaquePure (x : α) : IO α := pure x
+
+def main: IO Unit := do
+  let _ <- opaquePure <| test ()
+  return
