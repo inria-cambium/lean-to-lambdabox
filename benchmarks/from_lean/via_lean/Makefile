@@ -1,6 +1,15 @@
 default:
 	@echo "No target specified."
 
+build/%/:
+	mkdir -p $@
+
+bin:
+	mkdir -p $@
+
+results:
+	mkdir -p $@
+
 build/%/lean-toolchain: lean-toolchain.template | build/%/
 	cp lean-toolchain.template $@
 
@@ -17,16 +26,13 @@ bin/%: build/%/Main.lean build/%/lean-toolchain build/%/lakefile.toml | bin
 	(cd build/$* && lake build test)
 	cp build/$*/.lake/build/bin/test $@
 
-build/%/:
-	mkdir -p $@
-
-bin:
-	mkdir -p $@
+results/%.json: bin/% | results
+	taskset -c 3 hyperfine -N --export-json $@ $^
 
 clean:
 	rm -rf build bin
 
-.PHONY: buildall clean
+.PHONY: clean
 
 # Don't delete intermediate files.
 .SECONDARY:
