@@ -22,6 +22,9 @@ build/%_runonce/Main.lean: runonce.lean.template ../FromLeanCommon.lean | build/
 build/%_repeat/Main.lean: repeat.lean.template ../FromLeanCommon.lean | build/%_repeat/
 	sed "s/{{testfunction}}/$*/g" repeat.lean.template > $@
 
+build/%_natio/Main.lean: natio.lean.template ../FromLeanCommon.lean | build/%_natio/
+	sed "s/{{testfunction}}/$*/g" natio.lean.template > $@
+
 bin/%: build/%/Main.lean build/%/lean-toolchain build/%/lakefile.toml | bin
 	(cd build/$* && lake build test)
 	cp build/$*/.lake/build/bin/test $@

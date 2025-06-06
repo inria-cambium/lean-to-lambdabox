@@ -106,11 +106,11 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
 
-/-- Maybe I want this to be reversed, idk -/
+/-- The order of variables here is what it is because the other way around led to segfaults. -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
   let mut body := body
   let names ← xs.mapM fvar_to_name
-  for (fvarid, i) in xs.reverse.zipIdx do
+  for (fvarid, i) in xs.zipIdx do
     body := toBvar fvarid i body
   return (names, body)
 
@@ -255,12 +255,28 @@ def name_occurs (name: Name) (e: Expr): Bool :=
   | .app a b | .letE _ _ a b _ => name_occurs name a || name_occurs name b
 
 /--
+Honor @[macro_inline] directives and inline auxiliary matchers.
+This is lifted from LCNF/ToDecl.lean .
+It processes the whole expression tree, so the code here doesn't have to be at the start of visitExpr,
+and it is sufficient to run it before entering the "toplevel" expression and the definition of a dependency in the environment.
+-/
+def prepare_erasure (e: Expr): CoreM Expr := do
+  -- TODO: consider doing replaceUnsafeRec here instead of the current haphazard way.
+  let e ← macroInline e
+  let e ← inlineMatchers e
+  -- According to the comment in ToDecl.lean, inlined matchers might contain occurrences of `ite` and `dite`.
+  -- I'm sort of assuming that inlining matchers doesn't expose arbitrary macro_inline stuff which might itself contain more matchers etc.
+  -- Just `ite` and `dite` are fine, their bodies are just a Decidable.casesOn.
+  -- It's important to inline them because otherwise both arms of the conditional will be strictly evaluated.
+  let e ← macroInline e
+  pure e
+/--
 Copied over from toLCNF, then quite heavily pruned and modified.
 
 This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
 -/
 partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
-  let (t, s) ← run (visitExpr e) config
+  let (t, s) ← run (visitExpr (← prepare_erasure e)) config
   return (s.gdecls, t)
 
 where
@@ -502,7 +518,7 @@ where
           let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
           -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
-          let t: neterm ← visitExpr e
+          let t: neterm ← visitExpr (← prepare_erasure e)
           mkDef (remove_unsafe_rec n) names t
         )
         for (n, i) in names.zipIdx do

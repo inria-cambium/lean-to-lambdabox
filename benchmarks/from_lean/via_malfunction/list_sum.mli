@@ -1,1 +1,1 @@
-val list_sum : unit -> int
+val list_sum : Z.t -> Z.t

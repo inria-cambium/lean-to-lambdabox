@@ -12,7 +12,7 @@ let def__Nat_ble = Z.leq
 
 (* To handle Lean's Decidable, here I think I need a datatype with a dummy field to match what the erasure will produce. *)
 let box = let rec f _ = Obj.repr f in Obj.repr f
-type decidable = IsTrue of Obj.t | IsFalse of Obj.t
+type decidable = IsFalse of Obj.t | IsTrue of Obj.t
 let dec_of_bool b = if b then IsTrue box else IsFalse box
 (* These implementations will probably be wrong if I erase irrelevant constructor args. *)
 let def__Nat_decEq n m = dec_of_bool @@ def__Nat_beq n m

@@ -6,7 +6,7 @@ val def__Nat_mod : Z.t -> Z.t -> Z.t
 val def__Nat_beq : Z.t -> Z.t -> bool
 val def__Nat_ble : Z.t -> Z.t -> bool
 
-type decidable = IsTrue of Obj.t | IsFalse of Obj.t
+type decidable = IsFalse of Obj.t | IsTrue of Obj.t
 val def__Nat_decEq : Z.t -> Z.t -> decidable
 val def__Nat_decLe : Z.t -> Z.t -> decidable
 val def__Nat_decLt : Z.t -> Z.t -> decidable

@@ -6,10 +6,10 @@ build:
 bin:
 	mkdir -p $@
 
-build/axioms.ml: | build
+build/axioms.ml: axioms.ml | build
 	cp axioms.ml $@
 
-build/axioms.mli: | build
+build/axioms.mli: axioms.mli | build
 	cp axioms.mli $@
 
 build/axioms.cmi: build/axioms.mli
@@ -35,7 +35,7 @@ build/%.mli: %.mli | build
 
 # Malfunction will generate an empty .cmi file if not given one, but that won't work for linking later.
 build/%.cmi: build/%.mli
-	ocamlopt.opt $<
+	ocamlfind ocamlopt -package zarith -c $<
 
 build/%.cmx: build/%.mlf build/%.cmi build/axioms.cmi
 	cd build && malfunction cmx $*.mlf
@@ -48,6 +48,10 @@ bin/%_runonce: build/%.cmx build/%.cmi build/axioms.cmx runonce.ml.template | bi
 bin/%_repeat: build/%.cmx build/%.cmi build/axioms.cmx repeat.ml.template | bin
 	sed "s/{{testfunction}}/$*/g; s/{{testmodule}}/$(shell echo $* | sed 's/^./\U&/')/g" repeat.ml.template > build/$*_repeat.ml
 	ocamlfind ocamlopt -I build -package zarith -linkpkg build/axioms.cmx build/$*.cmx build/$*_repeat.ml -o $@
+
+bin/%_natio: build/%.cmx build/%.cmi build/axioms.cmx natio.ml.template | bin
+	sed "s/{{testfunction}}/$*/g; s/{{testmodule}}/$(shell echo $* | sed 's/^./\U&/')/g" natio.ml.template > build/$*_natio.ml
+	ocamlfind ocamlopt -I build -package zarith -linkpkg build/axioms.cmx build/$*.cmx build/$*_natio.ml -o $@
 clean:
 	rm -rf build bin
 
