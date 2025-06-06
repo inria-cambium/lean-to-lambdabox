@@ -14,16 +14,44 @@ namespace Erasure
 State carried by EraseM to handle constants and inductive types registered in the global environment.
 -/
 structure ErasureState: Type where
-  inductives: Std.HashMap Name inductive_id
-  constants: Std.HashMap Name kername
+  inductives: Std.HashMap Name inductive_id := ∅
+  constants: Std.HashMap Name kername := ∅
   /-- This field is only updated, not read. -/
-  gdecls: global_declarations
-deriving Inhabited
+  gdecls: global_declarations := []
+
+namespace Config
+
+/--
+How to handle functions with the @[extern] attribute.
+Notably, this includes `Nat.add` et al..
+-/
+inductive Extern where
+  /-- If a Lean definition is present, use that one. -/
+  | preferLogical
+  /-- Ignore any Lean definitions and always treat as an axiom to be provided OCaml-side. -/
+  | preferAxiom
+
+/-- How to handle literals and constructors of `Nat`. -/
+inductive Nat
+  /-- Keep Nat as an inductive type and represent literals by using constructors. -/
+  | peano
+  /--
+  Turn Nat literals into i63 (panic on overflow), translate .zero into literal 0 and .succ x into x + literal 1.
+  For this to work, the usual functions on `Nat` (addition, multiplication etc) must not use the logical implementation in Lean
+  and instead use Zarith functions linked with the ML files, so setting config.extern to .preferLogical is necessary.
+  -/
+  | machine
+
+end Config
+
+structure ErasureConfig: Type where
+  extern: Config.Extern := .preferAxiom
+  nat: Config.Nat := .machine
 
 structure ErasureContext: Type where
-  lctx: LocalContext
-  fixvars: Option (Std.HashMap Name FVarId)
-deriving Inhabited
+  lctx: LocalContext := {}
+  fixvars: Option (Std.HashMap Name FVarId) := .none
+  config: ErasureConfig
 
 /-- The monad in ToLCNF has caches, a local context and toAny as a set of fvars, all as mutable state for some reason.
     Here I just have a read-only local context, in order to be able to use MetaM's type inference, and keep the complexity low.
@@ -33,8 +61,8 @@ deriving Inhabited
     -/
 abbrev EraseM := StateT ErasureState <| ReaderT ErasureContext CoreM
 
-def run (x : EraseM α) : CoreM (α × ErasureState) :=
-  x |>.run default |>.run default
+def run (x : EraseM α) (config: ErasureConfig): CoreM (α × ErasureState) :=
+  x |>.run {} |>.run { config }
 
 def fvar_to_name (x: FVarId): EraseM ppname := do
   let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
@@ -231,8 +259,8 @@ Copied over from toLCNF, then quite heavily pruned and modified.
 
 This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
 -/
-partial def erase (e : Expr) : CoreM program := do
-  let (t, s) ← run (visitExpr e)
+partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
+  let (t, s) ← run (visitExpr e) config
   return (s.gdecls, t)
 
 where
@@ -251,10 +279,16 @@ where
     | .fvar fvarId => pure (.fvar fvarId)
     | .forallE .. | .mvar .. | .bvar .. | .sort ..  => unreachable!
 
-  visitLiteral: Literal -> EraseM neterm
-    | .natVal (n+1) => visitConstructor ``Nat.succ #[.lit <| .natVal n]
-    | .natVal 0 => visitConstructor ``Nat.zero #[]
-    | .strVal _ => panic! "strings not supported for now"
+  visitLiteral (l: Literal): EraseM neterm := do
+    match (← read).config.nat, l with
+    | .peano, .natVal 0 => visitConstructor ``Nat.zero #[]
+    | .peano, .natVal (n+1) => visitConstructor ``Nat.succ #[.lit (.natVal n)]
+    | .machine, .natVal n =>
+      if n <= BitVec.intMax 63 then
+        pure <| .prim ⟨.primInt, n⟩ 
+      else
+        panic! "Nat literal not representable as a 63-bit signed integer."
+    | _, .strVal _ => panic! "string literals not supported"
 
   /-
   The original in ToLCNF also handles eta-reduction of implicit lambdas introduced by the elaborator.
@@ -327,6 +361,19 @@ where
         visitAppArgs (← visitConst f) args
 
   visitConstructor (ctorname: Name) (args: Array Expr): EraseM neterm := do
+    match (← read).config.nat, ctorname with
+    | .machine, ``Nat.zero =>
+      unless args.size == 0 do
+        panic s!"Nat.zero applied to {args.size} arguments."
+      return ← visitLiteral (.natVal 0)
+    | .machine, ``Nat.succ =>
+      unless args.size == 1 do
+        panic s!"Nat.succ applied to {args.size} arguments."
+      let nat_add ← visitConst (.const ``Nat.add [])
+      return ← visitAppArgs nat_add #[args[0]!, .lit (.natVal 1)]
+    | .machine, _
+    | .peano, _ => pure ()
+
     let .ctorInfo info ← getConstInfo ctorname | unreachable!
     let idx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
@@ -355,6 +402,7 @@ where
   /-- Normal application of a function to some arguments. -/
   visitAppArgs (f : neterm) (args : Array Expr) : EraseM neterm := do
     -- This is a minor optimization (already β-reducing applications of □). Keep it or not?
+    -- Actually, maybe this just never happens
     /-
     if let .box := f then
       return .box
@@ -363,14 +411,40 @@ where
       args.foldlM (fun e arg => do return neterm.app e (← visitExpr arg)) f
 
   visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM neterm := do
-    let mut alts := #[]
+    let discr_nt ← visitExpr args[casesInfo.discrPos]!
     let typeName := casesInfo.declName.getPrefix
-    let discr ← visitExpr args[casesInfo.discrPos]!
-    let .inductInfo indVal ← getConstInfo typeName | unreachable!
-    for i in casesInfo.altsRange, numFields in casesInfo.altNumParams do
-      let alt ← visitAlt numFields args[i]!
-      alts := alts.push alt
-    let mut ret ← mkCase indVal discr alts.toList
+    
+    -- If we are using machine Nats then the inductive casesOn will not work.
+    let mut ret: neterm ← (match typeName, (← read).config.nat with
+    | ``Nat, .machine => do
+      /-
+      Compile this to "let n = discr in Bool.casesOn (Nat.beq n 0) (succ_case (n - 1)) zero_case".
+      The let-binding is necessary to avoid double evaluation of the discriminee.
+      I'm doing part of this this on neterms instead of constructing Exprs because visitExpr
+      assumes expressions are well-typed, which wouldn't be the case naïvely as (n - 1).succ is not defeq to n.
+      Using casts to make the dependent types typecheck is not an option,
+      because those explicitly use the recursor Eq.req which I am not special-casing at the moment.
+      -/
+      let zero_arm := args[casesInfo.altsRange.start]!
+      let zero_nt ← visitExpr zero_arm
+      let succ_arm := args[casesInfo.altsRange.start + 1]! -- a function with one argument of type Nat
+      let bool_indval := (← getConstInfo ``Bool).inductiveVal!
+      withLocalDecl `n (.const ``Nat []) .default (fun n_fvar => do
+        let gtz_arm := Expr.app succ_arm <| mkAppN (.const ``Nat.sub []) #[.fvar n_fvar, .lit (.natVal 1)] -- no longer takes an argument, n_fvar is free here
+        let gtz_nt: neterm ← visitExpr gtz_arm
+        let condition: neterm ← visitExpr <| mkAppN (.const ``Nat.beq []) #[.fvar n_fvar, .lit (.natVal 0)]
+        let case_nt ← mkCase bool_indval condition [← mkAlt [] gtz_nt, ← mkAlt [] zero_nt]
+        mkLetIn n_fvar discr_nt case_nt
+      )
+    | _, _ => do
+      let .inductInfo indVal ← getConstInfo typeName | unreachable!
+      let mut alts := #[]
+      for i in casesInfo.altsRange, numFields in casesInfo.altNumParams do
+        let alt ← visitAlt numFields args[i]!
+        alts := alts.push alt
+      mkCase indVal discr_nt alts.toList
+    )
+
     -- The casesOn function may be overapplied, so handle the extra arguments.
     for arg in args[casesInfo.arity:] do
       ret := .app ret (← visitExpr arg)
@@ -401,7 +475,21 @@ where
     -- Use original recursive definition, not the elaborated one with recursors, if available.
     let ci := (← Compiler.LCNF.getDeclInfo? name).get!
     let names := ci.all -- possibly these are ._unsafe_rec
-    let nonrecursive: Bool := names.length == 1 && !(name_occurs name (ci.value! (allowOpaque := true)))
+    let single_decl := names.length == 1
+    -- A single declaration may have to be output as an axiom.
+    if single_decl then
+      let emit_axiom: Bool ← match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
+      | .none, _, _ => logInfo s!"No value found for name {name}, emitting axiom."; pure true
+      | .some _, false, _ => pure false
+      | .some _, true, .preferAxiom => logInfo s!"Name {name} has a value but is tagged @[extern], emitting axiom."; pure true
+      | .some _, true, .preferLogical => logInfo s!"Name {name} is tagged @[extern] but has a value, using value."; pure false
+
+      if emit_axiom then
+        let kn := to_kername name
+        modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
+        return
+
+    let nonrecursive: Bool := single_decl && !(name_occurs name (ci.value! (allowOpaque := true)))
     if nonrecursive
     then -- translate into a single nonrecursive constant declaration
       let t: neterm ← ci.value! (allowOpaque := true) |> visitExpr
@@ -422,18 +510,25 @@ where
           let kn := to_kername n
           modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.some <| .fix defs i⟩) })
 
-syntax (name := erasestx) "#erase" ppSpace term (ppSpace "to" ppSpace str)? : command
+syntax (name := erasestx) "#erase" ppSpace term (ppSpace "config" term)? (ppSpace "to" ppSpace str)?: command
 
-elab_rules : command
-  | `(command| #erase $t:term $[to $path?:str]?) => Elab.Command.liftTermElabM do
+@[command_elab erasestx]
+def eraseElab: Elab.Command.CommandElab
+  | `(command| #erase $t:term $[config $cfg?:term]? $[to $path?:str]?) => Elab.Command.liftTermElabM do
     let e: Expr ← t |> Elab.Term.elabTerm (expectedType? := .none)
     Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
     let e ← Lean.instantiateMVars e
-    let p: program ← erase e
+
+    let cfg: ErasureConfig ← match cfg? with
+    | .none => pure {}
+    | .some cfg => unsafe Elab.Term.evalTerm ErasureConfig (.const ``Erasure.ErasureConfig []) cfg
+
+    let p: program ← erase e cfg
     let s: String := p |> Serialize.to_sexpr |>.toString
     match path? with
     | .some path => do
         IO.FS.writeFile path.getString s
     | .none => logInfo s
+  | _ => Elab.throwUnsupportedSyntax
 
 end Erasure

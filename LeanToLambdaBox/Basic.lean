@@ -9,7 +9,7 @@ inductive modpath where
 | MPfile  (dp : dirpath)
 | MPdot   (mp : modpath) (id : ident)
 -- Removed MPBound because I still don't know what a functor is in OCaml-like module systems.
-deriving BEq, Inhabited
+deriving Inhabited
 
 /--
 Mimicking MetaRocq kernames.
@@ -17,7 +17,7 @@ Mimicking MetaRocq kernames.
 structure kername where
   mp: modpath
   id: ident
-deriving BEq, Inhabited
+deriving Inhabited
 
 def to_modpath (n: Name): modpath :=
   match n with
@@ -41,19 +41,19 @@ def root_kername (s: String): kername :=
 inductive ppname: Type where
   | named (s: String)
   | anon
-  deriving BEq, Inhabited
+  deriving Inhabited
 
 structure inductive_id where
   mutual_block_name: kername
   /-- Which of the mutually inductive types defined in this block is used here? -/
   idx: Nat
-  deriving BEq, Inhabited
+  deriving Inhabited
 
 structure projectioninfo where
   ind_type: inductive_id 
   param_count: Nat
   field_idx: Nat
-  deriving BEq, Inhabited
+  deriving Inhabited
 
 structure edef {term: Type} where
   name: ppname
@@ -61,7 +61,23 @@ structure edef {term: Type} where
   body: term
   /-- Principal/structural argument for recursion. -/
   principal_arg_idx: Nat := 0 -- this doesn't matter computationally and is just needed in the proof of correctness, so it's safe to let this be 0
-  deriving BEq, Inhabited
+  deriving Inhabited
+
+inductive prim_tag where
+  | primInt
+  /- Rocq has these, but I'm not supporting them for the moment.
+  | primFloat
+  | primArray
+  -/
+
+/--
+In MetaRocq they need to do something fancy to keep positivity because there everything is parametrized by the type of terms.
+Since I don't handle arrays for now there's no need for that.
+--/
+abbrev prim_model: prim_tag -> Type
+  | .primInt => BitVec 63
+
+def prim_val: Type := Σ t: prim_tag, prim_model t
 
 /--
 Basically `term` as defined in `MetaRocq/Erasure/EAst.v`, with an extra constructor `.fvar` to mimic Lean's locally nameless representation.
@@ -82,7 +98,8 @@ inductive neterm where
   | proj: projectioninfo -> neterm -> neterm
   /-- Define some number of mutually inductive functions, then access one. -/
   | fix: List (@edef neterm) -> Nat /- index of the one mutually defined function we want to access -/ -> neterm
-  deriving BEq, Inhabited
+  | prim: prim_val -> neterm
+  deriving Inhabited
 
 /-- This is actually structurally recursive, I think, Lean just has trouble seeing it. -/
 partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
@@ -100,6 +117,7 @@ partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
   | .fix defs i =>
     let def_count := defs.length;
     .fix (defs.map fun nd => { nd with body := toBvar x (lvl + def_count) nd.body }) i
+  | .prim p => .prim p
 
 def abstract (x: FVarId) (e: neterm): neterm := toBvar x 0 e
 

@@ -18,6 +18,6 @@ def demo2 (u: Unit) := List.map not (repeat2 true false 100)
 def demo3 (u: Unit) := and
 
 -- TODO: currently big Nat literals crash the extraction since we're counting in unary.
-def list_sum (u: Unit) := List.replicate 100_000_000 1 |>.foldl Nat.add 0
+def list_sum (u: Unit) := List.replicate 10_000_000 1 |>.foldl Nat.add 0
 
 def cube (u: Unit) := 300^3

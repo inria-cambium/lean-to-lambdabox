@@ -52,6 +52,18 @@ instance [Serialize α] [Serialize β]: Serialize (α × β) where
 instance: Serialize projectioninfo where
   to_sexpr | ⟨indinfo, npars, idx⟩ => .list [ .atom "projection", to_sexpr indinfo, to_sexpr npars, to_sexpr idx ]
 
+instance [Serialize α] [Serialize β]: Serialize (α × β) where
+  to_sexpr | (a, b) => .list [ to_sexpr a, to_sexpr b ]
+
+instance: Serialize prim_tag where
+  to_sexpr | .primInt => .atom "primInt"
+
+instance: Serialize (BitVec n) where
+  to_sexpr b := let i := b.toFin.toNat; .atom ("\"" ++ i.repr ++ "\"")
+
+instance: Serialize prim_val where
+  to_sexpr | ⟨.primInt, i⟩ => to_sexpr (prim_tag.primInt, (i: BitVec 63))
+
 mutual
   partial def neterm.to_sexpr: neterm -> sexpr
     | .box => .atom "tBox"
@@ -70,6 +82,7 @@ mutual
     | .proj p c => .list [ .atom "tProj", to_sexpr p, neterm.to_sexpr c ]
     | .fix mfix idx => .list [ .atom "tFix", .list (mfix.map edef.to_sexpr), to_sexpr idx ]
     | .fvar .. => unreachable!
+    | .prim p => .list [ .atom "tPrim", to_sexpr p]
 
   partial def edef.to_sexpr: @edef neterm -> sexpr
     | ⟨name, body, principal⟩ => .list [ .atom "def", to_sexpr name, neterm.to_sexpr body, to_sexpr principal ]
