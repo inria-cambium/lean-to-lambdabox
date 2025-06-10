@@ -17,16 +17,23 @@ def testNatCases: Nat -> Bool
 | 0 => false
 | _+1 => true
 #print testNatCases.match_1
-#erase testNatCases to "test/natcases.ast"
+#erase testNatCases
 
 mutual
-def even (n: Nat): Bool := match n with | 0 => true | m+1 => odd m
-def odd (n: Nat): Bool := Nat.casesOn n false even
+def even: Nat -> Bool
+  | 0 => true
+  | n+1 => odd n
+def odd: Nat -> Bool
+  | 0 => false
+  | n+1 => even n
 end
 
 #print even
 #print even._unsafe_rec
 -- #print even.match_1
+
+#erase even
+
 def foo : Nat :=
   let bar := unsafe 4
   bar

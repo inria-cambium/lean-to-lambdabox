@@ -42,17 +42,13 @@ partial def depth (d m : Nat) : List (Nat × Nat × Nat) :=
 
 --#check (rfl: (IO Unit = (Unit -> EStateM.Result IO.Error Unit Unit)))
 def main (n: Nat): Nat :=
-  /-
   let maxN := Nat.max (minN + 2) n
   let stretchN := maxN + 1
-  -/
 
   -- stretch memory tree
-  -- let c := check (make stretchN)
+  let c := check (make stretchN)
   -- out "stretch tree" stretchN c
-  check (make n)
 
-  /-
   -- allocate a long lived tree
   let long := make maxN
 
@@ -65,6 +61,5 @@ def main (n: Nat): Nat :=
   -- out "long lived tree" maxN (check long)
   let l := check long
   c + v + l
-  -/
 
 end BinaryTrees

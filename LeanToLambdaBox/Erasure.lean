@@ -47,6 +47,7 @@ end Config
 structure ErasureConfig: Type where
   extern: Config.Extern := .preferAxiom
   nat: Config.Nat := .machine
+  csimp: Bool := true
 
 structure ErasureContext: Type where
   lctx: LocalContext := {}
@@ -124,7 +125,7 @@ def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
 def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef neterm) := do
   let mut body := body
   for (n, i) in fixvarnames.reverse.zipIdx do
-    body := toBvar ((← read).fixvars.get![remove_unsafe_rec n]!) i body
+    body := toBvar ((← read).fixvars.get![n]!) i body
   return { name := .named name.toString, body }
 
 /-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
@@ -207,7 +208,7 @@ def lambdaOrIntroToArity {α} [Inhabited α] (e type: Expr) (arity: Nat) (k: Exp
   | n+1 => lambdaMonocularOrIntro e type fun body bodytype fvarid =>
       lambdaOrIntroToArity body bodytype n (fun e fvarids => k e (fvarids.push fvarid))
 
-/-
+/--
 Given an expression, deconstruct it into an application to at least arity arguments,
 then build a neterm from it given the continuation.
 This will eta-expand if necessary.
@@ -255,28 +256,47 @@ def name_occurs (name: Name) (e: Expr): Bool :=
   | .app a b | .letE _ _ a b _ => name_occurs name a || name_occurs name b
 
 /--
+Replace nested occurrences of `unsafeRec` names with the safe ones.
+Copied over from ToDecl.lean because it is private there.
+-/
+def replaceUnsafeRecNames (value : Expr) : CoreM Expr :=
+  Core.transform value fun e =>
+    match e with
+    | .const declName us =>
+      if let some safeDeclName := Compiler.isUnsafeRecName? declName then
+        return .done (.const safeDeclName us)
+      else
+        return .done e
+    | _ => return .continue
+
+/--
 Honor @[macro_inline] directives and inline auxiliary matchers.
 This is lifted from LCNF/ToDecl.lean .
 It processes the whole expression tree, so the code here doesn't have to be at the start of visitExpr,
 and it is sufficient to run it before entering the "toplevel" expression and the definition of a dependency in the environment.
 -/
-def prepare_erasure (e: Expr): CoreM Expr := do
-  -- TODO: consider doing replaceUnsafeRec here instead of the current haphazard way.
-  let e ← macroInline e
-  let e ← inlineMatchers e
+def prepare_erasure (e: Expr): EraseM Expr := do
+  let mut e := e
+  e ← replaceUnsafeRecNames e
+  e ← macroInline e
+  e ← inlineMatchers e
   -- According to the comment in ToDecl.lean, inlined matchers might contain occurrences of `ite` and `dite`.
   -- I'm sort of assuming that inlining matchers doesn't expose arbitrary macro_inline stuff which might itself contain more matchers etc.
   -- Just `ite` and `dite` are fine, their bodies are just a Decidable.casesOn.
   -- It's important to inline them because otherwise both arms of the conditional will be strictly evaluated.
-  let e ← macroInline e
+  e ← macroInline e
+  if (← read).config.csimp then
+    -- This has to be done after _unsafe_rec name replacement.
+    e := Compiler.CSimp.replaceConstants (← getEnv) e
   pure e
+
 /--
 Copied over from toLCNF, then quite heavily pruned and modified.
 
 This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
 -/
 partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
-  let (t, s) ← run (visitExpr (← prepare_erasure e)) config
+  let (t, s) ← run (do visitExpr (← prepare_erasure e)) config
   return (s.gdecls, t)
 
 where
@@ -348,7 +368,7 @@ where
   Other constants should previously have been added to the (λbox-side) context and will just be translated to Rocq kernames. -/
   visitConst (e: Expr): EraseM neterm := do
     let .const declName _ := e | unreachable!
-    if let .some id := (← read).fixvars.bind (fun hmap => hmap[remove_unsafe_rec declName]?) then
+    if let .some id := (← read).fixvars.bind (fun hmap => hmap[declName]?) then
       return .fvar id
     return .const (← get_constant_kername declName)
     
@@ -476,7 +496,6 @@ where
       mkAlt (fvarids.toList) (← visitExpr e)
 
   get_constant_kername (n: Name): EraseM kername := do
-    let n := remove_unsafe_rec n
     if let .some kn := (← get).constants.get? n then
       return kn
     else
@@ -513,16 +532,16 @@ where
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
     else -- translate into a mutual fixpoint declaration
       let ids ← names.mapM (fun _ => mkFreshFVarId)
-      withReader (fun env => { env with fixvars := names.map remove_unsafe_rec |>.zip ids |> Std.HashMap.ofList |> .some }) do
+      let fixvarnames := names.map remove_unsafe_rec
+      withReader (fun env => { env with fixvars := fixvarnames |>.zip ids |> Std.HashMap.ofList |> .some }) do
         let defs: List edef ← names.mapM (fun n => do
           let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
           -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
           let t: neterm ← visitExpr (← prepare_erasure e)
-          mkDef (remove_unsafe_rec n) names t
+          mkDef (remove_unsafe_rec n) fixvarnames t
         )
-        for (n, i) in names.zipIdx do
-          let n := remove_unsafe_rec n
+        for (n, i) in fixvarnames.zipIdx do
           let kn := to_kername n
           modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.some <| .fix defs i⟩) })
 

@@ -43,5 +43,13 @@ def triangle_acc := triangle_acc_loop 0
 def sub_3 (n: Nat): Nat :=
   n-3
 
-#check ite
 def iflazy (n: Nat): Nat := if n = 0 then 42 else iflazy (n-1)
+
+mutual
+def even: Nat -> Nat
+  | 0 => 1
+  | n+1 => odd n
+def odd: Nat -> Nat
+  | 0 => 0
+  | n+1 => even n
+end
