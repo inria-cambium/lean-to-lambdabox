@@ -258,6 +258,7 @@ def name_occurs (name: Name) (e: Expr): Bool :=
 /--
 Replace nested occurrences of `unsafeRec` names with the safe ones.
 Copied over from ToDecl.lean because it is private there.
+I think this doesn't actually need to be in CoreM and could just use `Expr.replace`.
 -/
 def replaceUnsafeRecNames (value : Expr) : CoreM Expr :=
   Core.transform value fun e =>
@@ -527,7 +528,8 @@ where
     let nonrecursive: Bool := single_decl && !(name_occurs name (ci.value! (allowOpaque := true)))
     if nonrecursive
     then -- translate into a single nonrecursive constant declaration
-      let t: neterm ← ci.value! (allowOpaque := true) |> visitExpr
+      let e: Expr := ci.value! (allowOpaque := true)
+      let t: neterm ← visitExpr (← prepare_erasure e)
       let kn := to_kername name
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
     else -- translate into a mutual fixpoint declaration
