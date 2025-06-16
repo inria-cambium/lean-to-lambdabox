@@ -5,7 +5,6 @@ import LeanToLambdaBox.Printing
 This file is for interactive experimentation, with results printed in the infoview.
 -/
 
-set_option compiler.enableNew true
 -- set_option trace.Compiler.init true
 -- set_option trace.Compiler.result true
 set_option pp.match false
@@ -33,6 +32,9 @@ end
 -- #print even.match_1
 
 #erase even
+
+def f (g: Nat -> Nat): Bool -> Nat := Bool.toNat
+#erase f
 
 def foo : Nat :=
   let bar := unsafe 4
@@ -69,6 +71,10 @@ axiom mybool: Bool
 #erase (0 + 1)
 #erase (0 + 1) config { extern := .preferAxiom, nat := .machine }
 
+#check List.foldr
+def myfoldrTR (f: α -> β -> β) (init: β) (l: List α): β := l.reverse.foldl (fun b a => f a b) init
+
+#eval List.foldrTR (Nat.add) 0 [1, 2, 3]
 /-
 inductive myfalse: Prop where
 

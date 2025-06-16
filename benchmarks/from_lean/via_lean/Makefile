@@ -1,41 +1,54 @@
-default:
-	@echo "No target specified."
+lean_build_id:=TODO
 
-build/%/:
+build:=build/$(lean_build_id)
+bin:=bin/$(lean_build_id)
+
+default:
+	$(error No target specified)
+
+define register_test
+$(let testname harness rest,$(subst :, ,$(1)),\
+$(build)/$(testname)/Main.lean: $(harness).lean.template | $(build)/$(testname)/
+	sed "s/{{testfunction}}/$(testname)/g" $(harness).lean.template > $$@
+)
+endef
+
+$(foreach testspec,$(shell cat ../TESTS),$(eval $(call register_test,$(testspec))))
+
+$(build)/%/:
 	mkdir -p $@
 
-bin:
+$(bin)/:
+	mkdir -p $@
+
+bin/:
 	mkdir -p $@
 
 results:
 	mkdir -p $@
 
-build/%/lean-toolchain: lean-toolchain.template | build/%/
+$(build)/%/lean-toolchain: lean-toolchain.template | $(build)/%/
 	cp lean-toolchain.template $@
 
-build/%/lakefile.toml: lakefile.toml.template | build/%/
+$(build)/%/lakefile.toml: lakefile.toml.template | $(build)/%/
 	cp lakefile.toml.template $@
 
-build/%_runonce/Main.lean: runonce.lean.template ../FromLeanCommon.lean | build/%_runonce/
-	sed "s/{{testfunction}}/$*/g" runonce.lean.template > $@
+$(bin)/%: $(build)/%/Main.lean $(build)/%/lean-toolchain $(build)/%/lakefile.toml ../FromLeanCommon.lean ../FromLeanCommon | $(bin)/
+	(cd $(build)/$* && lake build test)
+	ln -srf $(build)/$*/.lake/build/bin/test $@
 
-build/%_repeat/Main.lean: repeat.lean.template ../FromLeanCommon.lean | build/%_repeat/
-	sed "s/{{testfunction}}/$*/g" repeat.lean.template > $@
+bin/%: $(bin)/% | bin/
+	ln -srf $< $@
+ifdef TARGET
+	ln -srf $< $(TARGET)
+endif
 
-build/%_natio/Main.lean: natio.lean.template ../FromLeanCommon.lean | build/%_natio/
-	sed "s/{{testfunction}}/$*/g" natio.lean.template > $@
-
-bin/%: build/%/Main.lean build/%/lean-toolchain build/%/lakefile.toml | bin
-	(cd build/$* && lake build test)
-	cp build/$*/.lake/build/bin/test $@
-
-results/%.json: bin/% | results
-	taskset -c 3 hyperfine -N --export-json $@ $^
+#results/%.json: bin/% | results
+#	taskset -c 3 hyperfine -N --export-json $@ $^
 
 clean:
 	rm -rf build bin
 
-.PHONY: clean
+.PHONY: Makefile clean
 
-# Don't delete intermediate files.
-.SECONDARY:
+.NOTINTERMEDIATE:

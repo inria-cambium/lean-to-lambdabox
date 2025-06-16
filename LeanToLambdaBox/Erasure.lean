@@ -547,12 +547,46 @@ where
           let kn := to_kername n
           modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.some <| .fix defs i⟩) })
 
-syntax (name := erasestx) "#erase" ppSpace term (ppSpace "config" term)? (ppSpace "to" ppSpace str)?: command
+inductive MLType: Type where
+  | arrow (a b: MLType)
+  | Z
+  | unit
+  | bool
+deriving Inhabited
+
+def MLType.toString: MLType -> String
+  | arrow a b => s!"{toStringProtected a} -> {b.toString}"
+  | Z => "Z.t"
+  | unit => "unit"
+  | bool => "bool"
+where
+  toStringProtected: MLType -> String
+  | arrow a b => s!"({toStringProtected a} -> {b.toString})"
+  | Z => "Z.t"
+  | unit => "unit"
+  | bool => "bool"
+
+instance : ToString MLType := ⟨MLType.toString⟩
+
+partial def to_ml_type (ty: Expr): MetaM MLType :=
+  Meta.forallTelescopeReducing ty fun vars body => do
+    let vartypes ← vars.mapM Meta.inferType
+    let varmltypes ← vartypes.mapM to_ml_type
+    let bodymltype := match (← Meta.whnf body) with
+    | .const `Nat _ => .Z
+    | .const `Unit _ | .const `PUnit _ => .unit
+    | .const `Bool _ => .bool
+    | t => panic! s!"failed to translate {t} into ML type"
+    return varmltypes.foldr .arrow bodymltype
+
+def gen_mli (ty: Expr): MetaM String := do return s!"val main: {← to_ml_type ty}"
+
+syntax (name := erasestx) "#erase" ppSpace term (ppSpace "config" term)? (ppSpace "to" ppSpace str)? (ppSpace "mli" ppSpace str)?: command
 
 @[command_elab erasestx]
 def eraseElab: Elab.Command.CommandElab
-  | `(command| #erase $t:term $[config $cfg?:term]? $[to $path?:str]?) => Elab.Command.liftTermElabM do
-    let e: Expr ← t |> Elab.Term.elabTerm (expectedType? := .none)
+  | `(command| #erase $t:term $[config $cfg?:term]? $[to $path?:str]? $[mli $mli?:str]?) => Elab.Command.liftTermElabM do
+    let e: Expr ← Elab.Term.elabTerm t (expectedType? := .none)
     Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
     let e ← Lean.instantiateMVars e
 
@@ -566,6 +600,13 @@ def eraseElab: Elab.Command.CommandElab
     | .some path => do
         IO.FS.writeFile path.getString s
     | .none => logInfo s
+
+    let ty: Expr ← Meta.inferType e
+    let mlistr ← gen_mli ty
+    match mli? with
+    | .none => logInfo mlistr
+    | .some mlipath => IO.FS.writeFile mlipath.getString mlistr
+
   | _ => Elab.throwUnsupportedSyntax
 
 end Erasure

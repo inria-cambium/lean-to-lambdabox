@@ -55,7 +55,7 @@ def main (n: Nat): Nat :=
   -- allocate, walk, and deallocate many bottom-up binary trees
   let vs := (depth minN maxN)  -- `using` (parList $ evalTuple3 r0 r0 rseq)
   -- vs.forM (fun (m, d, i) => out s!"{m}\t trees" d i.get)
-  let v := vs.map (fun (m, d, i) => m + d + i) |>.sum
+  let v := vs.map (fun (m, d, i) => m + d + i) |>.foldl Nat.add 0
 
   -- confirm the long-lived binary tree still exists
   -- out "long lived tree" maxN (check long)

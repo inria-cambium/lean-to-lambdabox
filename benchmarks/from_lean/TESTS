@@ -1,5 +1,10 @@
-demo0
-demo1
-demo2
-list_sum
-cube
+demo0:runonce
+demo1:runonce
+demo2:repeat:1000
+list_sum:natio
+list_sum_foldr:natio
+list_sum_rev:natio
+cube:repeat
+binarytrees:natio
+rbmap:natio
+triangle:natio

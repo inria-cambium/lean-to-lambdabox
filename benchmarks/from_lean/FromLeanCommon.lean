@@ -1,4 +1,5 @@
 import FromLeanCommon.binarytrees
+import FromLeanCommon.rbmap
 
 set_option linter.unusedVariables false
 
@@ -19,9 +20,22 @@ def demo2 (u: Unit) := List.map not (repeat2 true false 100)
 
 def demo3 (u: Unit) := and
 
--- currently List.sum is quadratic because it uses foldr without the csimp substitution.
--- List.replicate is also slow and stackoverflows, not sure why it's this exact power law.
-def list_sum n := List.replicate n 1 |>.foldl Nat.add 0
+-- List.sum has a bug which causes the csimp List.foldr -> List.foldrTR not to apply, which leads to stack overflows.
+-- https://github.com/leanprover/lean4/issues/7750
+def list_sum n :=
+  let l := List.replicate n 1
+  let res := l.foldl Nat.add 0
+  res + l[0]!
+
+def list_sum_foldr n :=
+  let l := List.replicate n 1
+  let res := l.foldr Nat.add 0
+  res + l[0]!
+
+def list_sum_rev n :=
+  let l := List.replicate n 1
+  let res := l.reverse.foldl Nat.add 0
+  res + l[0]!
 
 def cube (u: Unit) := 300^3
 

@@ -1,2 +1,2 @@
-let _ = print_endline @@ Z.to_string @@ {{testmodule}}.{{testfunction}} @@ Z.of_string @@ Sys.argv.(1)
+let _ = print_endline @@ Z.to_string @@ {{testmodule}}.main @@ Z.of_string @@ Sys.argv.(1)
 
