@@ -8,3 +8,7 @@ cube:repeat
 binarytrees:natio
 rbmap:natio
 triangle:natio
+const_fold:natio
+deriv:natio
+unionfind:natio
+qsort:natio

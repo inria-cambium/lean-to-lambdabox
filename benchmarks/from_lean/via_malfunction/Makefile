@@ -12,12 +12,14 @@ else
 $(error Variable FLAMBDA must be either 0 or 1, is $(FLAMBDA))
 endif
 
-# 0 to use "regular" axioms.ml, 1 to use axioms-inlined.ml; default is 1.
+# 0 to use "regular" axioms, 1 to use inlined axioms; default is 1.
 INLINE_AXIOMS?=1
 ifeq ($(INLINE_AXIOMS),1)
-AXIOMSML=axioms-inline.ml
+DECIDABLEML=decidable-inline.ml
+NATML=nat-inline.ml
 else ifeq ($(INLINE_AXIOMS),0)
-AXIOMSML=axioms.ml
+DECIDABLEML=decidable.ml
+NATML=nat.ml
 else
 $(error Variable INLINE_AXIOMS must be either 0 or 1, is $(INLINE_AXIOMS))
 endif
@@ -33,21 +35,29 @@ MALFUNCTION_ARGS=$(MALFUNCTION_ARGS)\
 OCAMLPARAM=$(OCAMLPARAM)\
 MALFUNCTION_SWITCH=$(MALFUNCTION_SWITCH)\
 INLINE_AXIOMS=$(INLINE_AXIOMS)\
-AXIOMSML=$(AXIOMSML)
+DECIDABLEML=$(DECIDABLEML)\
+NATML=$(NATML)
 
 malfunction_build_id:= $(shell echo "$(malfunction_build_info)" | sha256sum | head -c 8)
 
 build:=build/$(malfunction_build_id)
 bin:=bin/$(malfunction_build_id)
 
-bin/%: $(bin)/%
-	ln -srf $< $@
+FORCE:
+
+bin/%: $(bin)/% $(if $(TARGET),FORCE)
 ifdef TARGET
 	ln -srf $< $(TARGET)
+else
+	ln -srf $< $@
 endif
 
-$(bin)/%: $(build)/%.cmx $(build)/%.cmi $(build)/axioms.cmx $(build)/axioms.cmi $(build)/%_main.ml | $(bin)
-	$(OCAMLOPT) -I $(build) -linkpkg $(OCAML_ARGS) $(build)/axioms.cmx $(build)/$*.cmx $(build)/$*_main.ml -o $@
+$(bin)/%: $(build)/%.cmx\
+          $(build)/decidable.cmx\
+          $(build)/nat.cmx\
+          $(build)/axioms.cmx\
+          $(build)/%_main.ml | $(bin)
+	$(OCAMLOPT) -I $(build) -linkpkg $(OCAML_ARGS) $(build)/decidable.cmx $(build)/nat.cmx $(build)/axioms.cmx $(build)/$*.cmx $(build)/$*_main.ml -o $@
 
 define register_test
 $(let testname harness rest,$(subst :, ,$(1)),\
@@ -70,17 +80,40 @@ $(build):
 $(bin):
 	mkdir -p $@
 
-$(build)/axioms.ml: $(AXIOMSML) | $(build)
-	cp $< $@
-
 $(build)/axioms.mli: axioms.mli | $(build)
 	cp $< $@
 
-$(build)/axioms.cmi: $(build)/axioms.mli
-	$(OCAMLOPT) -I $(build) -c $(build)/axioms.mli
+$(build)/axioms.ml: axioms.ml | $(build)
+	cp $< $@
 
-$(build)/axioms.cmx: $(build)/axioms.ml $(build)/axioms.cmi
-	$(OCAMLOPT) -I $(build) -c $(build)/axioms.ml
+$(build)/decidable.mli: decidable.mli | $(build)
+	cp $< $@
+
+$(build)/decidable.ml: $(DECIDABLEML) | $(build)
+	cp $< $@
+
+# decidable.cmi handled by generic rule (no prerequisites)
+
+$(build)/decidable.cmx: $(build)/decidable.ml $(build)/decidable.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/nat.mli: nat.mli | $(build)
+	cp $< $@
+
+$(build)/nat.ml: $(NATML) | $(build)
+	cp $< $@
+
+$(build)/nat.cmi: $(build)/nat.mli $(build)/decidable.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/nat.cmx: $(build)/nat.ml $(build)/nat.mli $(build)/decidable.cmx
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/axioms.cmi: $(build)/axioms.mli $(build)/decidable.cmi $(build)/nat.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/axioms.cmx: $(build)/axioms.ml $(build)/axioms.cmi $(build)/nat.cmx
+	$(OCAMLOPT) -I $(build) -c $<
 
 $(build)/%.lean: test.lean.template | $(build)
 	sed "s/{{testfunction}}/$*/g; s/{{extractiondir}}/$(subst /,\/,$(build))/g" $< > $@
@@ -99,7 +132,7 @@ $(build)/%.cmi: $(build)/%.mli
 	$(OCAMLOPT) -c $<
 
 # Depend on axioms.cmx in order to allow cross-module optimizations (esp. inlining)
-$(build)/%.cmx: $(build)/%.mlf $(build)/%.cmi $(build)/axioms.cmi $(build)/axioms.cmx
+$(build)/%.cmx: $(build)/%.mlf $(build)/%.cmi $(build)/axioms.cmx
 	cd $(build) && $(MALFUNCTION) cmx $(MALFUNCTION_ARGS) $*.mlf
 
 clean:

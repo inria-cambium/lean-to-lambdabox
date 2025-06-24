@@ -42,6 +42,8 @@ inductive Nat
   -/
   | machine
 
+-- TODO: handle Int specifically?
+
 end Config
 
 structure ErasureConfig: Type where

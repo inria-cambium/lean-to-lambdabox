@@ -28,19 +28,22 @@ results:
 	mkdir -p $@
 
 $(build)/%/lean-toolchain: lean-toolchain.template | $(build)/%/
-	cp lean-toolchain.template $@
+	cp $< $@
 
 $(build)/%/lakefile.toml: lakefile.toml.template | $(build)/%/
-	cp lakefile.toml.template $@
+	cp $< $@
 
 $(bin)/%: $(build)/%/Main.lean $(build)/%/lean-toolchain $(build)/%/lakefile.toml ../FromLeanCommon.lean ../FromLeanCommon | $(bin)/
 	(cd $(build)/$* && lake build test)
 	ln -srf $(build)/$*/.lake/build/bin/test $@
 
-bin/%: $(bin)/% | bin/
-	ln -srf $< $@
+FORCE:
+
+bin/%: $(bin)/% $(if $(TARGET),FORCE) | bin/
 ifdef TARGET
 	ln -srf $< $(TARGET)
+else
+	ln -srf $< $@
 endif
 
 #results/%.json: bin/% | results

@@ -1,13 +1,14 @@
 import FromLeanCommon.binarytrees
+import FromLeanCommon.const_fold
+import FromLeanCommon.deriv
+import FromLeanCommon.qsort
 import FromLeanCommon.rbmap
+import FromLeanCommon.unionfind
 
 set_option linter.unusedVariables false
 
 def demo0 (u: Unit): List Unit := [.unit, .unit, .unit]
 
--- TODO: The real Lean compiler performs csimp substitutions and replaces structurally recursive definitions of
--- common functions with tail-recursive implementations.
--- My erasure does not (yet) do this and probably this is bad for performance.
 -- TODO: also test version using typeclass search to generate HAppend instance from "++" notation
 def demo1 (u: Unit): List Bool := List.replicate 5000 true |>.append <| List.replicate 3000 false
 
@@ -22,24 +23,28 @@ def demo3 (u: Unit) := and
 
 -- List.sum has a bug which causes the csimp List.foldr -> List.foldrTR not to apply, which leads to stack overflows.
 -- https://github.com/leanprover/lean4/issues/7750
-def list_sum n :=
+def list_sum_foldl n := List.replicate n 1 |>.foldl Nat.add 0
+
+def list_sum_foldr n := List.replicate n 1 |>.foldr Nat.add 0
+
+def list_sum_rev n := List.replicate n 1 |>.foldl Nat.add 0
+
+def shared_list_sum_foldl n :=
   let l := List.replicate n 1
   let res := l.foldl Nat.add 0
   res + l[0]!
 
-def list_sum_foldr n :=
+def shared_list_sum_foldr n :=
   let l := List.replicate n 1
   let res := l.foldr Nat.add 0
   res + l[0]!
 
-def list_sum_rev n :=
+def shared_list_sum_rev n :=
   let l := List.replicate n 1
   let res := l.reverse.foldl Nat.add 0
   res + l[0]!
 
 def cube (u: Unit) := 300^3
-
-def binarytrees: Nat -> Nat := BinaryTrees.main
 
 def triangle (n: Nat) := List.range n |>.foldl Nat.add 0
 

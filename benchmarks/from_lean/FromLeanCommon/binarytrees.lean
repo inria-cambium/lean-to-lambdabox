@@ -39,9 +39,11 @@ partial def depth (d m : Nat) : List (Nat × Nat × Nat) :=
     let n := 2 ^ (m - d + minN)
     (n, d, sumT d n 0) :: depth (d+2) m
   else []
+end BinaryTrees
 
---#check (rfl: (IO Unit = (Unit -> EStateM.Result IO.Error Unit Unit)))
-def main (n: Nat): Nat :=
+open BinaryTrees
+
+def binarytrees (n: Nat): Nat :=
   let maxN := Nat.max (minN + 2) n
   let stretchN := maxN + 1
 
@@ -61,5 +63,3 @@ def main (n: Nat): Nat :=
   -- out "long lived tree" maxN (check long)
   let l := check long
   c + v + l
-
-end BinaryTrees

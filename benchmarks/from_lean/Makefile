@@ -2,27 +2,33 @@ build_id:=TODO
 
 bin:=bin/$(build_id)
 
+default:
+	$(error No target specified)
+
 FORCE:
 
-$(bin)/malfunction-flambda/%: FORCE
-	FLAMBDA=1 make -C via_malfunction bin/$* TARGET=../$@
+$(bin)/malflambda-O2/%: FORCE | $(bin)/malflambda-O2/
+	FLAMBDA=1 OCAMLPARAM=_,O2=1 make -C via_malfunction bin/$* TARGET=../$@
 
-$(bin)/malfunction-noflambda/%: FORCE
-	FLAMBDA=1 make -C via_malfunction bin/$* TARGET=../$@
+$(bin)/malflambda-O3/%: FORCE | $(bin)/malflambda-O3/
+	FLAMBDA=1 OCAMLPARAM=_,O3=1 make -C via_malfunction bin/$* TARGET=../$@
+
+$(bin)/malfunction-noflambda/%: FORCE | $(bin)/malfunction-noflambda/
+	FLAMBDA=0 make -C via_malfunction bin/$* TARGET=../$@
+
+$(bin)/lean-compilernew/%: FORCE | $(bin)/lean-compilernew/
+	make -C via_lean bin/$* TARGET=../$@
 
 bin/%: $(bin)/%
+	mkdir -p $(dir $@)
 	ln -srf $< $@
 
-define register_test
-$(let testname harness rest,$(subst :, ,$(1)),\
-phonytargets+=bin/malfunction-flambda/$(testname)
-phonytargets+=bin/malfunction-noflambda/$(testname)
-)
-endef
+$(bin)/%/:
+	mkdir -p $@
 
-$(foreach testspec,$(shell cat TESTS),$(eval $(call register_test,$(testspec))))
+.PHONY: Makefile clean
 
-.PHONY: $(phonytargets)
+clean:
+	rm -rf bin
 
-default:
-	@echo $(OUT)
+.NOTINTERMEDIATE:
