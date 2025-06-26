@@ -23,13 +23,14 @@ namespace Config
 
 /--
 How to handle functions with the @[extern] attribute.
-Notably, this includes `Nat.add` et al..
+Notably, this includes `Nat.add` et al., but also some constructors such as those of `Int`.
 -/
 inductive Extern where
   /-- If a Lean definition is present, use that one. -/
   | preferLogical
   /-- Ignore any Lean definitions and always treat as an axiom to be provided OCaml-side. -/
   | preferAxiom
+deriving BEq
 
 /-- How to handle literals and constructors of `Nat`. -/
 inductive Nat
@@ -38,17 +39,16 @@ inductive Nat
   /--
   Turn Nat literals into i63 (panic on overflow), translate .zero into literal 0 and .succ x into x + literal 1.
   For this to work, the usual functions on `Nat` (addition, multiplication etc) must not use the logical implementation in Lean
-  and instead use Zarith functions linked with the ML files, so setting config.extern to .preferLogical is necessary.
+  and instead use Zarith functions linked with the ML files, so setting config.extern to .preferAxiom is necessary.
   -/
   | machine
-
--- TODO: handle Int specifically?
 
 end Config
 
 structure ErasureConfig: Type where
   extern: Config.Extern := .preferAxiom
   nat: Config.Nat := .machine
+  /-- Whether to perform csimp replacements before erasure. -/
   csimp: Bool := true
 
 structure ErasureContext: Type where
@@ -108,6 +108,16 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
     let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
+
+def getExternSymbolName (name: Name): CoreM String := do
+  return (getExternNameFor (← getEnv) `all name).get!
+
+/-- Silently do nothing if `name` is already present in `constants`. -/
+def addAxiom (name: Name): EraseM Unit := do
+  unless (← get).constants.contains name do
+    logInfo s!"Emitting axiom for constant {name}."
+    let kn := to_kername name
+    modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
 
 /-- The order of variables here is what it is because the other way around led to segfaults. -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
@@ -400,6 +410,10 @@ where
         visitAppArgs (← visitConst f) args
 
   visitConstructor (ctorname: Name) (args: Array Expr): EraseM neterm := do
+    if isExtern (← getEnv) ctorname && (← read).config.extern == .preferAxiom then
+      addAxiom ctorname
+      return ← visitAppArgs (.const <| to_kername ctorname) args
+
     match (← read).config.nat, ctorname with
     | .machine, ``Nat.zero =>
       unless args.size == 0 do
@@ -430,8 +444,7 @@ where
     e.withApp fun f args => do
       let typeName := projInfo.ctorName.getPrefix
       if isRuntimeBultinType typeName then
-        let arity := projInfo.numParams + 1
-        withAppEtaToMinArity e arity (fun f args => do visitAppArgs (← visitConst f) args)
+        panic! "The Lean compiler does something special here but I don't know how to handle this case."
       else
         let .const declName us := f | unreachable!
         let info ← getConstInfo declName
@@ -440,13 +453,6 @@ where
 
   /-- Normal application of a function to some arguments. -/
   visitAppArgs (f : neterm) (args : Array Expr) : EraseM neterm := do
-    -- This is a minor optimization (already β-reducing applications of □). Keep it or not?
-    -- Actually, maybe this just never happens
-    /-
-    if let .box := f then
-      return .box
-    else
-    -/
       args.foldlM (fun e arg => do return neterm.app e (← visitExpr arg)) f
 
   visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM neterm := do
@@ -455,6 +461,7 @@ where
     
     -- If we are using machine Nats then the inductive casesOn will not work.
     let mut ret: neterm ← (match typeName, (← read).config.nat with
+    | ``Int, .machine => panic! "Int.casesOn not implemented."
     | ``Nat, .machine => do
       /-
       Compile this to "let n = discr in Bool.casesOn (Nat.beq n 0) (succ_case (n - 1)) zero_case".
@@ -516,16 +523,17 @@ where
     let single_decl := names.length == 1
     -- A single declaration may have to be output as an axiom.
     if single_decl then
-      let emit_axiom: Bool ← match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
-      | .none, _, _ => logInfo s!"No value found for name {name}, emitting axiom."; pure true
-      | .some _, false, _ => pure false
-      | .some _, true, .preferAxiom => logInfo s!"Name {name} has a value but is tagged @[extern], emitting axiom."; pure true
-      | .some _, true, .preferLogical => logInfo s!"Name {name} is tagged @[extern] but has a value, using value."; pure false
-
-      if emit_axiom then
-        let kn := to_kername name
-        modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
-        return
+      match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
+      | .none, _, _ =>
+        logInfo s!"No value found for name {name}."
+        return ← addAxiom name
+      | .some _, false, _ => pure ()
+      | .some _, true, .preferAxiom =>
+        logInfo s!"Name {name} has a value but is tagged @[extern]."
+        return ← addAxiom name
+      | .some _, true, .preferLogical =>
+        logInfo s!"Name {name} is tagged @[extern] but has a value, using value."
+        pure ()
 
     let nonrecursive: Bool := single_decl && !(name_occurs name (ci.value! (allowOpaque := true)))
     if nonrecursive

@@ -55,5 +55,5 @@ let def__Nat_gcd x y = Z.gcd x y
 let def__Nat_log2 n = if Z.equal n Z.zero then 0 else (Z.log2 [@inlined]) n
 [@@inline always]
 
-let def__Nat_pred n = def__Nat_sub n Z.one
+let def__Nat_pred n = (Z.pred [@inlined]) n
 [@@inline always]

@@ -33,8 +33,8 @@ end
 
 #erase even
 
-def f (g: Nat -> Nat): Bool -> Nat := Bool.toNat
-#erase f
+set_option pp.proofs true
+#check Eq.rec
 
 def foo : Nat :=
   let bar := unsafe 4

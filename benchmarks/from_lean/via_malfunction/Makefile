@@ -16,10 +16,14 @@ endif
 INLINE_AXIOMS?=1
 ifeq ($(INLINE_AXIOMS),1)
 DECIDABLEML=decidable-inline.ml
+EQML=eq-inline.ml
 NATML=nat-inline.ml
+INTML=int-inline.ml
 else ifeq ($(INLINE_AXIOMS),0)
 DECIDABLEML=decidable.ml
+EQML=eq.ml
 NATML=nat.ml
+INTML=int.ml
 else
 $(error Variable INLINE_AXIOMS must be either 0 or 1, is $(INLINE_AXIOMS))
 endif
@@ -36,7 +40,9 @@ OCAMLPARAM=$(OCAMLPARAM)\
 MALFUNCTION_SWITCH=$(MALFUNCTION_SWITCH)\
 INLINE_AXIOMS=$(INLINE_AXIOMS)\
 DECIDABLEML=$(DECIDABLEML)\
-NATML=$(NATML)
+EQML=$(EQML)\
+NATML=$(NATML)\
+INTML=$(INTML)
 
 malfunction_build_id:= $(shell echo "$(malfunction_build_info)" | sha256sum | head -c 8)
 
@@ -52,12 +58,14 @@ else
 	ln -srf $< $@
 endif
 
-$(bin)/%: $(build)/%.cmx\
-          $(build)/decidable.cmx\
+$(bin)/%: $(build)/decidable.cmx\
+	  $(build)/eq.cmx\
           $(build)/nat.cmx\
+          $(build)/int.cmx\
           $(build)/axioms.cmx\
+	  $(build)/%.cmx\
           $(build)/%_main.ml | $(bin)
-	$(OCAMLOPT) -I $(build) -linkpkg $(OCAML_ARGS) $(build)/decidable.cmx $(build)/nat.cmx $(build)/axioms.cmx $(build)/$*.cmx $(build)/$*_main.ml -o $@
+	$(OCAMLOPT) -I $(build) -linkpkg $(OCAML_ARGS) $^ -o $@
 
 define register_test
 $(let testname harness rest,$(subst :, ,$(1)),\
@@ -97,6 +105,17 @@ $(build)/decidable.ml: $(DECIDABLEML) | $(build)
 $(build)/decidable.cmx: $(build)/decidable.ml $(build)/decidable.cmi
 	$(OCAMLOPT) -I $(build) -c $<
 
+$(build)/eq.mli: eq.mli | $(build)
+	cp $< $@
+
+$(build)/eq.ml: $(EQML) | $(build)
+	cp $< $@
+
+# eq.cmi handled by generic rule (no prerequisites)
+
+$(build)/eq.cmx: $(build)/eq.ml $(build)/eq.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
 $(build)/nat.mli: nat.mli | $(build)
 	cp $< $@
 
@@ -106,13 +125,25 @@ $(build)/nat.ml: $(NATML) | $(build)
 $(build)/nat.cmi: $(build)/nat.mli $(build)/decidable.cmi
 	$(OCAMLOPT) -I $(build) -c $<
 
-$(build)/nat.cmx: $(build)/nat.ml $(build)/nat.mli $(build)/decidable.cmx
+$(build)/nat.cmx: $(build)/nat.ml $(build)/nat.cmi $(build)/decidable.cmx
 	$(OCAMLOPT) -I $(build) -c $<
 
-$(build)/axioms.cmi: $(build)/axioms.mli $(build)/decidable.cmi $(build)/nat.cmi
+$(build)/int.mli: int.mli | $(build)
+	cp $< $@
+
+$(build)/int.ml: $(INTML) | $(build)
+	cp $< $@
+
+$(build)/int.cmi: $(build)/int.mli $(build)/decidable.cmi
 	$(OCAMLOPT) -I $(build) -c $<
 
-$(build)/axioms.cmx: $(build)/axioms.ml $(build)/axioms.cmi $(build)/nat.cmx
+$(build)/int.cmx: $(build)/int.ml $(build)/int.cmi $(build)/decidable.cmx
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/axioms.cmi: $(build)/axioms.mli $(build)/decidable.cmi $(build)/nat.cmi $(build)/int.cmi $(build)/eq.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
+$(build)/axioms.cmx: $(build)/axioms.ml $(build)/axioms.cmi $(build)/nat.cmx $(build)/int.cmx $(build)/eq.cmx
 	$(OCAMLOPT) -I $(build) -c $<
 
 $(build)/%.lean: test.lean.template | $(build)

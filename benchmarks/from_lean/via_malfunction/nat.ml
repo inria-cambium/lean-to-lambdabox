@@ -22,4 +22,4 @@ let def__Nat_pow = Z.pow
 let def__Nat_gcd = Z.gcd
 let def__Nat_log2 n = if Z.Compare.(n = Z.zero) then 0 else Z.log2 n
 
-let def__Nat_pred n = def__Nat_sub n Z.one
+let def__Nat_pred = Z.pred
