@@ -25,17 +25,24 @@ def to_modpath (n: Name): modpath :=
   | .num name nb => .MPdot (to_modpath name) (nb.repr)
   | .anonymous => .MPfile []
 
+/-- Clean up a string potentially coming from Lean's very permissive grammar to only use characters valid in OCaml identifiers. -/
+def cleanIdent (s : String) : String :=
+  let escapeChar (c : Char) : String :=
+    if c.isAlphanum || c == '_' then toString c
+    else "_u" ++ toString c.toNat
+
+  s.toList.map escapeChar |> String.join
 /--
 Ad hoc conversion function from `Name`s to MetaRocq kernames.
 -/
 def to_kername (n: Name): kername :=
   match n with
-  | .str name s =>  { mp := to_modpath name, id := s }
+  | .str name s =>  { mp := to_modpath name, id := cleanIdent s }
   | .num name nb =>  { mp := to_modpath name, id := nb.repr }
-  | .anonymous =>  unreachable! -- This should not happen.
+  | .anonymous =>  panic! "Cannot convert empty name to kername." -- This should not happen.
 
 def root_kername (s: String): kername :=
-  { mp := .MPfile [], id := s }
+  { mp := .MPfile [], id := cleanIdent s }
 
 /-- A name used to pretty-print bound variables. -/
 inductive ppname: Type where

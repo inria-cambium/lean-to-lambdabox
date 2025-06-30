@@ -19,17 +19,19 @@ DECIDABLEML=decidable-inline.ml
 EQML=eq-inline.ml
 NATML=nat-inline.ml
 INTML=int-inline.ml
+ARRAYML=sekarray-inline.ml
 else ifeq ($(INLINE_AXIOMS),0)
 DECIDABLEML=decidable.ml
 EQML=eq.ml
 NATML=nat.ml
 INTML=int.ml
+ARRAYML=sekarray.ml
 else
 $(error Variable INLINE_AXIOMS must be either 0 or 1, is $(INLINE_AXIOMS))
 endif
 
 LBOX=opam exec --switch=$(LBOX_SWITCH) -- lbox
-OCAMLOPT=opam exec --switch=$(MALFUNCTION_SWITCH) -- ocamlfind ocamlopt -package zarith
+OCAMLOPT=opam exec --switch=$(MALFUNCTION_SWITCH) -- ocamlfind ocamlopt -package zarith,sek
 MALFUNCTION=opam exec --switch=$(MALFUNCTION_SWITCH) -- malfunction
 
 # Space-separated.
@@ -42,7 +44,8 @@ INLINE_AXIOMS=$(INLINE_AXIOMS)\
 DECIDABLEML=$(DECIDABLEML)\
 EQML=$(EQML)\
 NATML=$(NATML)\
-INTML=$(INTML)
+INTML=$(INTML)\
+ARRAYML=$(ARRAYML)
 
 malfunction_build_id:= $(shell echo "$(malfunction_build_info)" | sha256sum | head -c 8)
 
@@ -62,6 +65,7 @@ $(bin)/%: $(build)/decidable.cmx\
 	  $(build)/eq.cmx\
           $(build)/nat.cmx\
           $(build)/int.cmx\
+	  $(build)/sekarray.cmx\
           $(build)/axioms.cmx\
 	  $(build)/%.cmx\
           $(build)/%_main.ml | $(bin)
@@ -116,6 +120,17 @@ $(build)/eq.ml: $(EQML) | $(build)
 $(build)/eq.cmx: $(build)/eq.ml $(build)/eq.cmi
 	$(OCAMLOPT) -I $(build) -c $<
 
+$(build)/sekarray.mli: sekarray.mli | $(build)
+	cp $< $@
+
+$(build)/sekarray.ml: $(ARRAYML) | $(build)
+	cp $< $@
+
+# sekarray.cmi handled by generic rule (no prersekarrayuisites)
+
+$(build)/sekarray.cmx: $(build)/sekarray.ml $(build)/sekarray.cmi
+	$(OCAMLOPT) -I $(build) -c $<
+
 $(build)/nat.mli: nat.mli | $(build)
 	cp $< $@
 
@@ -140,7 +155,7 @@ $(build)/int.cmi: $(build)/int.mli $(build)/decidable.cmi
 $(build)/int.cmx: $(build)/int.ml $(build)/int.cmi $(build)/decidable.cmx
 	$(OCAMLOPT) -I $(build) -c $<
 
-$(build)/axioms.cmi: $(build)/axioms.mli $(build)/decidable.cmi $(build)/nat.cmi $(build)/int.cmi $(build)/eq.cmi
+$(build)/axioms.cmi: $(build)/axioms.mli $(build)/decidable.cmi $(build)/nat.cmi $(build)/int.cmi $(build)/eq.cmi $(build)/sekarray.cmi
 	$(OCAMLOPT) -I $(build) -c $<
 
 $(build)/axioms.cmx: $(build)/axioms.ml $(build)/axioms.cmi $(build)/nat.cmx $(build)/int.cmx $(build)/eq.cmx
