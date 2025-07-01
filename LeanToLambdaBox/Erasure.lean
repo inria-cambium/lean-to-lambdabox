@@ -37,9 +37,12 @@ inductive Nat
   /-- Keep Nat as an inductive type and represent literals by using constructors. -/
   | peano
   /--
-  Turn Nat literals into i63 (panic on overflow), translate .zero into literal 0 and .succ x into x + literal 1.
-  For this to work, the usual functions on `Nat` (addition, multiplication etc) must not use the logical implementation in Lean
-  and instead use Zarith functions linked with the ML files, so setting config.extern to .preferAxiom is necessary.
+  Turn Nat literals into lambdabox primitive i63 (panic on overflow),
+  translate .zero into literal 0 and .succ x into x + literal 1.
+  For this to work, config.extern must be set to .preferAxiom, so that
+  the usual functions on `Nat` (addition, multiplication etc) are treated as axioms
+  (and implemented by Zarith functions linked with the .cmx file from extraction),
+  instead of using the logical implementation in Lean.
   -/
   | machine
 
@@ -109,9 +112,6 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
 
-def getExternSymbolName (name: Name): CoreM String := do
-  return (getExternNameFor (← getEnv) `all name).get!
-
 /-- Silently do nothing if `name` is already present in `constants`. -/
 def addAxiom (name: Name): EraseM Unit := do
   unless (← get).constants.contains name do
@@ -158,14 +158,18 @@ def withLocalDef (n: Name) (type val: Expr) (nd: Bool) (k: FVarId -> EraseM α):
 /--
 A version of Meta.lambdaTelescope that
 - unpacks exactly one layer of lambda-abstraction (ie does not telescope)
-- works in PrepareM instead of (any monad from which we can control) MetaM.
+- works in EraseM instead of (any monad from which we can control) MetaM.
 - yields an FVarId instead of an Expr for the bound variable
 Panics if applied to something which is not of the form .lambda ..
 -/
 def lambdaMonocular {α} [Inhabited α] (e: Expr) (k: FVarId -> Expr -> EraseM α): EraseM α := do
   let .lam binderName type body bi := e | unreachable!
   withLocalDecl binderName type bi (fun fvarid => k fvarid <| body.instantiate1 (.fvar fvarid))
-/-- Destructures a let-expression for handling by a continuation in an appropriate context. The continuation gets an FVarId for the bound variable and bound value and body as expressions. Panics if applied to an expression which is not of the form .letE ..
+
+/--
+Destructures a let-expression for handling by a continuation in an appropriate context.
+The continuation gets an FVarId for the bound variable and bound value and body as expressions.
+Panics if applied to an expression which is not of the form .letE ..
 -/
 def letMonocular {α} [Inhabited α] (e: Expr) (k: FVarId -> Expr -> Expr -> EraseM α): EraseM α := do
   let .letE binderName type val body nd := e | unreachable!
@@ -283,10 +287,12 @@ def replaceUnsafeRecNames (value : Expr) : CoreM Expr :=
     | _ => return .continue
 
 /--
-Honor @[macro_inline] directives and inline auxiliary matchers.
+Honor @[macro_inline] directives, inline auxiliary matchers, remove _unsafe_rec suffixes and perform csimp replacements.
 This is lifted from LCNF/ToDecl.lean .
 It processes the whole expression tree, so the code here doesn't have to be at the start of visitExpr,
 and it is sufficient to run it before entering the "toplevel" expression and the definition of a dependency in the environment.
+
+This may make the expression ill-typed if some dependent type relies on the implementation of functions affected by csimp.
 -/
 def prepare_erasure (e: Expr): EraseM Expr := do
   let mut e := e
@@ -337,7 +343,7 @@ where
         pure <| .prim ⟨.primInt, n⟩ 
       else
         panic! "Nat literal not representable as a 63-bit signed integer."
-    | _, .strVal _ => panic! "string literals not supported"
+    | _, .strVal _ => panic! "String literals not supported."
 
   /-
   The original in ToLCNF also handles eta-reduction of implicit lambdas introduced by the elaborator.
@@ -361,17 +367,13 @@ where
 
   /--
   When visiting expressions of the form f g, it is not sufficient to just recurse on f and g.
-  visitApp will explore an expression "in depth" to get the leftmost applicand and handle:
-  - converting applications marked as let_fun back into actual let bindings
-  - applications of constants
+  visitApp will explore an expression "in depth" to get the leftmost applicand,
+  then handle the case where it is a constant specially; otherwise, straightforward recursion is correct.
   Contrary to the original ToLCNF, I have removed CSimp.replaceConstants here and assume it will just be run once before erasure.
   -/
   visitApp (e : Expr) : EraseM neterm :=
-    -- Compile let_fun as let-expressions, not functions
-    if let some (args, n, t, v, b) := e.letFunAppArgs? then
-      visitExpr <| mkAppN (.letE n t v b (nonDep := true)) args
     -- The applicand is a constant, check for special cases
-    else if let .const .. := e.getAppFn then
+    if let .const .. := e.getAppFn then
       visitConstApp e
     -- The applicand is not a constant, so we just normally recurse.
     else
@@ -388,7 +390,7 @@ where
   /--
   Special handling of
   - casesOn (will be eta-expanded)
-  -constructors (will be eta-expanded)
+  - constructors (will be eta-expanded)
   - structure projection functions (will be inlined with their definition, except for runtime builtin types)
   Since noConfusion principles are just defined, I think it's ok to not handle them specially.
   Check visitNoConfusion in the original ToLCNF, which seems to do quite limited things.
@@ -399,7 +401,7 @@ where
       if let some casesInfo ← getCasesInfo? declName then
         /-
         I have removed the check for whether there is an [implemented_by] annotation.
-        TODO: These probably should be handled somewhere before erasure.
+        This is only relevant for the implementation of computed fields, such as for hash consing in the `Expr` type.
         -/
         withAppEtaToMinArity e casesInfo.arity (fun _ args => visitCases casesInfo args)
       else if let some arity ← getCtorArity? declName then
@@ -468,8 +470,7 @@ where
       The let-binding is necessary to avoid double evaluation of the discriminee.
       I'm doing part of this this on neterms instead of constructing Exprs because visitExpr
       assumes expressions are well-typed, which wouldn't be the case naïvely as (n - 1).succ is not defeq to n.
-      Using casts to make the dependent types typecheck is not an option,
-      because those explicitly use the recursor Eq.req which I am not special-casing at the moment.
+      Using casts to make the dependent types typecheck would be an option now that Eq.rec is added to the axioms.
       -/
       let zero_arm := args[casesInfo.altsRange.start]!
       let zero_nt ← visitExpr zero_arm
@@ -539,7 +540,8 @@ where
     if nonrecursive
     then -- translate into a single nonrecursive constant declaration
       let e: Expr := ci.value! (allowOpaque := true)
-      let t: neterm ← visitExpr (← prepare_erasure e)
+      let t ← withReader (fun env => { env with fixvars := .none }) do
+        pure (← visitExpr (← prepare_erasure e))
       let kn := to_kername name
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
     else -- translate into a mutual fixpoint declaration
