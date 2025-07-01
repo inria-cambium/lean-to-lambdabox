@@ -30,3 +30,8 @@ let def__Array_emptyWithCapacity _ cap = create (Obj.magic 0)
 
 let def__Array_push _ arr v = push Sek.back arr v
 [@@inline always]
+
+let def__Array_set_u33 _ arr idx v =
+  let i = (Z.to_int [@inlined]) idx in
+  set arr i v
+[@@inline always]

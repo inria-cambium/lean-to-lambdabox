@@ -44,3 +44,4 @@ val def__Array_getInternal: Obj.t -> 'a Sek.P.t -> Z.t -> Obj.t -> 'a
 val def__Array_size: Obj.t -> 'a Sek.P.t -> Z.t
 val def__Array_emptyWithCapacity: Obj.t -> Z.t -> 'a Sek.P.t
 val def__Array_push: Obj.t -> 'a Sek.P.t -> 'a -> 'a Sek.P.t
+val def__Array_set_u33: Obj.t -> 'a Sek.P.t -> Z.t -> 'a -> 'a Sek.P.t
