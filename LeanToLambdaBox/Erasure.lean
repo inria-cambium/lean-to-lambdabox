@@ -10,11 +10,14 @@ open Lean.Compiler.LCNF
 
 namespace Erasure
 
+/-- Used to reindex constructor arguments for removal of irrelevant fields. -/
+abbrev constructor_arg_map := Unit
+abbrev inductive_arg_maps := List constructor_arg_map
 /--
 State carried by EraseM to handle constants and inductive types registered in the global environment.
 -/
 structure ErasureState: Type where
-  inductives: Std.HashMap Name inductive_id := ∅
+  inductives: Std.HashMap Name (inductive_id × inductive_arg_maps) := ∅
   constants: Std.HashMap Name kername := ∅
   /-- This field is only updated, not read. -/
   gdecls: global_declarations := []
@@ -83,22 +86,34 @@ def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (←
 
 def mkLetIn (x: FVarId) (val body: neterm): EraseM neterm := do return .letIn (← fvar_to_name x) val (abstract x body)
 
+def addAxiom (name: Name): EraseM Unit := do
+  if (← get).constants.contains name then panic! s!"Constant {name} is already defined, cannot add axiom."
+  logInfo s!"Emitting axiom for constant {name}."
+  let kn := to_kername name
+  modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
+
 /--
-In Rocq it is mutual blocks which are named, so I'm just making something up here.
+Get information about the inductive type, adding all its mutually-defined buddies to the context if necessary.
 -/
-def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
+def register_inductive (indinfo: InductiveVal): EraseM (inductive_id × inductive_arg_maps) := do
   if let .some iid := (← get).inductives.get? indinfo.name then
     return iid
   else
     let names := indinfo.all
     let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
+    -- Iterate through all the inductive types in the mutual definition
     let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
-      modify (fun s => { s with inductives := s.inductives.insert ind_name { mutual_block_name, idx }})
       let .inductInfo inf ← getConstInfo ind_name | unreachable!
-      let ind_ctors: List constructor_body ← inf.ctors.mapM fun ctor_name => do
+      -- Iterate through all the constructors
+      let (ind_ctors, ind_argmaps) := List.unzip (← inf.ctors.mapM fun ctor_name => do
+        if isExtern (← getEnv) ctor_name && (← read).config.extern == .preferAxiom then
+          logInfo "Constructor {ctor_name} of type {ind_name} is marked @[extern], emitting axiom."
+          addAxiom ctor_name
+        let argmap := () -- TODO, get this by looking at the type?
         let .ctorInfo ci ← getConstInfo ctor_name | unreachable!
-        return { cstr_name := toString ctor_name, cstr_nargs := ci.numFields }
-      let ind_name := toString ind_name
+        pure ({ cstr_name := toString ctor_name, cstr_nargs := ci.numFields }, argmap)
+      )
+      -- If the type is a structure, add definitions for projections.
       let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
       let ind_projs: List projection_body ←
         if is_struct then
@@ -107,17 +122,14 @@ def to_inductive_id (indinfo: InductiveVal): EraseM inductive_id := do
           pure (List.range num_fields |>.map toString |>.map projection_body.mk)
         else
           pure []
-      return { ind_name, ind_ctors, ind_projs }
+
+      let ind_id: inductive_id := { mutual_block_name, idx }
+      modify (fun s => { s with inductives := s.inductives.insert ind_name (ind_id, ind_argmaps)})
+      let ind_name := toString ind_name
+      pure { ind_name, ind_ctors, ind_projs }
     let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
     modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
-
-/-- Silently do nothing if `name` is already present in `constants`. -/
-def addAxiom (name: Name): EraseM Unit := do
-  unless (← get).constants.contains name do
-    logInfo s!"Emitting axiom for constant {name}."
-    let kn := to_kername name
-    modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
 
 /-- The order of variables here is what it is because the other way around led to segfaults. -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
@@ -127,8 +139,9 @@ def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
     body := toBvar fvarid i body
   return (names, body)
 
-def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm :=
-  do return .case (← to_inductive_id indInfo, indInfo.numParams) discr alts
+def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm := do
+  let (indid, _) ←  register_inductive indInfo
+  return .case (indid, indInfo.numParams) discr alts
 
 /-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
 def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
@@ -362,7 +375,8 @@ where
 
   visitProj (s : Name) (i : Nat) (e : Expr) : EraseM neterm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
-    let projinfo: projectioninfo := { ind_type := ← to_inductive_id indinfo, param_count := indinfo.numParams, field_idx := i }
+    let (indid, _) ← register_inductive indinfo
+    let projinfo: projectioninfo := { ind_type := indid, param_count := indinfo.numParams, field_idx := i }
     return .proj projinfo (← visitExpr e)
 
   /--
@@ -412,8 +426,13 @@ where
         visitAppArgs (← visitConst f) args
 
   visitConstructor (ctorname: Name) (args: Array Expr): EraseM neterm := do
+    let .ctorInfo info ← getConstInfo ctorname | unreachable!
+    let cidx := info.cidx
+    let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
+    let (indid, argmaps) ← register_inductive indinfo
+
     if isExtern (← getEnv) ctorname && (← read).config.extern == .preferAxiom then
-      addAxiom ctorname
+      -- Axiom has been added by register_inductive.
       return ← visitAppArgs (.const <| to_kername ctorname) args
 
     match (← read).config.nat, ctorname with
@@ -429,12 +448,8 @@ where
     | .machine, _
     | .peano, _ => pure ()
 
-    let .ctorInfo info ← getConstInfo ctorname | unreachable!
-    let idx := info.cidx
-    let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
-    let indid ← to_inductive_id indinfo
     -- Instead of making this a "real" use of .construct, in the stage of λbox I am targeting constructor application is function application
-    visitAppArgs (.construct indid idx []) args
+    visitAppArgs (.construct indid cidx []) args
 
   /--
   Automatically defined projection functions out of structures are inlined,
