@@ -29,6 +29,8 @@ type 'a t = 'a data ref
 and 'a data =
   | Array of 'a Dynarray.t
   | Diff of int * 'a * 'a t
+  | Push of 'a * 'a t
+  | Pop of 'a t
 
 let make n v =
   ref (Array (Dynarray.make n v))
@@ -54,7 +56,29 @@ let rec rerootk t k = match !t with
 	       Dynarray.set a i v;
 	       t := n;
 	       t' := Diff (i, v', t)
-	   | Diff _ -> assert false
+	   | _ -> assert false
+          );
+          k()
+        )
+  | Push (v, t') ->
+      rerootk t' (fun () ->
+          (match !t' with
+	   | Array a as n ->
+	       Dynarray.add_last a v;
+	       t := n;
+	       t' := Pop t
+	   | _ -> assert false
+          );
+          k()
+        )
+  | Pop t' ->
+      rerootk t' (fun () ->
+          (match !t' with
+	   | Array a as n ->
+               let v' = Dynarray.pop_last a in
+	       t := n;
+	       t' := Push (v', t)
+	   | _ -> assert false
           );
           k()
         )
@@ -65,9 +89,9 @@ let get t i =
   match !t with
   | Array a ->
       Dynarray.get a i
-  | Diff _ ->
+  | _ ->
       reroot t;
-      (match !t with Array a -> Dynarray.get a i | Diff _ -> assert false)
+      (match !t with Array a -> Dynarray.get a i | _ -> assert false)
 
 let set t i v =
   reroot t;
@@ -82,7 +106,18 @@ let set t i v =
 	t := Diff (i, old, res);
 	res
       )
-  | Diff _ ->
+  | _ ->
+      assert false
+
+let push t v =
+  reroot t;
+  match !t with
+  | Array a as n ->
+	Dynarray.add_last a v;
+	let res = ref n in
+	t := Pop res;
+	res
+  | _ ->
       assert false
 
 (* CAVEAT: Do not use `with_array` with a function `f` that may reroot
@@ -90,7 +125,7 @@ let set t i v =
    only, to other versions of `t`). *)
 let with_array t f =
   reroot t;
-  match !t with Array a -> f a | Diff _ -> assert false
+  match !t with Array a -> f a | _ -> assert false
 
 let length t =
   with_array t Dynarray.length
@@ -117,6 +152,15 @@ let fold_right f a x =
     r := f (get a i) !r
   done;
   !r
+
+(* Tests *)
+let () =
+  let a = create () in
+  let b = push a 42 in
+  assert (to_list b = [42]);
+  assert (to_list a = []);
+  assert (to_list b = [42]);
+  ()
 
 (* Shims to Lean names, see SekArray.ml *)
 type 'a array = 'a t
@@ -146,7 +190,7 @@ let def__Array_emptyWithCapacity _ cap =
   let capacity = Z.to_int cap in
   create ~capacity ()
 
-let def__Array_push _ arr v = assert false
+let def__Array_push _ arr v = push arr v
 
 let def__Array_set_u33 _ arr idx v =
   let i = Z.to_int idx in
