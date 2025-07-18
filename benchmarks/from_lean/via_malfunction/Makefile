@@ -20,16 +20,16 @@ DECIDABLEML=decidable-inline.ml
 EQML=eq-inline.ml
 NATML=nat-inline.ml
 INTML=int-inline.ml
-ARRAYML=SekArray.ml # TODO: check
 else ifeq ($(INLINE_AXIOMS),0)
 DECIDABLEML=decidable.ml
 EQML=eq.ml
 NATML=nat.ml
 INTML=int.ml
-ARRAYML=SekArray.ml
 else
 $(error Variable INLINE_AXIOMS must be either 0 or 1, is $(INLINE_AXIOMS))
 endif
+
+ARRAYML?=SekArray.ml
 
 # 0 to keep all constructor arguments, 1 to remove irrelevant ones; default is 0.
 PRUNE_CONSTRUCTORS?=0
