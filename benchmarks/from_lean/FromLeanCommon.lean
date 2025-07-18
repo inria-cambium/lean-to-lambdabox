@@ -2,7 +2,9 @@ import FromLeanCommon.binarytrees
 import FromLeanCommon.const_fold
 import FromLeanCommon.deriv
 import FromLeanCommon.qsort
+import FromLeanCommon.qsort_fin
 import FromLeanCommon.rbmap
+import FromLeanCommon.rbmap_std
 import FromLeanCommon.unionfind
 
 set_option linter.unusedVariables false
@@ -63,6 +65,14 @@ def sub_3 (n: Nat): Nat :=
   n-3
 
 def iflazy (n: Nat): Nat := if n = 0 then 42 else iflazy (n-1)
+set_option pp.notation false
+set_option pp.explicit true
+/-
+#print iflazy._unsafe_rec
+#print ite
+#print instDecidableEqNat
+#print Nat.decEq
+-/
 
 mutual
 def even: Nat -> Nat

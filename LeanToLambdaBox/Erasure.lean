@@ -10,14 +10,22 @@ open Lean.Compiler.LCNF
 
 namespace Erasure
 
+inductive ConstructorArgRelevance where
+  | erase
+  | keep
+deriving Repr, BEq
+
 /-- Used to reindex constructor arguments for removal of irrelevant fields. -/
-abbrev constructor_arg_map := Unit
-abbrev inductive_arg_maps := List constructor_arg_map
+abbrev ConstructorArgMask := Array ConstructorArgRelevance
+abbrev InductiveArgMasks := List ConstructorArgMask
+
+def filter (mask: ConstructorArgMask) (arr: Array α): Array α :=
+  mask.zip arr |>.filterMap (fun (r, a) => match r with | .erase => .none | .keep => .some a)
 /--
 State carried by EraseM to handle constants and inductive types registered in the global environment.
 -/
 structure ErasureState: Type where
-  inductives: Std.HashMap Name (inductive_id × inductive_arg_maps) := ∅
+  inductives: Std.HashMap Name (inductive_id × InductiveArgMasks) := ∅
   constants: Std.HashMap Name kername := ∅
   /-- This field is only updated, not read. -/
   gdecls: global_declarations := []
@@ -56,6 +64,8 @@ structure ErasureConfig: Type where
   nat: Config.Nat := .machine
   /-- Whether to perform csimp replacements before erasure. -/
   csimp: Bool := true
+  /-- Whether to remove irrelevant arguments from constructors. -/
+  remove_irrel_constr_args: Bool := false
 
 structure ErasureContext: Type where
   lctx: LocalContext := {}
@@ -63,7 +73,7 @@ structure ErasureContext: Type where
   config: ErasureConfig
 
 /-- The monad in ToLCNF has caches, a local context and toAny as a set of fvars, all as mutable state for some reason.
-    Here I just have a read-only local context, in order to be able to use MetaM's type inference, and keep the complexity low.
+    Here I just have a read-only local context, in order to be able to use MetaM's type inference, and keep the code complexity low.
     If this is much too slow, try caching stuff again.
 
     Above the local context there is also a state handling the global environment of the extracted program.
@@ -72,6 +82,88 @@ abbrev EraseM := StateT ErasureState <| ReaderT ErasureContext CoreM
 
 def run (x : EraseM α) (config: ErasureConfig): CoreM (α × ErasureState) :=
   x |>.run {} |>.run { config }
+
+/-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
+@[inline] def liftMetaM (x : MetaM α) : EraseM α := do
+  x.run' { lctx := (← read).lctx }
+
+/--
+TODO: The function ToLCNF.isTypeFormerType has an auxiliary function "quick"
+which I removed here because I didn't understand why it was correct.
+Maybe putting it back makes things faster.
+-/
+def isErasable (e : Expr) : MetaM Bool := do
+    let type ← Meta.inferType e
+    -- Erase evidence of propositions
+    -- ToLCNF includes an explicit check for isLcProof, but I think the type information should be enough to erase those here.
+    if (← Meta.isProp type) then
+      return true
+    -- Erase types and type formers
+    if (← Meta.isTypeFormerType type) then
+      return true
+    return false
+
+def addAxiom (name: Name): EraseM Unit := do
+  if (← get).constants.contains name then panic! s!"Constant {name} is already defined, cannot add axiom."
+  let kn := to_kername name
+  modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
+
+/--
+Get information about the inductive type, adding all its mutually-defined buddies to the context if necessary.
+-/
+def register_inductive (indinfo: InductiveVal): EraseM (inductive_id × InductiveArgMasks) := do
+  if let .some iid := (← get).inductives.get? indinfo.name then
+    return iid
+  else
+    let names := indinfo.all
+    let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
+    -- Iterate through all the inductive types in the mutual definition
+    let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
+      let .inductInfo inf ← getConstInfo ind_name | unreachable!
+      -- Iterate through all the constructors
+      let (ind_ctors, ind_argmasks) := List.unzip (← inf.ctors.mapM fun ctor_name => do
+        if isExtern (← getEnv) ctor_name && (← read).config.extern == .preferAxiom then
+          logInfo "Constructor {ctor_name} of type {ind_name} is marked @[extern], emitting axiom."
+          addAxiom ctor_name
+        let .ctorInfo ci ← getConstInfo ctor_name | unreachable!
+        -- Get an argmask to remember which fields are irrelevant.
+        let argmask: ConstructorArgMask ← if (← read).config.remove_irrel_constr_args
+        then
+          liftMetaM <| Meta.forallBoundedTelescope ci.type (.some <| ci.numParams + ci.numFields) fun vars _ =>
+            let fields := vars[ci.numParams:].toArray
+            let fields := if fields.size != ci.numFields
+            then panic! "unexpected field count"
+            else fields
+            do
+            let mask: ConstructorArgMask ← fields.mapM fun v => do
+              if ← isErasable v then pure .erase else pure .keep
+            if (mask.any (· == .erase)) then logInfo s!"Argmask for constructor {ctor_name}: {repr mask}"
+            pure mask
+        else
+          pure <| Array.replicate ci.numFields .keep
+        let cstr_nargs := Array.count .keep argmask
+        pure ({ cstr_name := toString ctor_name, cstr_nargs }, argmask)
+      )
+      -- If the type is a structure, add definitions for projections.
+      let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
+      let ind_projs: List projection_body ←
+        if is_struct then
+          -- only generate projections for relevant fields
+          let _ := Expr
+          let num_fields := ind_argmasks[0]!.count .keep
+          -- These dummy names aren't semantically important, so it doesn't actually matter whether the index refers to
+          -- the field's position before or after removing irrelevant fields. Here, I chose the latter, because it was easier.
+          pure (List.range num_fields |>.map toString |>.map projection_body.mk)
+        else
+          pure []
+
+      let ind_id: inductive_id := { mutual_block_name, idx }
+      modify (fun s => { s with inductives := s.inductives.insert ind_name (ind_id, ind_argmasks)})
+      let ind_name := toString ind_name
+      pure { ind_name, ind_ctors, ind_projs }
+    let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
+    modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
+    return (← get).inductives[indinfo.name]!
 
 def fvar_to_name (x: FVarId): EraseM ppname := do
   let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
@@ -86,65 +178,19 @@ def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (←
 
 def mkLetIn (x: FVarId) (val body: neterm): EraseM neterm := do return .letIn (← fvar_to_name x) val (abstract x body)
 
-def addAxiom (name: Name): EraseM Unit := do
-  if (← get).constants.contains name then panic! s!"Constant {name} is already defined, cannot add axiom."
-  logInfo s!"Emitting axiom for constant {name}."
-  let kn := to_kername name
-  modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
-
-/--
-Get information about the inductive type, adding all its mutually-defined buddies to the context if necessary.
--/
-def register_inductive (indinfo: InductiveVal): EraseM (inductive_id × inductive_arg_maps) := do
-  if let .some iid := (← get).inductives.get? indinfo.name then
-    return iid
-  else
-    let names := indinfo.all
-    let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
-    -- Iterate through all the inductive types in the mutual definition
-    let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
-      let .inductInfo inf ← getConstInfo ind_name | unreachable!
-      -- Iterate through all the constructors
-      let (ind_ctors, ind_argmaps) := List.unzip (← inf.ctors.mapM fun ctor_name => do
-        if isExtern (← getEnv) ctor_name && (← read).config.extern == .preferAxiom then
-          logInfo "Constructor {ctor_name} of type {ind_name} is marked @[extern], emitting axiom."
-          addAxiom ctor_name
-        let argmap := () -- TODO, get this by looking at the type?
-        let .ctorInfo ci ← getConstInfo ctor_name | unreachable!
-        pure ({ cstr_name := toString ctor_name, cstr_nargs := ci.numFields }, argmap)
-      )
-      -- If the type is a structure, add definitions for projections.
-      let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
-      let ind_projs: List projection_body ←
-        if is_struct then
-          let .ctorInfo ci ← getConstInfo inf.ctors[0]! | unreachable!
-          let num_fields := ci.numFields
-          pure (List.range num_fields |>.map toString |>.map projection_body.mk)
-        else
-          pure []
-
-      let ind_id: inductive_id := { mutual_block_name, idx }
-      modify (fun s => { s with inductives := s.inductives.insert ind_name (ind_id, ind_argmaps)})
-      let ind_name := toString ind_name
-      pure { ind_name, ind_ctors, ind_projs }
-    let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
-    modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
-    return (← get).inductives[indinfo.name]!
-
 /-- The order of variables here is what it is because the other way around led to segfaults. -/
 def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
   let mut body := body
   let names ← xs.mapM fvar_to_name
-  for (fvarid, i) in xs.zipIdx do
+  for (fvarid, i) in xs.reverse.zipIdx do
     body := toBvar fvarid i body
   return (names, body)
 
+/-
 def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm := do
   let (indid, _) ←  register_inductive indInfo
   return .case (indid, indInfo.numParams) discr alts
-
-/-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
-def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
+-/
 
 /-- Check binding order here as well, may be wrong. -/
 def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef neterm) := do
@@ -152,10 +198,6 @@ def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef ne
   for (n, i) in fixvarnames.reverse.zipIdx do
     body := toBvar ((← read).fixvars.get![n]!) i body
   return { name := .named name.toString, body }
-
-/-- Run an action of MetaM in EraseM using EraseM's local context of Lean types. -/
-@[inline] def liftMetaM (x : MetaM α) : EraseM α := do
-  x.run' { lctx := (← read).lctx }
 
 /-- Similar to Meta.withLocalDecl, but in EraseM.
     k will be passed some fresh FVarId and run in a context in which it is bound. -/
@@ -202,7 +244,7 @@ def forallMonocular {α} [Inhabited α] (t: Expr) (k: FVarId -> Expr -> EraseM �
 Given an expression `e` and its type, which is assumed to be of the form `∀ a:A, B`,
 run a continuation `k` in a context where a fvar `a` has type `A`.
 - if `e` is `fun a: A => body`, `k` will be run on the expression `body` directly.
-- if `e` is not of this form, `k` will be run on the expression `.app e (.fvar a)`
+- if `e` is not of this form, `k` will be run on the expression `.app e (.fvar a)`, behaving as if `e` had been eta-expanded to `fun a => e a`.
 In both cases the second argument to `k` is `B`, the type of the first argument in the new context.
 Assumes that `type` is the type of `e` in the context where it is called.
 Panics if `type` is not a function type.
@@ -231,16 +273,17 @@ and a second phase in which we descend the remaining distance through the type b
 but here we check whether there is a lambda to go under each time.
 This is probably easily fixable using something like lambdaBoundedTelescope.
 -/
-def lambdaOrIntroToArity {α} [Inhabited α] (e type: Expr) (arity: Nat) (k: Expr -> Array FVarId -> EraseM α): EraseM α :=
+def lambdaOrIntroToArity {α} [Inhabited α] (e type: Expr) (arity: Nat) (k: Expr -> List FVarId -> EraseM α): EraseM α :=
   match arity with
-  | 0 => k e #[]
+  | 0 => k e []
   | n+1 => lambdaMonocularOrIntro e type fun body bodytype fvarid =>
-      lambdaOrIntroToArity body bodytype n (fun e fvarids => k e (fvarids.push fvarid))
+      lambdaOrIntroToArity body bodytype n (fun e fvarids => k e (.cons fvarid fvarids))
 
 /--
 Given an expression, deconstruct it into an application to at least arity arguments,
 then build a neterm from it given the continuation.
-This will eta-expand if necessary.
+This will eta-expand if necessary, and close the lambdas after running `k`.
+For example: withAppEtaToMinArity "Nat.add 42" 2 k = mkLambda "y" (k "Nat.add" ["42", "y"])
 Panics if the type of e does not start with at least arity .forallE constructors.
 -/
 partial def withAppEtaToMinArity (e: Expr) (arity: Nat) (k: Expr -> Array Expr -> EraseM neterm): EraseM neterm := do
@@ -256,22 +299,8 @@ where
         let res ← go bodytype f (args.push (.fvar fvarid))
         mkLambda fvarid res
 
-/--
-TODO: The function ToLCNF.isTypeFormerType has an auxiliary function "quick"
-which I removed here because I didn't understand why it was correct.
-Maybe putting it back makes things faster.
--/
-def isErasable (e : Expr) : EraseM Bool :=
-  liftMetaM do
-    let type ← Meta.inferType e
-    -- Erase evidence of propositions
-    -- ToLCNF includes an explicit check for isLcProof, but I think the type information should be enough to erase those here.
-    if (← Meta.isProp type) then
-      return true
-    -- Erase types and type formers
-    if (← Meta.isTypeFormerType type) then
-      return true
-    return false
+/-- Remove the ._unsafe_rec suffix from a Name if it is present. -/
+def remove_unsafe_rec (n: Name): Name := Compiler.isUnsafeRecName? n |>.getD n
       
 /--
 This is used to detect if a definition is recursive.
@@ -334,7 +363,7 @@ partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
 where
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
   visitExpr (e : Expr) : EraseM neterm := do
-    if (← isErasable e) then
+    if (← liftMetaM <| isErasable e) then
       return .box
     match e with
     | .app ..      => visitApp e
@@ -375,8 +404,10 @@ where
 
   visitProj (s : Name) (i : Nat) (e : Expr) : EraseM neterm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
-    let (indid, _) ← register_inductive indinfo
-    let projinfo: projectioninfo := { ind_type := indid, param_count := indinfo.numParams, field_idx := i }
+    let (indid, argmasks) ← register_inductive indinfo
+    -- i is the index among all fields, but some are erased
+    let field_idx := argmasks[0]![:i].toArray.count .keep
+    let projinfo: projectioninfo := { ind_type := indid, param_count := indinfo.numParams, field_idx }
     return .proj projinfo (← visitExpr e)
 
   /--
@@ -405,9 +436,6 @@ where
   Special handling of
   - casesOn (will be eta-expanded)
   - constructors (will be eta-expanded)
-  - structure projection functions (will be inlined with their definition, except for runtime builtin types)
-  Since noConfusion principles are just defined, I think it's ok to not handle them specially.
-  Check visitNoConfusion in the original ToLCNF, which seems to do quite limited things.
   -/
   visitConstApp (e: Expr): EraseM neterm :=
     e.withApp fun f args => do
@@ -420,8 +448,13 @@ where
         withAppEtaToMinArity e casesInfo.arity (fun _ args => visitCases casesInfo args)
       else if let some arity ← getCtorArity? declName then
         withAppEtaToMinArity e arity (fun _ args => visitConstructor declName args)
-      else if let some projInfo ← getProjectionFnInfo? declName then
-        visitProjFn projInfo e
+      /-
+      Removed special check for automatically defined projection functions out of structures.
+      In toLCNF these are inlined and β-reduced, unless the projection is out of a builtin type of the runtime.
+      The definition seems to just be def spam.egg := fun s: spam => s.1,
+      so after β-reduction this becomes a primitive projection.
+      Left these to be inlined by Malfunction.
+      -/
       else
         visitAppArgs (← visitConst f) args
 
@@ -429,7 +462,8 @@ where
     let .ctorInfo info ← getConstInfo ctorname | unreachable!
     let cidx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
-    let (indid, argmaps) ← register_inductive indinfo
+    let (indid, argmasks) ← register_inductive indinfo
+    let argmask := argmasks[cidx]!
 
     if isExtern (← getEnv) ctorname && (← read).config.extern == .preferAxiom then
       -- Axiom has been added by register_inductive.
@@ -448,25 +482,12 @@ where
     | .machine, _
     | .peano, _ => pure ()
 
+    let param_args := args[:info.numParams]
+    let field_args := args[info.numParams:info.numParams + info.numFields]
+    let extra_args := args[info.numParams + info.numFields:]
+    let filtered_args := param_args.toArray ++ (filter argmask field_args) ++ extra_args.toArray
     -- Instead of making this a "real" use of .construct, in the stage of λbox I am targeting constructor application is function application
-    visitAppArgs (.construct indid cidx []) args
-
-  /--
-  Automatically defined projection functions out of structures are inlined,
-  unless the projection is out of a builtin type of the runtime.
-  The definition seems to just be def spam.egg := fun s: spam => s.1,
-  so after β-reduction this becomes a primitive projection.
-  -/
-  visitProjFn (projInfo : ProjectionFunctionInfo) (e : Expr) : EraseM neterm :=
-    e.withApp fun f args => do
-      let typeName := projInfo.ctorName.getPrefix
-      if isRuntimeBultinType typeName then
-        panic! "The Lean compiler does something special here but I don't know how to handle this case."
-      else
-        let .const declName us := f | unreachable!
-        let info ← getConstInfo declName
-        let f ← Core.instantiateValueLevelParams info us
-        visitExpr (f.beta args)
+    visitAppArgs (.construct indid cidx []) filtered_args
 
   /-- Normal application of a function to some arguments. -/
   visitAppArgs (f : neterm) (args : Array Expr) : EraseM neterm := do
@@ -491,20 +512,22 @@ where
       let zero_nt ← visitExpr zero_arm
       let succ_arm := args[casesInfo.altsRange.start + 1]! -- a function with one argument of type Nat
       let bool_indval := (← getConstInfo ``Bool).inductiveVal!
+      let (bool_indid, _) ← register_inductive bool_indval
       withLocalDecl `n (.const ``Nat []) .default (fun n_fvar => do
         let gtz_arm := Expr.app succ_arm <| mkAppN (.const ``Nat.sub []) #[.fvar n_fvar, .lit (.natVal 1)] -- no longer takes an argument, n_fvar is free here
         let gtz_nt: neterm ← visitExpr gtz_arm
         let condition: neterm ← visitExpr <| mkAppN (.const ``Nat.beq []) #[.fvar n_fvar, .lit (.natVal 0)]
-        let case_nt ← mkCase bool_indval condition [← mkAlt [] gtz_nt, ← mkAlt [] zero_nt]
+        let case_nt: neterm := .case (bool_indid, 0) condition [← mkAlt [] gtz_nt, ← mkAlt [] zero_nt]
         mkLetIn n_fvar discr_nt case_nt
       )
     | _, _ => do
       let .inductInfo indVal ← getConstInfo typeName | unreachable!
+      let (indid, argmasks) ← register_inductive indVal
       let mut alts := #[]
-      for i in casesInfo.altsRange, numFields in casesInfo.altNumParams do
-        let alt ← visitAlt numFields args[i]!
+      for i in casesInfo.altsRange, numFields in casesInfo.altNumParams /- which should proobably be called altNumFields -/, argmask in argmasks do
+        let alt ← visitAlt numFields argmask args[i]!
         alts := alts.push alt
-      mkCase indVal discr_nt alts.toList
+      pure <| neterm.case (indid, indVal.numParams) discr_nt alts.toList
     )
 
     -- The casesOn function may be overapplied, so handle the extra arguments.
@@ -515,11 +538,11 @@ where
   /--
   Visit a `matcher`/`casesOn` alternative.
   On the Lean side, e should be a function taking numFields arguments.
-  For λbox, I think we only need the body, as the neterm.cases constructor includes the bindings.
+  For λbox, I think we only need the body, as the neterm.cases constructor handles the bindings.
   -/
-  visitAlt (numFields : Nat) (e : Expr) : EraseM (List ppname × neterm) := do
+  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List ppname × neterm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
-      mkAlt (fvarids.toList) (← visitExpr e)
+      mkAlt (filter argmask fvarids.toArray).toList (← visitExpr e)
 
   get_constant_kername (n: Name): EraseM kername := do
     if let .some kn := (← get).constants.get? n then
@@ -541,11 +564,11 @@ where
     if single_decl then
       match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
       | .none, _, _ =>
-        logInfo s!"No value found for name {name}."
+        logInfo s!"No value found for name {name}, emitting axiom."
         return ← addAxiom name
       | .some _, false, _ => pure ()
       | .some _, true, .preferAxiom =>
-        logInfo s!"Name {name} has a value but is tagged @[extern]."
+        logInfo s!"Name {name} has a value but is tagged @[extern], emitting axiom."
         return ← addAxiom name
       | .some _, true, .preferLogical =>
         logInfo s!"Name {name} is tagged @[extern] but has a value, using value."
@@ -623,6 +646,7 @@ def eraseElab: Elab.Command.CommandElab
 
     let p: program ← erase e cfg
     let s: String := p |> Serialize.to_sexpr |>.toString
+    -- logInfo s!"{repr p}"
     match path? with
     | .some path => do
         IO.FS.writeFile path.getString s

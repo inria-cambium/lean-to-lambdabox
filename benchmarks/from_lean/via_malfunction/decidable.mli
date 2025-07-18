@@ -1,2 +1,2 @@
-type decidable = IsFalse of Obj.t | IsTrue of Obj.t
+type decidable
 val dec_of_bool: bool -> decidable

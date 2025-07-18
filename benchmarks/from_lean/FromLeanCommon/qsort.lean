@@ -1,5 +1,7 @@
 /- Removed printing and switched to using the regular Array.qsort. -/
 
+namespace Qsort
+
 abbrev Elem := Nat
 
 def badRand (seed : Elem) : Elem :=
@@ -16,6 +18,9 @@ partial def checkSortedAux (a : Array Elem) : Nat → Nat
     if a[i]! <= a[i+1]! then checkSortedAux a (i+1) else 1
   else
     0
+
+end Qsort
+open Qsort
 
 def qsort (n: Nat): Nat :=
   List.range n

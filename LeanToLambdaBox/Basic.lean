@@ -9,7 +9,7 @@ inductive modpath where
 | MPfile  (dp : dirpath)
 | MPdot   (mp : modpath) (id : ident)
 -- Removed MPBound because I still don't know what a functor is in OCaml-like module systems.
-deriving Inhabited
+deriving Inhabited, Repr
 
 /--
 Mimicking MetaRocq kernames.
@@ -17,7 +17,7 @@ Mimicking MetaRocq kernames.
 structure kername where
   mp: modpath
   id: ident
-deriving Inhabited
+deriving Inhabited, Repr
 
 def to_modpath (n: Name): modpath :=
   match n with
@@ -48,19 +48,19 @@ def root_kername (s: String): kername :=
 inductive ppname: Type where
   | named (s: String)
   | anon
-  deriving Inhabited
+  deriving Inhabited, Repr
 
 structure inductive_id where
   mutual_block_name: kername
   /-- Which of the mutually inductive types defined in this block is used here? -/
   idx: Nat
-  deriving Inhabited
+  deriving Inhabited, Repr
 
 structure projectioninfo where
   ind_type: inductive_id 
   param_count: Nat
   field_idx: Nat
-  deriving Inhabited
+  deriving Inhabited, Repr
 
 structure edef {term: Type} where
   name: ppname
@@ -68,7 +68,7 @@ structure edef {term: Type} where
   body: term
   /-- Principal/structural argument for recursion. -/
   principal_arg_idx: Nat := 0 -- this doesn't matter computationally and is just needed in the proof of correctness, so it's safe to let this be 0
-  deriving Inhabited
+  deriving Inhabited, Repr
 
 inductive prim_tag where
   | primInt
@@ -76,6 +76,7 @@ inductive prim_tag where
   | primFloat
   | primArray
   -/
+deriving Repr
 
 /--
 In MetaRocq they need to do something fancy to keep positivity because there everything is parametrized by the type of terms.
@@ -84,7 +85,7 @@ Since I don't handle arrays for now there's no need for that.
 abbrev prim_model: prim_tag -> Type
   | .primInt => BitVec 63
 
-def prim_val: Type := Σ t: prim_tag, prim_model t
+abbrev prim_val: Type := Σ t: prim_tag, prim_model t
 
 /--
 Basically `term` as defined in `MetaRocq/Erasure/EAst.v`, with an extra constructor `.fvar` to mimic Lean's locally nameless representation.
@@ -100,13 +101,13 @@ inductive neterm where
   | app: neterm -> neterm -> neterm
   /-- A constant living in the environment. -/
   | const: kername -> neterm
-  | construct: inductive_id -> Nat /- index of the constructor used -/ -> List neterm -> neterm
+  | construct: inductive_id -> Nat /- index in the mutual block of the constructor used -/ -> List neterm -> neterm
   | case: (inductive_id × Nat /- number of parameters, maybe redundant -/) -> neterm -> List (List ppname × neterm) -> neterm
   | proj: projectioninfo -> neterm -> neterm
   /-- Define some number of mutually inductive functions, then access one. -/
   | fix: List (@edef neterm) -> Nat /- index of the one mutually defined function we want to access -/ -> neterm
   | prim: prim_val -> neterm
-  deriving Inhabited
+  deriving Inhabited, Repr
 
 /-- This is actually structurally recursive, I think, Lean just has trouble seeing it. -/
 partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
@@ -131,18 +132,19 @@ def abstract (x: FVarId) (e: neterm): neterm := toBvar x 0 e
 structure constructor_body where
   cstr_name: ident
   cstr_nargs: Nat
-deriving Inhabited
+deriving Inhabited, Repr
 
 -- should be unused
 structure projection_body where
   proj_name: ident
+deriving Repr
 
 inductive allowed_eliminations where
   | IntoSProp
   | IntoPropSProp
   | IntoSetPropSProp
   | IntoAny
-deriving Inhabited
+deriving Inhabited, Repr
 
 structure one_inductive_body where
   ind_name : ident
@@ -152,24 +154,28 @@ structure one_inductive_body where
   ind_kelim : allowed_eliminations := .IntoAny -- I think, but this shouldn't matter
   ind_ctors : List constructor_body
   ind_projs : List projection_body -- This is only about giving user-visible names to projections, but `lbox` complains about wellformedness if it is empty.
-deriving Inhabited
+deriving Inhabited, Repr
 
 inductive recursivity_kind where
   | Finite
   | CoFinite -- Lean doesn't have primitive coinductive types, but including this here anyway to match the MetaCoq side.
   | BiFinite
+deriving Repr
 
 structure mutual_inductive_body where
   ind_finite : recursivity_kind := .Finite
   ind_npars : Nat
   ind_bodies : List one_inductive_body
+deriving Repr
 
 structure constant_body where
   cst_body: Option neterm
+deriving Repr
 
 inductive global_decl where
   | ConstantDecl (body: constant_body)
   | InductiveDecl (body: mutual_inductive_body)
+deriving Repr
 
 -- The first declarations to be added to the context are the deepest/first-consed in the list.
 abbrev global_declarations := List (kername × global_decl)

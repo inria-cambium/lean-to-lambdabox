@@ -30,5 +30,7 @@ $(bin)/%/:
 
 clean:
 	rm -rf bin
+	make -C via_lean clean
+	make -C via_malfunction clean
 
 .NOTINTERMEDIATE:

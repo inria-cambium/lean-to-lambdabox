@@ -7,8 +7,11 @@ list_sum_rev:natio
 cube:repeat
 binarytrees:natio
 rbmap:natio
+rbmap_std:natio
 triangle:natio
 const_fold:natio
 deriv:natio
 unionfind:natio
 qsort:natio
+qsort_fin:natio
+iflazy:natio
