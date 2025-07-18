@@ -637,7 +637,7 @@ syntax (name := erasestx) "#erase" ppSpace term (ppSpace "config" term)? (ppSpac
 def eraseElab: Elab.Command.CommandElab
   | `(command| #erase $t:term $[config $cfg?:term]? $[to $path?:str]? $[mli $mli?:str]?) => Elab.Command.liftTermElabM do
     let e: Expr ← Elab.Term.elabTerm t (expectedType? := .none)
-    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    Elab.Term.synthesizeSyntheticMVarsNoPostponing
     let e ← Lean.instantiateMVars e
 
     let cfg: ErasureConfig ← match cfg? with

@@ -2,6 +2,7 @@ import FromLeanCommon.binarytrees
 import FromLeanCommon.const_fold
 import FromLeanCommon.deriv
 import FromLeanCommon.qsort
+import FromLeanCommon.qsort_single
 import FromLeanCommon.qsort_fin
 import FromLeanCommon.rbmap
 import FromLeanCommon.rbmap_std

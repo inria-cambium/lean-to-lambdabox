@@ -24,10 +24,13 @@ def testNatCases: Nat -> Bool
 #print testNatCases.match_1
 #erase testNatCases
 
+#check Nat.casesOn
 #print HSub
 #check HSub.mk
 #print OfNat
 #print LE
+
+#check Array.set!
 
 mutual
 def even: Nat -> Bool
