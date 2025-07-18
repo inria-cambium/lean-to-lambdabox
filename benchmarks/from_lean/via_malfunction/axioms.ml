@@ -3,4 +3,4 @@
 include Int
 include Nat
 include Eq
-include Sekarray
+include LeanArray
