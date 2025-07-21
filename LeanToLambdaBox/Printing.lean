@@ -65,30 +65,30 @@ instance: Serialize prim_val where
   to_sexpr | ⟨.primInt, i⟩ => to_sexpr (prim_tag.primInt, (i: BitVec 63))
 
 mutual
-  partial def neterm.to_sexpr: neterm -> sexpr
+  partial def LBTerm.to_sexpr: LBTerm -> sexpr
     | .box => .atom "tBox"
     | .bvar n => .list [ .atom "tRel", to_sexpr n ]
-    | .lambda na t => .list [ .atom "tLambda", to_sexpr na, neterm.to_sexpr t ]
-    | .letIn na b t => .list [ .atom "tLetIn", to_sexpr na, neterm.to_sexpr b, neterm.to_sexpr t ]
-    | .app u v => .list [ .atom "tApp", neterm.to_sexpr u, neterm.to_sexpr v ]
+    | .lambda na t => .list [ .atom "tLambda", to_sexpr na, LBTerm.to_sexpr t ]
+    | .letIn na b t => .list [ .atom "tLetIn", to_sexpr na, LBTerm.to_sexpr b, LBTerm.to_sexpr t ]
+    | .app u v => .list [ .atom "tApp", LBTerm.to_sexpr u, LBTerm.to_sexpr v ]
     | .const k => .list [ .atom "tConst", to_sexpr k ]
-    | .construct ind n args => .list [ .atom "tConstruct", to_sexpr ind, to_sexpr n, .list (args.map neterm.to_sexpr)  ]
+    | .construct ind n args => .list [ .atom "tConstruct", to_sexpr ind, to_sexpr n, .list (args.map LBTerm.to_sexpr)  ]
     | .case indn c brs => .list [
         .atom "tCase",
         to_sexpr indn,
-        neterm.to_sexpr c,
-        .list (brs.map fun (names, branch) => .list [ to_sexpr names, neterm.to_sexpr branch ])
+        LBTerm.to_sexpr c,
+        .list (brs.map fun (names, branch) => .list [ to_sexpr names, LBTerm.to_sexpr branch ])
         ]
-    | .proj p c => .list [ .atom "tProj", to_sexpr p, neterm.to_sexpr c ]
+    | .proj p c => .list [ .atom "tProj", to_sexpr p, LBTerm.to_sexpr c ]
     | .fix mfix idx => .list [ .atom "tFix", .list (mfix.map edef.to_sexpr), to_sexpr idx ]
     | .fvar .. => unreachable!
     | .prim p => .list [ .atom "tPrim", to_sexpr p]
 
-  partial def edef.to_sexpr: @edef neterm -> sexpr
-    | ⟨name, body, principal⟩ => .list [ .atom "def", to_sexpr name, neterm.to_sexpr body, to_sexpr principal ]
+  partial def edef.to_sexpr: @edef LBTerm -> sexpr
+    | ⟨name, body, principal⟩ => .list [ .atom "def", to_sexpr name, LBTerm.to_sexpr body, to_sexpr principal ]
 end
 
-instance : Serialize neterm where to_sexpr := neterm.to_sexpr
+instance : Serialize LBTerm where to_sexpr := LBTerm.to_sexpr
 
 instance : Serialize constructor_body where
   to_sexpr | ⟨name, nargs⟩  => .list [ .atom "constructor_body", to_sexpr name, to_sexpr nargs ]

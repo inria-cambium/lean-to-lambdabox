@@ -174,12 +174,12 @@ def fvar_to_name (x: FVarId): EraseM ppname := do
   else
     return .anon
 
-def mkLambda (x: FVarId) (body: neterm): EraseM neterm := do return .lambda (← fvar_to_name x) (abstract x body)
+def mkLambda (x: FVarId) (body: LBTerm): EraseM LBTerm := do return .lambda (← fvar_to_name x) (abstract x body)
 
-def mkLetIn (x: FVarId) (val body: neterm): EraseM neterm := do return .letIn (← fvar_to_name x) val (abstract x body)
+def mkLetIn (x: FVarId) (val body: LBTerm): EraseM LBTerm := do return .letIn (← fvar_to_name x) val (abstract x body)
 
 /-- The order of variables here is what it is because the other way around led to segfaults. -/
-def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
+def mkAlt (xs: List FVarId) (body: LBTerm): EraseM (List ppname × LBTerm) := do
   let mut body := body
   let names ← xs.mapM fvar_to_name
   for (fvarid, i) in xs.reverse.zipIdx do
@@ -187,13 +187,13 @@ def mkAlt (xs: List FVarId) (body: neterm): EraseM (List ppname × neterm) := do
   return (names, body)
 
 /-
-def mkCase (indInfo: InductiveVal) (discr: neterm) (alts: List (List ppname × neterm)): EraseM neterm := do
+def mkCase (indInfo: InductiveVal) (discr: LBTerm) (alts: List (List ppname × LBTerm)): EraseM LBTerm := do
   let (indid, _) ←  register_inductive indInfo
   return .case (indid, indInfo.numParams) discr alts
 -/
 
 /-- Check binding order here as well, may be wrong. -/
-def mkDef (name: Name) (fixvarnames: List Name) (body: neterm): EraseM (@edef neterm) := do
+def mkDef (name: Name) (fixvarnames: List Name) (body: LBTerm): EraseM (@edef LBTerm) := do
   let mut body := body
   for (n, i) in fixvarnames.reverse.zipIdx do
     body := toBvar ((← read).fixvars.get![n]!) i body
@@ -281,17 +281,17 @@ def lambdaOrIntroToArity {α} [Inhabited α] (e type: Expr) (arity: Nat) (k: Exp
 
 /--
 Given an expression, deconstruct it into an application to at least arity arguments,
-then build a neterm from it given the continuation.
+then build a LBTerm from it given the continuation.
 This will eta-expand if necessary, and close the lambdas after running `k`.
 For example: withAppEtaToMinArity "Nat.add 42" 2 k = mkLambda "y" (k "Nat.add" ["42", "y"])
 Panics if the type of e does not start with at least arity .forallE constructors.
 -/
-partial def withAppEtaToMinArity (e: Expr) (arity: Nat) (k: Expr -> Array Expr -> EraseM neterm): EraseM neterm := do
+partial def withAppEtaToMinArity (e: Expr) (arity: Nat) (k: Expr -> Array Expr -> EraseM LBTerm): EraseM LBTerm := do
   let type ← liftMetaM do Meta.inferType e
   e.withApp (fun f args => go type f args)
 where
   -- Invariant: type is the type of f *args.
-  go (type f: Expr) (args: Array Expr): EraseM neterm :=
+  go (type f: Expr) (args: Array Expr): EraseM LBTerm :=
     if args.size >= arity then
       k f args
     else
@@ -362,7 +362,7 @@ partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
 
 where
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
-  visitExpr (e : Expr) : EraseM neterm := do
+  visitExpr (e : Expr) : EraseM LBTerm := do
     if (← liftMetaM <| isErasable e) then
       return .box
     match e with
@@ -376,7 +376,7 @@ where
     | .fvar fvarId => pure (.fvar fvarId)
     | .forallE .. | .mvar .. | .bvar .. | .sort ..  => unreachable!
 
-  visitLiteral (l: Literal): EraseM neterm := do
+  visitLiteral (l: Literal): EraseM LBTerm := do
     match (← read).config.nat, l with
     | .peano, .natVal 0 => visitConstructor ``Nat.zero #[]
     | .peano, .natVal (n+1) => visitConstructor ``Nat.succ #[.lit (.natVal n)]
@@ -391,10 +391,10 @@ where
   The original in ToLCNF also handles eta-reduction of implicit lambdas introduced by the elaborator.
   This is beyond the scope of what I want to do here for the moment.
   -/
-  visitLambda (e : Expr) : EraseM neterm :=
+  visitLambda (e : Expr) : EraseM LBTerm :=
     lambdaMonocular e (fun fvarid body => do mkLambda fvarid (← visitExpr body))
 
-  visitLet (e : Expr): EraseM neterm :=
+  visitLet (e : Expr): EraseM LBTerm :=
     /-
     In the original ToLCNF, if the bound value is erasable then the let-binding is not generated,
     since all occurrences of the variable must be erased anyway.
@@ -402,7 +402,7 @@ where
     -/
     letMonocular e (fun fvarid val body => do mkLetIn fvarid (← visitExpr val) (← visitExpr body))
 
-  visitProj (s : Name) (i : Nat) (e : Expr) : EraseM neterm := do
+  visitProj (s : Name) (i : Nat) (e : Expr) : EraseM LBTerm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
     let (indid, argmasks) ← register_inductive indinfo
     -- i is the index among all fields, but some are erased
@@ -416,7 +416,7 @@ where
   then handle the case where it is a constant specially; otherwise, straightforward recursion is correct.
   Contrary to the original ToLCNF, I have removed CSimp.replaceConstants here and assume it will just be run once before erasure.
   -/
-  visitApp (e : Expr) : EraseM neterm :=
+  visitApp (e : Expr) : EraseM LBTerm :=
     -- The applicand is a constant, check for special cases
     if let .const .. := e.getAppFn then
       visitConstApp e
@@ -426,7 +426,7 @@ where
 
   /-- A constant which is being defined in the current mutual block will be replaced with a free variable (to be bound by mkDef later).
   Other constants should previously have been added to the (λbox-side) context and will just be translated to Rocq kernames. -/
-  visitConst (e: Expr): EraseM neterm := do
+  visitConst (e: Expr): EraseM LBTerm := do
     let .const declName _ := e | unreachable!
     if let .some id := (← read).fixvars.bind (fun hmap => hmap[declName]?) then
       return .fvar id
@@ -437,7 +437,7 @@ where
   - casesOn (will be eta-expanded)
   - constructors (will be eta-expanded)
   -/
-  visitConstApp (e: Expr): EraseM neterm :=
+  visitConstApp (e: Expr): EraseM LBTerm :=
     e.withApp fun f args => do
       let .const declName _ := f | unreachable!
       if let some casesInfo ← getCasesInfo? declName then
@@ -458,7 +458,7 @@ where
       else
         visitAppArgs (← visitConst f) args
 
-  visitConstructor (ctorname: Name) (args: Array Expr): EraseM neterm := do
+  visitConstructor (ctorname: Name) (args: Array Expr): EraseM LBTerm := do
     let .ctorInfo info ← getConstInfo ctorname | unreachable!
     let cidx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
@@ -490,21 +490,21 @@ where
     visitAppArgs (.construct indid cidx []) filtered_args
 
   /-- Normal application of a function to some arguments. -/
-  visitAppArgs (f : neterm) (args : Array Expr) : EraseM neterm := do
-      args.foldlM (fun e arg => do return neterm.app e (← visitExpr arg)) f
+  visitAppArgs (f : LBTerm) (args : Array Expr) : EraseM LBTerm := do
+      args.foldlM (fun e arg => do return LBTerm.app e (← visitExpr arg)) f
 
-  visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM neterm := do
+  visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM LBTerm := do
     let discr_nt ← visitExpr args[casesInfo.discrPos]!
     let typeName := casesInfo.declName.getPrefix
     
     -- If we are using machine Nats then the inductive casesOn will not work.
-    let mut ret: neterm ← (match typeName, (← read).config.nat with
+    let mut ret: LBTerm ← (match typeName, (← read).config.nat with
     | ``Int, .machine => panic! "Int.casesOn not implemented."
     | ``Nat, .machine => do
       /-
       Compile this to "let n = discr in Bool.casesOn (Nat.beq n 0) (succ_case (n - 1)) zero_case".
       The let-binding is necessary to avoid double evaluation of the discriminee.
-      I'm doing part of this this on neterms instead of constructing Exprs because visitExpr
+      I'm doing part of this this on LBTerms instead of constructing Exprs because visitExpr
       assumes expressions are well-typed, which wouldn't be the case naïvely as (n - 1).succ is not defeq to n.
       Using casts to make the dependent types typecheck would be an option now that Eq.rec is added to the axioms.
       -/
@@ -515,9 +515,9 @@ where
       let (bool_indid, _) ← register_inductive bool_indval
       withLocalDecl `n (.const ``Nat []) .default (fun n_fvar => do
         let gtz_arm := Expr.app succ_arm <| mkAppN (.const ``Nat.sub []) #[.fvar n_fvar, .lit (.natVal 1)] -- no longer takes an argument, n_fvar is free here
-        let gtz_nt: neterm ← visitExpr gtz_arm
-        let condition: neterm ← visitExpr <| mkAppN (.const ``Nat.beq []) #[.fvar n_fvar, .lit (.natVal 0)]
-        let case_nt: neterm := .case (bool_indid, 0) condition [← mkAlt [] gtz_nt, ← mkAlt [] zero_nt]
+        let gtz_nt: LBTerm ← visitExpr gtz_arm
+        let condition: LBTerm ← visitExpr <| mkAppN (.const ``Nat.beq []) #[.fvar n_fvar, .lit (.natVal 0)]
+        let case_nt: LBTerm := .case (bool_indid, 0) condition [← mkAlt [] gtz_nt, ← mkAlt [] zero_nt]
         mkLetIn n_fvar discr_nt case_nt
       )
     | _, _ => do
@@ -527,7 +527,7 @@ where
       for i in casesInfo.altsRange, numFields in casesInfo.altNumParams /- which should proobably be called altNumFields -/, argmask in argmasks do
         let alt ← visitAlt numFields argmask args[i]!
         alts := alts.push alt
-      pure <| neterm.case (indid, indVal.numParams) discr_nt alts.toList
+      pure <| LBTerm.case (indid, indVal.numParams) discr_nt alts.toList
     )
 
     -- The casesOn function may be overapplied, so handle the extra arguments.
@@ -538,9 +538,9 @@ where
   /--
   Visit a `matcher`/`casesOn` alternative.
   On the Lean side, e should be a function taking numFields arguments.
-  For λbox, I think we only need the body, as the neterm.cases constructor handles the bindings.
+  For λbox, I think we only need the body, as the LBTerm.cases constructor handles the bindings.
   -/
-  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List ppname × neterm) := do
+  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List ppname × LBTerm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
       mkAlt (filter argmask fvarids.toArray).toList (← visitExpr e)
 
@@ -590,7 +590,7 @@ where
           let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
           -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
-          let t: neterm ← visitExpr (← prepare_erasure e)
+          let t: LBTerm ← visitExpr (← prepare_erasure e)
           mkDef (remove_unsafe_rec n) fixvarnames t
         )
         for (n, i) in fixvarnames.zipIdx do

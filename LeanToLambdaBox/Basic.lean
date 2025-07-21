@@ -89,28 +89,28 @@ abbrev prim_val: Type := Σ t: prim_tag, prim_model t
 
 /--
 Basically `term` as defined in `MetaRocq/Erasure/EAst.v`, with an extra constructor `.fvar` to mimic Lean's locally nameless representation.
-This is very useful when using the standard API to navigate Lean expressions and build a `neterm`.
+This is very useful when using the standard API to navigate Lean expressions and build a `LBTerm`.
 -/
-inductive neterm where
-  | box: neterm
+inductive LBTerm where
+  | box: LBTerm
   /-- A bound variable, accessed as a de Bruijn index. -/
-  | bvar: Nat -> neterm
-  | fvar: FVarId -> neterm
-  | lambda: ppname -> neterm -> neterm
-  | letIn: ppname -> neterm -> neterm -> neterm
-  | app: neterm -> neterm -> neterm
+  | bvar: Nat -> LBTerm
+  | fvar: FVarId -> LBTerm
+  | lambda: ppname -> LBTerm -> LBTerm
+  | letIn: ppname -> LBTerm -> LBTerm -> LBTerm
+  | app: LBTerm -> LBTerm -> LBTerm
   /-- A constant living in the environment. -/
-  | const: kername -> neterm
-  | construct: inductive_id -> Nat /- index in the mutual block of the constructor used -/ -> List neterm -> neterm
-  | case: (inductive_id × Nat /- number of parameters, maybe redundant -/) -> neterm -> List (List ppname × neterm) -> neterm
-  | proj: projectioninfo -> neterm -> neterm
+  | const: kername -> LBTerm
+  | construct: inductive_id -> Nat /- index in the mutual block of the constructor used -/ -> List LBTerm -> LBTerm
+  | case: (inductive_id × Nat /- number of parameters, maybe redundant -/) -> LBTerm -> List (List ppname × LBTerm) -> LBTerm
+  | proj: projectioninfo -> LBTerm -> LBTerm
   /-- Define some number of mutually inductive functions, then access one. -/
-  | fix: List (@edef neterm) -> Nat /- index of the one mutually defined function we want to access -/ -> neterm
-  | prim: prim_val -> neterm
+  | fix: List (@edef LBTerm) -> Nat /- index of the one mutually defined function we want to access -/ -> LBTerm
+  | prim: prim_val -> LBTerm
   deriving Inhabited, Repr
 
 /-- This is actually structurally recursive, I think, Lean just has trouble seeing it. -/
-partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
+partial def toBvar (x: FVarId) (lvl: Nat) (e: LBTerm): LBTerm :=
   match e with
   | .box => .box
   | .bvar i => .bvar i
@@ -127,7 +127,7 @@ partial def toBvar (x: FVarId) (lvl: Nat) (e: neterm): neterm :=
     .fix (defs.map fun nd => { nd with body := toBvar x (lvl + def_count) nd.body }) i
   | .prim p => .prim p
 
-def abstract (x: FVarId) (e: neterm): neterm := toBvar x 0 e
+def abstract (x: FVarId) (e: LBTerm): LBTerm := toBvar x 0 e
 
 structure constructor_body where
   cstr_name: ident
@@ -169,7 +169,7 @@ structure mutual_inductive_body where
 deriving Repr
 
 structure constant_body where
-  cst_body: Option neterm
+  cst_body: Option LBTerm
 deriving Repr
 
 inductive global_decl where
@@ -179,4 +179,4 @@ deriving Repr
 
 -- The first declarations to be added to the context are the deepest/first-consed in the list.
 abbrev global_declarations := List (kername × global_decl)
-abbrev program: Type := global_declarations × neterm
+abbrev program: Type := global_declarations × LBTerm
