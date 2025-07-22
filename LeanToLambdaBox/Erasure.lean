@@ -25,10 +25,10 @@ def filter (mask: ConstructorArgMask) (arr: Array α): Array α :=
 State carried by EraseM to handle constants and inductive types registered in the global environment.
 -/
 structure ErasureState: Type where
-  inductives: Std.HashMap Name (inductive_id × InductiveArgMasks) := ∅
-  constants: Std.HashMap Name kername := ∅
+  inductives: Std.HashMap Name (InductiveId × InductiveArgMasks) := ∅
+  constants: Std.HashMap Name Kername := ∅
   /-- This field is only updated, not read. -/
-  gdecls: global_declarations := []
+  gdecls: GlobalDeclarations := []
 
 namespace Config
 
@@ -105,20 +105,20 @@ def isErasable (e : Expr) : MetaM Bool := do
 
 def addAxiom (name: Name): EraseM Unit := do
   if (← get).constants.contains name then panic! s!"Constant {name} is already defined, cannot add axiom."
-  let kn := to_kername name
-  modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.none⟩) })
+  let kn := toKername name
+  modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .constantDecl ⟨.none⟩) })
 
 /--
 Get information about the inductive type, adding all its mutually-defined buddies to the context if necessary.
 -/
-def register_inductive (indinfo: InductiveVal): EraseM (inductive_id × InductiveArgMasks) := do
+def register_inductive (indinfo: InductiveVal): EraseM (InductiveId × InductiveArgMasks) := do
   if let .some iid := (← get).inductives.get? indinfo.name then
     return iid
   else
     let names := indinfo.all
-    let mutual_block_name := indinfo.all |>.map toString |> String.join |> root_kername
+    let mutualBlockName := indinfo.all |>.map toString |> String.join |> rootKername
     -- Iterate through all the inductive types in the mutual definition
-    let ind_bodies: List one_inductive_body ← names.zipIdx.mapM fun (ind_name, idx) => do
+    let ind_bodies: List OneInductiveBody ← names.zipIdx.mapM fun (ind_name, idx) => do
       let .inductInfo inf ← getConstInfo ind_name | unreachable!
       -- Iterate through all the constructors
       let (ind_ctors, ind_argmasks) := List.unzip (← inf.ctors.mapM fun ctor_name => do
@@ -141,31 +141,30 @@ def register_inductive (indinfo: InductiveVal): EraseM (inductive_id × Inductiv
             pure mask
         else
           pure <| Array.replicate ci.numFields .keep
-        let cstr_nargs := Array.count .keep argmask
-        pure ({ cstr_name := toString ctor_name, cstr_nargs }, argmask)
+        let nargs := Array.count .keep argmask
+        pure ({ name := toString ctor_name, nargs }, argmask)
       )
       -- If the type is a structure, add definitions for projections.
       let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
-      let ind_projs: List projection_body ←
+      let projs: List projection_body ←
         if is_struct then
           -- only generate projections for relevant fields
           let _ := Expr
           let num_fields := ind_argmasks[0]!.count .keep
           -- These dummy names aren't semantically important, so it doesn't actually matter whether the index refers to
           -- the field's position before or after removing irrelevant fields. Here, I chose the latter, because it was easier.
-          pure (List.range num_fields |>.map toString |>.map projection_body.mk)
+          pure (List.range num_fields |>.map toString |>.map ProjectionBody.mk)
         else
           pure []
 
-      let ind_id: inductive_id := { mutual_block_name, idx }
+      let ind_id: InductiveId := { mutualBlockName, idx }
       modify (fun s => { s with inductives := s.inductives.insert ind_name (ind_id, ind_argmasks)})
-      let ind_name := toString ind_name
-      pure { ind_name, ind_ctors, ind_projs }
-    let mutual_body := { ind_npars := indinfo.numParams, ind_bodies }
-    modify (fun s => { s with gdecls := s.gdecls.cons (mutual_block_name, .InductiveDecl mutual_body) })
+      pure { name := toString ind_name, ctors := ind_ctors, projs }
+    let mutual_body := { npars := indinfo.numParams, bodies := ind_bodies }
+    modify (fun s => { s with gdecls := s.gdecls.cons (mutualBlockName, .inductiveDecl mutual_body) })
     return (← get).inductives[indinfo.name]!
 
-def fvar_to_name (x: FVarId): EraseM ppname := do
+def fvar_to_name (x: FVarId): EraseM BinderName := do
   let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
   let s: String := n.toString
   -- check if s is ASCII graphic, otherwise the λbox parser will complain
@@ -179,7 +178,7 @@ def mkLambda (x: FVarId) (body: LBTerm): EraseM LBTerm := do return .lambda (←
 def mkLetIn (x: FVarId) (val body: LBTerm): EraseM LBTerm := do return .letIn (← fvar_to_name x) val (abstract x body)
 
 /-- The order of variables here is what it is because the other way around led to segfaults. -/
-def mkAlt (xs: List FVarId) (body: LBTerm): EraseM (List ppname × LBTerm) := do
+def mkAlt (xs: List FVarId) (body: LBTerm): EraseM (List BinderName × LBTerm) := do
   let mut body := body
   let names ← xs.mapM fvar_to_name
   for (fvarid, i) in xs.reverse.zipIdx do
@@ -193,7 +192,7 @@ def mkCase (indInfo: InductiveVal) (discr: LBTerm) (alts: List (List ppname × L
 -/
 
 /-- Check binding order here as well, may be wrong. -/
-def mkDef (name: Name) (fixvarnames: List Name) (body: LBTerm): EraseM (@edef LBTerm) := do
+def mkDef (name: Name) (fixvarnames: List Name) (body: LBTerm): EraseM (@FixDef LBTerm) := do
   let mut body := body
   for (n, i) in fixvarnames.reverse.zipIdx do
     body := toBvar ((← read).fixvars.get![n]!) i body
@@ -356,7 +355,7 @@ Copied over from toLCNF, then quite heavily pruned and modified.
 
 This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
 -/
-partial def erase (e : Expr) (config: ErasureConfig): CoreM program := do
+partial def erase (e : Expr) (config: ErasureConfig): CoreM Program := do
   let (t, s) ← run (do visitExpr (← prepare_erasure e)) config
   return (s.gdecls, t)
 
@@ -406,8 +405,8 @@ where
     let .inductInfo indinfo ← getConstInfo s | unreachable!
     let (indid, argmasks) ← register_inductive indinfo
     -- i is the index among all fields, but some are erased
-    let field_idx := argmasks[0]![:i].toArray.count .keep
-    let projinfo: projectioninfo := { ind_type := indid, param_count := indinfo.numParams, field_idx }
+    let fieldIdx := argmasks[0]![:i].toArray.count .keep
+    let projinfo: ProjectionInfo := { indType := indid, paramCount := indinfo.numParams, fieldIdx }
     return .proj projinfo (← visitExpr e)
 
   /--
@@ -467,7 +466,7 @@ where
 
     if isExtern (← getEnv) ctorname && (← read).config.extern == .preferAxiom then
       -- Axiom has been added by register_inductive.
-      return ← visitAppArgs (.const <| to_kername ctorname) args
+      return ← visitAppArgs (.const <| toKername ctorname) args
 
     match (← read).config.nat, ctorname with
     | .machine, ``Nat.zero =>
@@ -540,11 +539,11 @@ where
   On the Lean side, e should be a function taking numFields arguments.
   For λbox, I think we only need the body, as the LBTerm.cases constructor handles the bindings.
   -/
-  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List ppname × LBTerm) := do
+  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List BinderName × LBTerm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
       mkAlt (filter argmask fvarids.toArray).toList (← visitExpr e)
 
-  get_constant_kername (n: Name): EraseM kername := do
+  get_constant_kername (n: Name): EraseM Kername := do
     if let .some kn := (← get).constants.get? n then
       return kn
     else
@@ -580,13 +579,13 @@ where
       let e: Expr := ci.value! (allowOpaque := true)
       let t ← withReader (fun env => { env with fixvars := .none }) do
         pure (← visitExpr (← prepare_erasure e))
-      let kn := to_kername name
-      modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .ConstantDecl <| ⟨.some t⟩) })
+      let kn := toKername name
+      modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .constantDecl <| ⟨.some t⟩) })
     else -- translate into a mutual fixpoint declaration
       let ids ← names.mapM (fun _ => mkFreshFVarId)
       let fixvarnames := names.map remove_unsafe_rec
       withReader (fun env => { env with fixvars := fixvarnames |>.zip ids |> Std.HashMap.ofList |> .some }) do
-        let defs: List edef ← names.mapM (fun n => do
+        let defs: List FixDef ← names.mapM (fun n => do
           let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
           -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
@@ -594,8 +593,8 @@ where
           mkDef (remove_unsafe_rec n) fixvarnames t
         )
         for (n, i) in fixvarnames.zipIdx do
-          let kn := to_kername n
-          modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .ConstantDecl ⟨.some <| .fix defs i⟩) })
+          let kn := toKername n
+          modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .constantDecl ⟨.some <| .fix defs i⟩) })
 
 inductive MLType: Type where
   | arrow (a b: MLType)
@@ -644,7 +643,7 @@ def eraseElab: Elab.Command.CommandElab
     | .none => pure {}
     | .some cfg => unsafe Elab.Term.evalTerm ErasureConfig (.const ``Erasure.ErasureConfig []) cfg
 
-    let p: program ← erase e cfg
+    let p: Program ← erase e cfg
     let s: String := p |> Serialize.to_sexpr |>.toString
     -- logInfo s!"{repr p}"
     match path? with
