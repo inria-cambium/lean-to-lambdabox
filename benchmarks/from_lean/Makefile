@@ -1,6 +1,4 @@
-build_id:=TODO
-
-bin:=bin/$(build_id)
+bin:=bin
 
 default:
 	$(error No target specified)
@@ -18,10 +16,6 @@ $(bin)/malfunction-noflambda/%: FORCE | $(bin)/malfunction-noflambda/
 
 $(bin)/lean-compilernew/%: FORCE | $(bin)/lean-compilernew/
 	make -C via_lean bin/$* TARGET=../$@
-
-bin/%: $(bin)/%
-	mkdir -p $(dir $@)
-	ln -srf $< $@
 
 $(bin)/%/:
 	mkdir -p $@

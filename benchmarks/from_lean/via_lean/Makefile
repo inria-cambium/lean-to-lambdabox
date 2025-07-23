@@ -1,7 +1,5 @@
-lean_build_id:=TODO
-
-build:=build/$(lean_build_id)
-bin:=bin/$(lean_build_id)
+build:=build
+bin:=bin
 
 default:
 	$(error No target specified)
@@ -21,9 +19,6 @@ $(build)/%/:
 $(bin)/:
 	mkdir -p $@
 
-bin/:
-	mkdir -p $@
-
 results:
 	mkdir -p $@
 
@@ -36,15 +31,11 @@ $(build)/%/lakefile.toml: lakefile.toml.template | $(build)/%/
 $(bin)/%: $(build)/%/Main.lean $(build)/%/lean-toolchain $(build)/%/lakefile.toml ../FromLeanCommon.lean ../FromLeanCommon | $(bin)/
 	(cd $(build)/$* && lake build test)
 	ln -srf $(build)/$*/.lake/build/bin/test $@
+ifdef TARGET
+	ln -srf $@ $(TARGET)
+endif
 
 FORCE:
-
-bin/%: $(bin)/% $(if $(TARGET),FORCE) | bin/
-ifdef TARGET
-	ln -srf $< $(TARGET)
-else
-	ln -srf $< $@
-endif
 
 #results/%.json: bin/% | results
 #	taskset -c 3 hyperfine -N --export-json $@ $^
