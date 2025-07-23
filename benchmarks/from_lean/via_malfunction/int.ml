@@ -2,7 +2,7 @@ let def__Int_ofNat n = n
 
 let def__Int_neg = Z.neg
 
-let def__Int_neg_succ_of_nat n = Z.neg (Z.succ n)
+let def__Int_negSucc n = Z.neg (Z.succ n)
 
 let def__Int_add = Z.add
 

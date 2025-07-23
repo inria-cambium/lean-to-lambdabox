@@ -10,10 +10,14 @@ import FromLeanCommon.unionfind
 
 set_option linter.unusedVariables false
 
+def unit (u: Unit): Unit := .unit
+
 def demo0 (u: Unit): List Unit := [.unit, .unit, .unit]
 
 -- TODO: also test version using typeclass search to generate HAppend instance from "++" notation
 def demo1 (u: Unit): List Bool := List.replicate 5000 true |>.append <| List.replicate 3000 false
+
+def demo1_tc (u: Unit): List Bool := List.replicate 5000 true ++ List.replicate 3000 false
 
 def repeat2 (x y: α) (n: Nat): List α :=
   match n with

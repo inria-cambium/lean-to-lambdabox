@@ -34,3 +34,5 @@ let def__Array_set_u33 _ arr idx v =
   let i = Z.to_int idx in
   set arr i v;
   arr
+
+let def__Array_mk _ l = of_list l

@@ -30,3 +30,5 @@ let def__Array_push _ arr v = push Sek.back arr v
 let def__Array_set_u33 _ arr idx v =
   let i = Z.to_int idx in
   set arr i v
+
+let def__Array_mk _ l = of_list (Obj.magic 0) l

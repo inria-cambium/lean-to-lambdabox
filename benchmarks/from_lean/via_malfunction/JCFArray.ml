@@ -195,3 +195,6 @@ let def__Array_push _ arr v = push arr v
 let def__Array_set_u33 _ arr idx v =
   let i = Z.to_int idx in
   set arr i v
+
+let def__Array_mk _ l =
+  ref (Array (Dynarray.of_list l))

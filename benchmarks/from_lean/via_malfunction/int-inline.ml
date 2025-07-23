@@ -4,7 +4,7 @@ let def__Int_ofNat (n: Z.t) = n
 let def__Int_neg n = (Z.neg [@inlined]) n
 [@@ inline always]
 
-let def__Int_neg_succ_of_nat n = (Z.neg [@inlined]) ((Z.succ [@inlined]) n)
+let def__Int_negSucc n = (Z.neg [@inlined]) ((Z.succ [@inlined]) n)
 [@@ inline always]
 
 let def__Int_add n m = (Z.add [@inlined]) n m

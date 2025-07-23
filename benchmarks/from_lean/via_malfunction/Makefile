@@ -29,10 +29,8 @@ else
 $(error Variable INLINE_AXIOMS must be either 0 or 1, is $(INLINE_AXIOMS))
 endif
 
-ARRAYML?=SekArray.ml
-
-# 0 to keep all constructor arguments, 1 to remove irrelevant ones; default is 0.
-PRUNE_CONSTRUCTORS?=0
+# 0 to keep all constructor arguments, 1 to remove irrelevant ones; default is 1.
+PRUNE_CONSTRUCTORS?=1
 ifeq ($(PRUNE_CONSTRUCTORS),1)
 DECIDABLEML=decidable-pruned.ml
 ERASURE_CONFIG+=remove_irrel_constr_args := true,
@@ -41,8 +39,8 @@ else
 $(error Variable PRUNE_CONSTRUCTORS must be either 0 or 1, is $(PRUNE_CONSTRUCTORS))
 endif
 
-# 0 to keep values of one-constructor one-field inductive types boxed, 1 to unbox; default is 0.
-UNBOX?=0
+# 0 to keep values of one-constructor one-field inductive types boxed, 1 to unbox; default is 1.
+UNBOX?=1
 ifeq ($(UNBOX),1)
 LBOX_SWITCH=$(LBOX_UNBOX_SWITCH)
 else ifeq ($(UNBOX),0)
@@ -51,9 +49,16 @@ else
 $(error Variable UNBOX must be either 0 or 1, is $(UNBOX))
 endif
 
+ARRAYML?=JCFArray.ml
+ifeq ($(ARRAYML),SekArray.ml)
+OCAMLPACKAGE=zarith,sek
+else
+OCAMLPACKAGE=zarith
+endif
+
 LBOX=opam exec --switch=$(LBOX_SWITCH) -- lbox
 MALFUNCTION=opam exec --switch=$(MALFUNCTION_SWITCH) -- malfunction
-OCAMLOPT=opam exec --switch=$(MALFUNCTION_SWITCH) -- ocamlfind ocamlopt -package zarith,sek
+OCAMLOPT=opam exec --switch=$(MALFUNCTION_SWITCH) -- ocamlfind ocamlopt -package $(OCAMLPACKAGE)
 
 # Space-separated.
 malfunction_build_info:=OCAML_ARGS=$(OCAML_ARGS)\
@@ -66,6 +71,7 @@ LBOX_SWITCH=$(LBOX_SWITCH)\
 MALFUNCTION_SWITCH=$(MALFUNCTION_SWITCH)\
 MALFUNCTION_ARGS=$(MALFUNCTION_ARGS)\
 OCAMLPARAM=$(OCAMLPARAM)\
+OCAMLPACKAGE=$(OCAMLPACKAGE)\
 DECIDABLEML=$(DECIDABLEML)\
 EQML=$(EQML)\
 NATML=$(NATML)\

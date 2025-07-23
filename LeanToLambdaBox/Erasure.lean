@@ -601,6 +601,7 @@ inductive MLType: Type where
   | Z
   | unit
   | bool
+  | list (a: MLType)
 deriving Inhabited
 
 def MLType.toString: MLType -> String
@@ -608,12 +609,14 @@ def MLType.toString: MLType -> String
   | Z => "Z.t"
   | unit => "unit"
   | bool => "bool"
+  | list a => s!"{a.toString} list"
 where
   toStringProtected: MLType -> String
   | arrow a b => s!"({toStringProtected a} -> {b.toString})"
   | Z => "Z.t"
   | unit => "unit"
   | bool => "bool"
+  | list a => s!"{a.toString} list"
 
 instance : ToString MLType := ⟨MLType.toString⟩
 
@@ -621,10 +624,11 @@ partial def to_ml_type (ty: Expr): MetaM MLType :=
   Meta.forallTelescopeReducing ty fun vars body => do
     let vartypes ← vars.mapM Meta.inferType
     let varmltypes ← vartypes.mapM to_ml_type
-    let bodymltype := match (← Meta.whnf body) with
-    | .const `Nat _ => .Z
-    | .const `Unit _ | .const `PUnit _ => .unit
-    | .const `Bool _ => .bool
+    let bodymltype ← match (← Meta.whnf body) with
+    | .const `Nat _ => pure .Z
+    | .const `Unit _ | .const `PUnit _ => pure .unit
+    | .const `Bool _ => pure .bool
+    | .app (.const `List _) a => do pure <| .list (← to_ml_type a)
     | t => panic! s!"failed to translate {t} into ML type"
     return varmltypes.foldr .arrow bodymltype
 
