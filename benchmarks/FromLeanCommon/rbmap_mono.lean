@@ -2,7 +2,7 @@
 This is rbmap_std with the code specialized for maps Nat -> Bool. Maps still carry the invariant.
 -/
 
-namespace RBMapStdMono
+namespace RBMapMono
 
 inductive RBColor where
   | red | black
@@ -163,9 +163,9 @@ def mkMapAux : Nat → Tree → Tree
 def mkMap (n : Nat) :=
   mkMapAux n RBMap.empty
 
-end RBMapStdMono
+end RBMapMono
 
-def rbmap_std_mono (n: Nat): Nat :=
-  let m := RBMapStdMono.mkMap n
+def rbmap_mono (n: Nat): Nat :=
+  let m := RBMapMono.mkMap n
   let v := m.fold (fun r _ v => if v then r + 1 else r) 0
   v

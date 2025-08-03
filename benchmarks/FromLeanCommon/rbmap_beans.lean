@@ -3,7 +3,7 @@ Copyright (c) 2017 Microsoft Corporation. All rights reserved.
 Released under Apache 2.0 license as described in the file LICENSE.
 Authors: Leonardo de Moura, Sebastian Ullrich
 -/
-namespace RBMap
+namespace RBMapBeans
 
 inductive Color
   | red | black
@@ -63,9 +63,9 @@ def mkMapAux : Nat → Tree → Tree
 def mkMap (n : Nat) :=
   mkMapAux n .leaf
 
-end RBMap
+end RBMapBeans
 
-def rbmap (n: Nat): Nat :=
-  let m := RBMap.mkMap n
-  let v := RBMap.fold (fun _ v r => if v then r + 1 else r) m 0
+def rbmap_beans (n: Nat): Nat :=
+  let m := RBMapBeans.mkMap n
+  let v := RBMapBeans.fold (fun _ v r => if v then r + 1 else r) m 0
   v

@@ -3,7 +3,7 @@ This is rbmap_std_mono but directly manipulating RBNode without the invariant.
 Should correspond closely to what the "old" rbmap is doing.
 -/
 
-namespace RBMapStdMonoNode
+namespace RBMapRaw
 
 inductive RBColor where
   | red | black
@@ -85,9 +85,9 @@ def mkMapAux : Nat → Tree → Tree
 def mkMap (n : Nat) :=
   mkMapAux n .leaf
 
-end RBMapStdMonoNode
+end RBMapRaw
 
-def rbmap_std_mono_node (n: Nat): Nat :=
-  let m := RBMapStdMonoNode.mkMap n
+def rbmap_raw (n: Nat): Nat :=
+  let m := RBMapRaw.mkMap n
   let v := m.fold (fun r _ v => if v then r + 1 else r) 0
   v
