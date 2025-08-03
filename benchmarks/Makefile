@@ -74,7 +74,7 @@ $(results)/wide/:
 bin/allbenches: $(foreach backend,$(backends),$(bin)/$(backend)/allbenches)
 
 wide: FORCE bin/allbenches | $(results)/wide/
-	taskset -c 3 hyperfine -N --warmup 2 -L bench "$(subst :,$(space),$(subst $(space),"$(comma)",$(benches)))" -L backend $(subst $(space),$(comma),$(backends)) "bin/{backend}/{bench}" --export-json $(results)/wide/$(shell date +"%Y-%m-%dT%T").json
+	taskset -c 3 hyperfine -N --warmup 5 -L bench "$(subst :,$(space),$(subst $(space),"$(comma)",$(benches)))" -L backend $(subst $(space),$(comma),$(backends)) "bin/{backend}/{bench}" --export-json $(results)/wide/$(shell date +"%Y-%m-%dT%T").json
 
 $(bin)/%/:
 	mkdir -p $@
