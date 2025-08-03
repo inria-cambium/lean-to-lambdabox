@@ -83,14 +83,31 @@ malfunction_build_id:= $(shell echo "$(malfunction_build_info)" | sha256sum | he
 build:=build/$(malfunction_build_id)
 bin:=bin/$(malfunction_build_id)
 
+benches:=
+define register_test
+$(let testname harness rest,$(subst :, ,$(1)),\
+
+# The shell magic capitalizes the first letter of the test name to make a module name.
+$(build)/$(testname)_main.ml: $(harness).ml.template | $(build)
+	sed "s/{{testmodule}}/$(shell echo $(testname) | sed 's/^./\U&/')/g" $(harness).ml.template > $$@
+ifeq ($(harness),natio)
+benches+=$(testname)
+endif
+)
+endef
+
+$(foreach testspec,$(shell cat ../TESTS),$(eval $(call register_test,$(testspec))))
+
 FORCE:
 
-bin/%: $(bin)/% $(if $(TARGET),FORCE)
-ifdef TARGET
-	ln -srf $< $(TARGET)
+bin/%: $(bin)/% $(if $(TARGETDIR),FORCE)
+ifdef TARGETDIR
+	ln -srf $< $(TARGETDIR)/$*
 else
 	ln -srf $< $@
 endif
+
+bin/allbenches: $(foreach bench,$(benches),bin/$(bench))
 
 $(bin)/%: $(build)/decidable.cmx\
 	  $(build)/eq.cmx\
@@ -101,18 +118,6 @@ $(bin)/%: $(build)/decidable.cmx\
 	  $(build)/%.cmx\
           $(build)/%_main.ml | $(bin)
 	$(OCAMLOPT) -I $(build) -linkpkg $(OCAML_ARGS) $^ -o $@
-
-define register_test
-$(let testname harness rest,$(subst :, ,$(1)),\
-
-# The shell magic capitalizes the first letter of the test name to make a module name.
-$(build)/$(testname)_main.ml: $(harness).ml.template | $(build)
-	sed "s/{{testmodule}}/$(shell echo $(testname) | sed 's/^./\U&/')/g" $(harness).ml.template > $$@
-
-)
-endef
-
-$(foreach testspec,$(shell cat ../TESTS),$(eval $(call register_test,$(testspec))))
 
 default:
 	$(error No target specified)

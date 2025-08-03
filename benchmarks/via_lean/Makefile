@@ -4,10 +4,14 @@ bin:=bin
 default:
 	$(error No target specified)
 
+benches:=
 define register_test
 $(let testname harness rest,$(subst :, ,$(1)),\
 $(build)/$(testname)/Main.lean: $(harness).lean.template | $(build)/$(testname)/
 	sed "s/{{testfunction}}/$(testname)/g" $(harness).lean.template > $$@
+ifeq ($(harness),natio)
+benches+=$(testname)
+endif
 )
 endef
 
@@ -28,17 +32,16 @@ $(build)/%/lean-toolchain: lean-toolchain.template | $(build)/%/
 $(build)/%/lakefile.toml: lakefile.toml.template | $(build)/%/
 	cp $< $@
 
+bin/allbenches: $(foreach bench,$(benches),$(bin)/$(bench))
+
 $(bin)/%: $(build)/%/Main.lean $(build)/%/lean-toolchain $(build)/%/lakefile.toml ../FromLeanCommon.lean ../FromLeanCommon | $(bin)/
 	(cd $(build)/$* && lake build test)
 	ln -srf $(build)/$*/.lake/build/bin/test $@
-ifdef TARGET
-	ln -srf $@ $(TARGET)
+ifdef TARGETDIR
+	ln -srf $@ $(TARGETDIR)/$*
 endif
 
 FORCE:
-
-#results/%.json: bin/% | results
-#	taskset -c 3 hyperfine -N --export-json $@ $^
 
 clean:
 	rm -rf build bin
