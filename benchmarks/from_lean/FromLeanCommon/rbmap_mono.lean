@@ -1,56 +1,54 @@
--- import Lean.Data.RBMap
 /-
-Importing from Lean.Data.RBMap imports the entirety of Lean,
-which leads to a runtime (!) overhead of about 50ms.
-https://leanprover.zulipchat.com/#narrow/channel/270676-lean4/topic/.60import.20Lean.60.20influencing.20executable.20startup.20time
-Instead, inlined the necessary bits.
+This is rbmap_std with the code specialized for maps Nat -> Bool. Maps still carry the invariant.
 -/
 
-namespace RBMapStd
-universe u v
+namespace RBMapStdMono
 
 inductive RBColor where
   | red | black
 
-inductive RBNode (α : Type u) (β : α → Type v) where
-  | leaf                                                                                        : RBNode α β
-  | node  (color : RBColor) (lchild : RBNode α β) (key : α) (val : β key) (rchild : RBNode α β) : RBNode α β
+inductive RBNode where
+  | leaf                                                                                        : RBNode
+  | node  (color : RBColor) (lchild : RBNode) (key : Nat) (val : Bool) (rchild : RBNode) : RBNode
 
 namespace RBNode
 variable {α : Type u} {β : α → Type v} {σ : Type w}
 
 open RBColor Nat
 
--- @[specialize] def fold (f : σ → (k : α) → β k → σ) : (init : σ) → RBNode α β → σ
-def fold (f : σ → (k : α) → β k → σ) : (init : σ) → RBNode α β → σ
+-- @[specialize] def fold (f : σ → (k : α) → β k → σ) : (init : σ) → RBNode → σ
+def fold (f : σ → Nat → Bool → σ) : (init : σ) → RBNode → σ
   | b, leaf           => b
   | b, node _ l k v r => fold f (f (fold f b l) k v) r
 
 -- the first half of Okasaki's `balance`, concerning red-red sequences in the left child
-@[inline] def balance1 : RBNode α β → (a : α) → β a → RBNode α β → RBNode α β
+@[inline] def balance1 : RBNode → Nat → Bool → RBNode → RBNode
   | node red (node red a kx vx b) ky vy c, kz, vz, d
   | node red a kx vx (node red b ky vy c), kz, vz, d => node red (node black a kx vx b) ky vy (node black c kz vz d)
   | a,                                     kx, vx, b => node black a kx vx b
 
 -- the second half, concerning red-red sequences in the right child
-@[inline] def balance2 : RBNode α β → (a : α) → β a → RBNode α β → RBNode α β
+@[inline] def balance2 : RBNode → Nat → Bool → RBNode → RBNode
   | a, kx, vx, node red (node red b ky vy c) kz vz d
   | a, kx, vx, node red b ky vy (node red c kz vz d) => node red (node black a kx vx b) ky vy (node black c kz vz d)
   | a, kx, vx, b                                     => node black a kx vx b
 
-def isRed : RBNode α β → Bool
+def isRed : RBNode → Bool
   | node red .. => true
   | _           => false
 
-def isBlack : RBNode α β → Bool
+def isBlack : RBNode → Bool
   | node black .. => true
   | _             => false
 
+def cmp (n m : Nat) : Ordering :=
+  bif n.blt m then .lt
+  else bif m.blt n then .gt
+  else .eq
+
 section Insert
 
-variable (cmp : α → α → Ordering)
-
-@[specialize] def ins : RBNode α β → (k : α) → β k → RBNode α β
+def ins : RBNode → Nat → Bool → RBNode
   | leaf,               kx, vx => node red leaf kx vx leaf
   | node red a ky vy b, kx, vx =>
     match cmp kx ky with
@@ -63,27 +61,27 @@ variable (cmp : α → α → Ordering)
     | Ordering.gt => balance2 a ky vy (ins b kx vx)
     | Ordering.eq => node black a kx vx b
 
-def setBlack : RBNode α β → RBNode α β
+def setBlack : RBNode → RBNode
   | node _ l k v r => node black l k v r
   | e              => e
 
-@[specialize] def insert (t : RBNode α β) (k : α) (v : β k) : RBNode α β :=
-  if isRed t then setBlack (ins cmp t k v)
-  else ins cmp t k v
+def insert (t : RBNode) (k : Nat) (v : Bool) : RBNode :=
+  if isRed t then setBlack (ins t k v)
+  else ins t k v
 
 end Insert
 
-def setRed : RBNode α β → RBNode α β
+def setRed : RBNode → RBNode
   | node _ a k v b => node red a k v b
   | e              => e
 
-def balLeft : RBNode α β → (k : α) → β k → RBNode α β → RBNode α β
+def balLeft : RBNode → Nat → Bool → RBNode → RBNode
   | node red a kx vx b,   k, v, r                    => node red (node black a kx vx b) k v r
   | l, k, v, node black a ky vy b                    => balance2 l k v (node red a ky vy b)
   | l, k, v, node red (node black a ky vy b) kz vz c => node red (node black l k v a) ky vy (balance2 b kz vz (setRed c))
   | l, k, v, r                                       => node red l k v r -- unreachable
 
-def balRight (l : RBNode α β) (k : α) (v : β k) (r : RBNode α β) : RBNode α β :=
+def balRight (l : RBNode) (k : Nat) (v : Bool) (r : RBNode) : RBNode :=
   match r with
   | (node red b ky vy c) => node red l k v (node black b ky vy c)
   | _ => match l with
@@ -92,11 +90,11 @@ def balRight (l : RBNode α β) (k : α) (v : β k) (r : RBNode α β) : RBNode 
     | _                                       => node red l k v r -- unreachable
 
 /-- The number of nodes in the tree. -/
-@[local simp] def size : RBNode α β → Nat
+@[local simp] def size : RBNode → Nat
   | leaf => 0
   | node _ x _ _ y => x.size + y.size + 1
 
-def appendTrees :  RBNode α β → RBNode α β → RBNode α β
+def appendTrees :  RBNode → RBNode → RBNode
   | leaf, x => x
   | x, leaf => x
   | node red a kx vx b,   node red c ky vy d   =>
@@ -113,9 +111,7 @@ termination_by x y => x.size + y.size
 
 section Erase
 
-variable (cmp : α → α → Ordering)
-
-@[specialize] def del (x : α) : RBNode α β → RBNode α β
+@[specialize] def del (x : Nat) : RBNode → RBNode
   | leaf           => leaf
   | node _ a y v b =>
     match cmp x y with
@@ -127,47 +123,38 @@ variable (cmp : α → α → Ordering)
       else node red a y v (del x b)
     | Ordering.eq => appendTrees a b
 
-@[specialize] def erase (x : α) (t : RBNode α β) : RBNode α β :=
-  let t := del cmp x t;
+@[specialize] def erase (x : Nat) (t : RBNode) : RBNode :=
+  let t := del x t;
   t.setBlack
 
 end Erase
 
-inductive WellFormed (cmp : α → α → Ordering) : RBNode α β → Prop where
-  | leafWff : WellFormed cmp leaf
-  | insertWff {n n' : RBNode α β} {k : α} {v : β k} : WellFormed cmp n → n' = insert cmp n k v → WellFormed cmp n'
-  | eraseWff {n n' : RBNode α β} {k : α} : WellFormed cmp n → n' = erase cmp k n → WellFormed cmp n'
+inductive WellFormed : RBNode → Prop where
+  | leafWff : WellFormed leaf
+  | insertWff {n n' : RBNode} {k : Nat} {v : Bool} : WellFormed n → n' = insert n k v → WellFormed n'
+  | eraseWff {n n' : RBNode} {k : Nat} : WellFormed n → n' = erase k n → WellFormed n'
 
 end RBNode
 
 open RBNode
 
-def RBMap (α : Type u) (β : Type v) (cmp : α → α → Ordering) : Type (max u v) :=
-  {t : RBNode α (fun _ => β) // t.WellFormed cmp }
+def RBMap : Type :=
+  {t : RBNode // t.WellFormed }
 
-@[inline] def mkRBMap (α : Type u) (β : Type v) (cmp : α → α → Ordering) : RBMap α β cmp :=
+@[inline] def RBMap.empty : RBMap :=
   ⟨leaf, WellFormed.leafWff⟩
-
-@[inline] def RBMap.empty {α : Type u} {β : Type v} {cmp : α → α → Ordering} : RBMap α β cmp :=
-  mkRBMap ..
 
 namespace RBMap
 
-@[inline] def insert : RBMap α β cmp → α → β → RBMap α β cmp
-  | ⟨t, w⟩, k, v => ⟨t.insert cmp k v, WellFormed.insertWff w rfl⟩
+@[inline] def insert : RBMap → Nat → Bool → RBMap
+  | ⟨t, w⟩, k, v => ⟨t.insert k v, WellFormed.insertWff w rfl⟩
 
-@[inline] def fold (f : σ → α → β → σ) : (init : σ) → RBMap α β cmp → σ
+@[inline] def fold (f : σ → Nat → Bool → σ) : (init : σ) → RBMap → σ
   | b, ⟨t, _⟩ => t.fold f b
 
 end RBMap
 
--- Unsure why this isn't already defined somewhere.
-def cmp (n m : Nat) : Ordering :=
-  bif n.blt m then .lt
-  else bif m.blt n then .gt
-  else .eq
-
-abbrev Tree := RBMap Nat Bool cmp
+abbrev Tree := RBMap
 
 def mkMapAux : Nat → Tree → Tree
   | 0,   m => m
@@ -176,9 +163,9 @@ def mkMapAux : Nat → Tree → Tree
 def mkMap (n : Nat) :=
   mkMapAux n RBMap.empty
 
-end RBMapStd
+end RBMapStdMono
 
-def rbmap_std (n: Nat): Nat :=
-  let m := RBMapStd.mkMap n
+def rbmap_std_mono (n: Nat): Nat :=
+  let m := RBMapStdMono.mkMap n
   let v := m.fold (fun r _ v => if v then r + 1 else r) 0
   v

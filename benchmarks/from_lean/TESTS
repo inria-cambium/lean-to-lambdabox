@@ -9,8 +9,10 @@ list_sum_foldl:natio:10000000
 list_sum_foldr:natio:10000000
 list_sum_rev:natio:10000000
 triangle:natio:10000000
-rbmap:natio:1000000
+rbmap_beans:natio:1000000
 rbmap_std:natio:1000000
+rbmap_mono:natio:1000000
+rbmap_raw:natio:1000000
 binarytrees:natio:17
 const_fold:natio:20
 deriv:natio:9

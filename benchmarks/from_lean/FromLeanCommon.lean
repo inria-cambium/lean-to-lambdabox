@@ -4,8 +4,10 @@ import FromLeanCommon.deriv
 import FromLeanCommon.qsort
 import FromLeanCommon.qsort_single
 import FromLeanCommon.qsort_fin
-import FromLeanCommon.rbmap
+import FromLeanCommon.rbmap_beans
 import FromLeanCommon.rbmap_std
+import FromLeanCommon.rbmap_mono
+import FromLeanCommon.rbmap_raw
 import FromLeanCommon.unionfind
 
 def unit (_: Unit): Unit := .unit
