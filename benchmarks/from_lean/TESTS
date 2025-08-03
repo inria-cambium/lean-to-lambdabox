@@ -4,11 +4,14 @@ demo1:runonce
 demo1_tc:runonce
 demo2:repeat:100000
 cube:repeat:10000000
+even:natio:100000000
 iflazy:natio:100000000
 list_sum_foldl:natio:10000000
 list_sum_foldr:natio:10000000
 list_sum_rev:natio:10000000
-triangle:natio:10000000
+triangle_foldl:natio:10000000
+triangle_acc:natio:10000000
+triangle_rec:natio:10000000
 rbmap_beans:natio:1000000
 rbmap_std:natio:1000000
 rbmap_mono:natio:1000000
