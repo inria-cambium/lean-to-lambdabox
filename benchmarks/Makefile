@@ -68,13 +68,16 @@ $(bin)/malfunction-noprune-nounbox/%: FORCE | $(bin)/malfunction-noprune-nounbox
 $(bin)/malfunction-noinline/%: FORCE | $(bin)/malfunction-noinline/
 	INLINE_AXIOMS=0 OCAMLPARAM=_,O2=1 make -C via_malfunction bin/$* TARGETDIR=../$(bin)/malfunction-noinline
 
-$(results)/wide/:
+$(results)/%/:
 	mkdir -p $@
 
 bin/allbenches: $(foreach backend,$(backends),$(bin)/$(backend)/allbenches)
 
 wide: FORCE bin/allbenches | $(results)/wide/
-	taskset -c 3 hyperfine -N --warmup 5 -L bench "$(subst :,$(space),$(subst $(space),"$(comma)",$(benches)))" -L backend $(subst $(space),$(comma),$(backends)) "bin/{backend}/{bench}" --export-json $(results)/wide/$(shell date +"%Y-%m-%dT%T").json
+	taskset -c 3 hyperfine -N --warmup 3 --min-runs 7 -L bench "$(subst :,$(space),$(subst $(space),"$(comma)",$(benches)))" -L backend $(subst $(space),$(comma),$(backends)) "bin/{backend}/{bench}" --export-json $(results)/wide/$(shell date +"%Y-%m-%dT%T").json
+
+qsort_single_scaling: FORCE $(foreach backend,malfunction-reference malfunction-sekarray malfunction-unsafearray,$(bin)/$(backend)/qsort_single) | $(results)/qsort_single_scaling/
+	taskset -c 3 hyperfine -N --warmup 3 --min-runs 7 -L n 0,1000,2000,5000,10000,20000,50000,100000 -L backend malfunction-reference,malfunction-sekarray,malfunction-unsafearray "bin/{backend}/qsort_single {n}" --export-json $(results)/qsort_single_scaling/$(shell date +"%Y-%m-%dT%T").json
 
 $(bin)/%/:
 	mkdir -p $@
