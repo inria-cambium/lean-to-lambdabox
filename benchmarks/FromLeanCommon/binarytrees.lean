@@ -44,7 +44,8 @@ end BinaryTrees
 open BinaryTrees
 
 def binarytrees (n: Nat): Nat :=
-  let maxN := Nat.max (minN + 2) n
+  -- let maxN := Nat.max (minN + 2) n
+  let maxN := n
   let stretchN := maxN + 1
 
   -- stretch memory tree
