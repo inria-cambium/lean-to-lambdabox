@@ -28,7 +28,7 @@ def parse_benchmark_data(json_file):
             'backend': backend,
             'bench_name': bench_name,
             'bench_arg': bench_arg,
-            'mean_time': result['mean'],
+            'median_time': result['median'],
             'stddev': result['stddev'],
             'command': result['command']
         })
@@ -53,19 +53,19 @@ def compute_baseline_adjusted_times(df):
                     'backend': backend,
                     'bench_name': bench_name,
                     'bench_arg': row['bench_arg'],
-                    'adjusted_time': row['mean_time'],
-                    'raw_time': row['mean_time']
+                    'adjusted_time': row['median_time'],
+                    'raw_time': row['median_time']
                 })
             continue
         
         if len(baseline_runs) > 1:
             print(f"Warning: Multiple baselines found for {backend}/{bench_name}, using first")
         
-        baseline_time = baseline_runs.iloc[0]['mean_time']
+        baseline_time = baseline_runs.iloc[0]['median_time']
         
         # Subtract baseline from each non-zero run
         for _, row in nonzero_runs.iterrows():
-            raw_time = row['mean_time']
+            raw_time = row['median_time']
             adjusted_time = raw_time - baseline_time
             
             # Warn if baseline took longer than the actual benchmark
