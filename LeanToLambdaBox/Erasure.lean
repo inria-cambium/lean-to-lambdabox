@@ -67,6 +67,36 @@ structure ErasureConfig: Type where
   csimp: Bool := true
   /-- Whether to remove irrelevant arguments from constructors. -/
   remove_irrel_constr_args: Bool := false
+  /--
+  Whether to automatically mark a curated list of stdlib typeclass-dispatch instances
+  (`instHAdd`, `instAddNat`, `instOfNatNat`, ...) as inline.
+  These constants are not tagged `@[inline]` in Lean's stdlib but get aggressively specialized
+  by the Lean compiler; inlining them at the λ_◻ level shrinks the AST and lets the OCaml
+  compiler see through arithmetic dispatch.
+  -/
+  auto_inline_typeclass_dispatch: Bool := true
+
+/--
+Curated list of stdlib typeclass-related constants that are inlined when
+`ErasureConfig.auto_inline_typeclass_dispatch` is set.
+-/
+def autoInlineTypeclassNames : List Name := [
+  -- Generic heterogeneous → homogeneous dispatchers
+  `instHAdd, `instHSub, `instHMul, `instHDiv, `instHMod, `instHPow,
+  `instHAnd, `instHOr, `instHXor, `instHShiftLeft, `instHShiftRight,
+  -- Concrete Nat instances
+  `instAddNat, `instSubNat, `instMulNat, `instDivNat, `instModNat, `instPowNat,
+  `instOfNatNat, `instDecidableEqNat,
+  `instLENat, `instLTNat,
+  -- Concrete Int instances
+  `instAddInt, `instSubInt, `instMulInt, `instDivInt, `instModInt,
+  `instOfNatInt, `instNegInt, `instDecidableEqInt,
+  `instLEInt, `instLTInt,
+  -- Concrete Bool instances
+  `instDecidableEqBool
+]
+
+def isAutoInlineTypeclass (n : Name) : Bool := autoInlineTypeclassNames.contains n
 
 structure ErasureContext: Type where
   lctx: LocalContext := {}
@@ -583,12 +613,16 @@ where
     let single_decl := names.length == 1
     -- A single declaration may have to be output as an axiom.
     if single_decl then
-      match Compiler.getInlineAttribute? (← getEnv) name with
-      | .some inl => match inl with
-                     | .inline | .alwaysInline => logInfo s!"Name {name} is marked as inline."
-                                                  modify (fun s => { s with inlinings := s.inlinings.cons (toKername name) })
-                     | _ => pure ()
-      | .none => pure ()
+      let leanInline := match Compiler.getInlineAttribute? (← getEnv) name with
+        | .some .inline | .some .alwaysInline => true
+        | _ => false
+      let autoInline := (← read).config.auto_inline_typeclass_dispatch && isAutoInlineTypeclass name
+      if leanInline then
+        logInfo s!"Name {name} is marked as inline."
+      else if autoInline then
+        logInfo s!"Auto-inlining typeclass-dispatch constant {name}."
+      if leanInline || autoInline then
+        modify (fun s => { s with inlinings := s.inlinings.cons (toKername name) })
       match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
       | .none, _, _ =>
         logInfo s!"No value found for name {name}, emitting axiom."
@@ -629,22 +663,30 @@ inductive MLType: Type where
   | Z
   | unit
   | bool
+  | string
   | list (a: MLType)
+  | option (a: MLType)
+  | array (a: MLType)
+  | prod (a b: MLType)
 deriving Inhabited
 
-def MLType.toString: MLType -> String
-  | arrow a b => s!"{toStringProtected a} -> {b.toString}"
+partial def MLType.toString: MLType -> String
+  | arrow a b => s!"{protArrow a} -> {b.toString}"
   | Z => "Z.t"
   | unit => "unit"
   | bool => "bool"
-  | list a => s!"{a.toString} list"
+  | string => "string"
+  | list a => s!"{protCtor a} list"
+  | option a => s!"{protCtor a} option"
+  | array a => s!"{protCtor a} LeanArray.array"
+  | prod a b => s!"{protArrow a} * {protArrow b}"
 where
-  toStringProtected: MLType -> String
-  | arrow a b => s!"({toStringProtected a} -> {b.toString})"
-  | Z => "Z.t"
-  | unit => "unit"
-  | bool => "bool"
-  | list a => s!"{a.toString} list"
+  protArrow (t: MLType): String := match t with
+    | arrow .. => s!"({t.toString})"
+    | _ => t.toString
+  protCtor (t: MLType): String := match t with
+    | arrow .. | prod .. => s!"({t.toString})"
+    | _ => t.toString
 
 instance : ToString MLType := ⟨MLType.toString⟩
 
@@ -654,9 +696,14 @@ partial def to_ml_type (ty: Expr): MetaM MLType :=
     let varmltypes ← vartypes.mapM to_ml_type
     let bodymltype ← match (← Meta.whnf body) with
     | .const `Nat _ => pure .Z
+    | .const `Int _ => pure .Z
     | .const `Unit _ | .const `PUnit _ => pure .unit
     | .const `Bool _ => pure .bool
-    | .app (.const `List _) a => do pure <| .list (← to_ml_type a)
+    | .const `String _ => pure .string
+    | .app (.const `List _) a => pure <| .list (← to_ml_type a)
+    | .app (.const `Option _) a => pure <| .option (← to_ml_type a)
+    | .app (.const `Array _) a => pure <| .array (← to_ml_type a)
+    | .app (.app (.const `Prod _) a) b => pure <| .prod (← to_ml_type a) (← to_ml_type b)
     | t => logWarning s!"failed to translate {t} into ML type, emitting unit instead." ; pure .unit
     return varmltypes.foldr .arrow bodymltype
 
