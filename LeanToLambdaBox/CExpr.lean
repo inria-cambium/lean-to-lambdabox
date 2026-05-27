@@ -46,22 +46,44 @@ inductive _root_.CExpr where
   | fix : List (Name × CExpr) → Nat → CExpr
 deriving Inhabited
 
+/-! ### Shift / subst (mutual recursion with explicit list helpers).
+
+We deliberately avoid `List.map` inside the principal recursive functions: the
+structural-recursion checker cannot see through `map` for nested inductives,
+so we factor the per-list traversals out into dedicated mutually-recursive
+helpers. -/
+
+mutual
 /-- Shift de Bruijn indices ≥ `cutoff` up by `d`. Mirrors `LBTerm.shift`. -/
-partial def shift (d cutoff : Nat) : CExpr → CExpr
+def shift (d cutoff : Nat) : CExpr → CExpr
   | bvar i => if i ≥ cutoff then bvar (i + d) else bvar i
   | lam n b => lam n (shift d (cutoff + 1) b)
   | letE n v b => letE n (shift d cutoff v) (shift d (cutoff + 1) b)
   | app f a => app (shift d cutoff f) (shift d cutoff a)
-  | ctor tn k args => ctor tn k (args.map (shift d cutoff))
-  | cases tn scr alts =>
-    cases tn (shift d cutoff scr)
-      (alts.map fun (ns, b) => (ns, shift d (cutoff + ns.length) b))
-  | fix defs i =>
-    let m := defs.length
-    fix (defs.map fun (n, b) => (n, shift d (cutoff + m) b)) i
-  | t => t  -- box, fvar, const
+  | ctor tn k args => ctor tn k (shiftArgs d cutoff args)
+  | cases tn scr alts => cases tn (shift d cutoff scr) (shiftAlts d cutoff alts)
+  | fix defs i => fix (shiftDefs d (cutoff + defs.length) defs) i
+  | box => box
+  | fvar x => fvar x
+  | const n => const n
 
-partial def subst (s : CExpr) (d : Nat) : CExpr → CExpr
+def shiftArgs (d cutoff : Nat) : List CExpr → List CExpr
+  | [] => []
+  | t :: rest => shift d cutoff t :: shiftArgs d cutoff rest
+
+def shiftAlts (d cutoff : Nat) :
+    List (List Name × CExpr) → List (List Name × CExpr)
+  | [] => []
+  | (ns, b) :: rest => (ns, shift d (cutoff + ns.length) b) :: shiftAlts d cutoff rest
+
+def shiftDefs (d cutoff : Nat) : List (Name × CExpr) → List (Name × CExpr)
+  | [] => []
+  | (n, b) :: rest => (n, shift d cutoff b) :: shiftDefs d cutoff rest
+end
+
+mutual
+/-- Substitute `s` for the bound variable at depth `d`, decrementing higher indices. -/
+def subst (s : CExpr) (d : Nat) : CExpr → CExpr
   | bvar i =>
     if i < d then bvar i
     else if i = d then shift d 0 s
@@ -69,14 +91,26 @@ partial def subst (s : CExpr) (d : Nat) : CExpr → CExpr
   | lam n b => lam n (subst s (d + 1) b)
   | letE n v b => letE n (subst s d v) (subst s (d + 1) b)
   | app f a => app (subst s d f) (subst s d a)
-  | ctor tn k args => ctor tn k (args.map (subst s d))
-  | cases tn scr alts =>
-    cases tn (subst s d scr)
-      (alts.map fun (ns, b) => (ns, subst s (d + ns.length) b))
-  | fix defs i =>
-    let m := defs.length
-    fix (defs.map fun (n, b) => (n, subst s (d + m) b)) i
-  | t => t
+  | ctor tn k args => ctor tn k (substArgs s d args)
+  | cases tn scr alts => cases tn (subst s d scr) (substAlts s d alts)
+  | fix defs i => fix (substDefs s (d + defs.length) defs) i
+  | box => box
+  | fvar x => fvar x
+  | const n => const n
+
+def substArgs (s : CExpr) (d : Nat) : List CExpr → List CExpr
+  | [] => []
+  | t :: rest => subst s d t :: substArgs s d rest
+
+def substAlts (s : CExpr) (d : Nat) :
+    List (List Name × CExpr) → List (List Name × CExpr)
+  | [] => []
+  | (ns, b) :: rest => (ns, subst s (d + ns.length) b) :: substAlts s d rest
+
+def substDefs (s : CExpr) (d : Nat) : List (Name × CExpr) → List (Name × CExpr)
+  | [] => []
+  | (n, b) :: rest => (n, subst s d b) :: substDefs s d rest
+end
 
 @[inline] def subst1 (s : CExpr) (t : CExpr) : CExpr := subst s 0 t
 

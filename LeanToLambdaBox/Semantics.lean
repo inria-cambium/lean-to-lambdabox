@@ -23,24 +23,46 @@ def envLookup : GlobalDeclarations → Kername → Option GlobalDecl
   | [], _ => none
   | (k, d) :: rest, kn => if k.id == kn.id then some d else envLookup rest kn
 
+/-! ### Shift / subst (mutual recursion with explicit list helpers).
+
+We deliberately avoid `List.map` inside the principal recursive functions: the
+structural-recursion checker cannot see through `map` for nested inductives,
+so we factor the per-list traversals out into dedicated mutually-recursive
+helpers. -/
+
+mutual
 /-- Shift de Bruijn indices ≥ `cutoff` up by `d`. -/
-partial def shift (d cutoff : Nat) : LBTerm → LBTerm
+def shift (d cutoff : Nat) : LBTerm → LBTerm
   | bvar i => if i ≥ cutoff then bvar (i + d) else bvar i
   | lambda n b => lambda n (shift d (cutoff + 1) b)
   | letIn n v b => letIn n (shift d cutoff v) (shift d (cutoff + 1) b)
   | app f a => app (shift d cutoff f) (shift d cutoff a)
-  | construct ind k args => construct ind k (args.map (shift d cutoff))
-  | case info scr alts =>
-    case info (shift d cutoff scr)
-      (alts.map fun (ns, b) => (ns, shift d (cutoff + ns.length) b))
+  | construct ind k args => construct ind k (shiftArgs d cutoff args)
+  | case info scr alts => case info (shift d cutoff scr) (shiftAlts d cutoff alts)
   | proj p e => proj p (shift d cutoff e)
-  | fix defs i =>
-    let m := defs.length
-    fix (defs.map fun fd => { fd with body := shift d (cutoff + m) fd.body }) i
-  | t => t  -- box, fvar, const, prim
+  | fix defs i => fix (shiftDefs d (cutoff + defs.length) defs) i
+  | box => box
+  | fvar x => fvar x
+  | const k => const k
+  | prim p => prim p
 
+def shiftArgs (d cutoff : Nat) : List LBTerm → List LBTerm
+  | [] => []
+  | t :: rest => shift d cutoff t :: shiftArgs d cutoff rest
+
+def shiftAlts (d cutoff : Nat) :
+    List (List BinderName × LBTerm) → List (List BinderName × LBTerm)
+  | [] => []
+  | (ns, b) :: rest => (ns, shift d (cutoff + ns.length) b) :: shiftAlts d cutoff rest
+
+def shiftDefs (d cutoff : Nat) : List (@FixDef LBTerm) → List (@FixDef LBTerm)
+  | [] => []
+  | fd :: rest => { fd with body := shift d cutoff fd.body } :: shiftDefs d cutoff rest
+end
+
+mutual
 /-- Substitute `s` for the bound variable at depth `d`, decrementing higher indices. -/
-partial def subst (s : LBTerm) (d : Nat) : LBTerm → LBTerm
+def subst (s : LBTerm) (d : Nat) : LBTerm → LBTerm
   | bvar i =>
     if i < d then bvar i
     else if i = d then shift d 0 s
@@ -48,15 +70,28 @@ partial def subst (s : LBTerm) (d : Nat) : LBTerm → LBTerm
   | lambda n b => lambda n (subst s (d + 1) b)
   | letIn n v b => letIn n (subst s d v) (subst s (d + 1) b)
   | app f a => app (subst s d f) (subst s d a)
-  | construct ind k args => construct ind k (args.map (subst s d))
-  | case info scr alts =>
-    case info (subst s d scr)
-      (alts.map fun (ns, b) => (ns, subst s (d + ns.length) b))
+  | construct ind k args => construct ind k (substArgs s d args)
+  | case info scr alts => case info (subst s d scr) (substAlts s d alts)
   | proj p e => proj p (subst s d e)
-  | fix defs i =>
-    let m := defs.length
-    fix (defs.map fun fd => { fd with body := subst s (d + m) fd.body }) i
-  | t => t
+  | fix defs i => fix (substDefs s (d + defs.length) defs) i
+  | box => box
+  | fvar x => fvar x
+  | const k => const k
+  | prim p => prim p
+
+def substArgs (s : LBTerm) (d : Nat) : List LBTerm → List LBTerm
+  | [] => []
+  | t :: rest => subst s d t :: substArgs s d rest
+
+def substAlts (s : LBTerm) (d : Nat) :
+    List (List BinderName × LBTerm) → List (List BinderName × LBTerm)
+  | [] => []
+  | (ns, b) :: rest => (ns, subst s (d + ns.length) b) :: substAlts s d rest
+
+def substDefs (s : LBTerm) (d : Nat) : List (@FixDef LBTerm) → List (@FixDef LBTerm)
+  | [] => []
+  | fd :: rest => { fd with body := subst s d fd.body } :: substDefs s d rest
+end
 
 /-- Substitute the bvar 0 only. -/
 @[inline] def subst1 (s : LBTerm) (t : LBTerm) : LBTerm := subst s 0 t
