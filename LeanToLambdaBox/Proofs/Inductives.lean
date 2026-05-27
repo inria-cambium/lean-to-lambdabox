@@ -106,20 +106,317 @@ theorem getElem_substArgs_LB (s : LBTerm) (n : Nat) :
     simp [LBTerm.substArgs] at h ⊢
     exact getElem_substArgs_LB s n rest i h
 
-/-! ### The Stage-3 statement.
+theorem getElem_substAlts_fst (s : CExpr) (n : Nat) :
+    ∀ (alts : List (List Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.substAlts s n alts).length),
+      (CExpr.substAlts s n alts)[i].1 = (alts[i]'(by
+        rw [length_substAlts] at h; exact h)).1
+  | [], i, h => by simp [CExpr.substAlts] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.substAlts]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.substAlts] at h ⊢
+    exact getElem_substAlts_fst s n rest i h
 
-A genuine proof of `preservation_inductives` requires:
-  * `erases_shift` / `erases_subst` extended to Inductives.InSubset
-    (handling `.ctor` and `.cases` via the helpers above), via mutual
-    induction with `erases_substArgs` / `erases_substAlts`.
-  * A `substList` preservation lemma for the `iota` case.
+theorem getElem_substAlts_snd (s : CExpr) (n : Nat) :
+    ∀ (alts : List (List Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.substAlts s n alts).length),
+      (CExpr.substAlts s n alts)[i].2 = CExpr.subst s (n + (alts[i]'(by
+        rw [length_substAlts] at h; exact h)).1.length) (alts[i]'(by
+        rw [length_substAlts] at h; exact h)).2
+  | [], i, h => by simp [CExpr.substAlts] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.substAlts]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.substAlts] at h ⊢
+    exact getElem_substAlts_snd s n rest i h
 
-Both are mechanical but lengthy. The current commit lays out the
-helper infrastructure (length and indexing lemmas) and the theorem
-statement, leaving the main proof as one tracked sorry — substantially
-more progress than the original stub but stopping short of closing
-the theorem.
--/
+theorem getElem_substAlts_fst_LB (s : LBTerm) (n : Nat) :
+    ∀ (alts : List (List BinderName × LBTerm)) (i : Nat)
+        (h : i < (LBTerm.substAlts s n alts).length),
+      (LBTerm.substAlts s n alts)[i].1 = (alts[i]'(by
+        rw [length_substAlts_LB] at h; exact h)).1
+  | [], i, h => by simp [LBTerm.substAlts] at h
+  | (_, _) :: _, 0, _ => by simp [LBTerm.substAlts]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.substAlts] at h ⊢
+    exact getElem_substAlts_fst_LB s n rest i h
+
+theorem getElem_substAlts_snd_LB (s : LBTerm) (n : Nat) :
+    ∀ (alts : List (List BinderName × LBTerm)) (i : Nat)
+        (h : i < (LBTerm.substAlts s n alts).length),
+      (LBTerm.substAlts s n alts)[i].2 = LBTerm.subst s (n + (alts[i]'(by
+        rw [length_substAlts_LB] at h; exact h)).1.length) (alts[i]'(by
+        rw [length_substAlts_LB] at h; exact h)).2
+  | [], i, h => by simp [LBTerm.substAlts] at h
+  | (_, _) :: _, 0, _ => by simp [LBTerm.substAlts]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.substAlts] at h ⊢
+    exact getElem_substAlts_snd_LB s n rest i h
+
+theorem length_substDefs (s : CExpr) (n : Nat) :
+    ∀ (defs : List (Lean.Name × CExpr)), (CExpr.substDefs s n defs).length = defs.length
+  | [] => rfl
+  | _ :: rest => by simp [CExpr.substDefs, length_substDefs]
+
+theorem length_substDefs_LB (s : LBTerm) (n : Nat) :
+    ∀ (defs : List (@FixDef LBTerm)), (LBTerm.substDefs s n defs).length = defs.length
+  | [] => rfl
+  | _ :: rest => by simp [LBTerm.substDefs, length_substDefs_LB]
+
+theorem getElem_substDefs_snd (s : CExpr) (n : Nat) :
+    ∀ (defs : List (Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.substDefs s n defs).length),
+      (CExpr.substDefs s n defs)[i].2 = CExpr.subst s n (defs[i]'(by
+        rw [length_substDefs] at h; exact h)).2
+  | [], i, h => by simp [CExpr.substDefs] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.substDefs]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.substDefs] at h ⊢
+    exact getElem_substDefs_snd s n rest i h
+
+theorem getElem_substDefs_body_LB (s : LBTerm) (n : Nat) :
+    ∀ (defs : List (@FixDef LBTerm)) (i : Nat)
+        (h : i < (LBTerm.substDefs s n defs).length),
+      (LBTerm.substDefs s n defs)[i].body = LBTerm.subst s n (defs[i]'(by
+        rw [length_substDefs_LB] at h; exact h)).body
+  | [], i, h => by simp [LBTerm.substDefs] at h
+  | _ :: _, 0, _ => by simp [LBTerm.substDefs]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.substDefs] at h ⊢
+    exact getElem_substDefs_body_LB s n rest i h
+
+/-! ### Shift indexing helpers. -/
+
+theorem getElem_shiftArgs (d c : Nat) :
+    ∀ (xs : List CExpr) (i : Nat) (h : i < (CExpr.shiftArgs d c xs).length),
+      (CExpr.shiftArgs d c xs)[i] = CExpr.shift d c (xs[i]'(by
+        rw [length_shiftArgs] at h; exact h))
+  | [], i, h => by simp [CExpr.shiftArgs] at h
+  | _ :: _, 0, _ => by simp [CExpr.shiftArgs]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.shiftArgs] at h ⊢
+    exact getElem_shiftArgs d c rest i h
+
+theorem getElem_shiftArgs_LB (d c : Nat) :
+    ∀ (xs : List LBTerm) (i : Nat) (h : i < (LBTerm.shiftArgs d c xs).length),
+      (LBTerm.shiftArgs d c xs)[i] = LBTerm.shift d c (xs[i]'(by
+        rw [length_shiftArgs_LB] at h; exact h))
+  | [], i, h => by simp [LBTerm.shiftArgs] at h
+  | _ :: _, 0, _ => by simp [LBTerm.shiftArgs]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.shiftArgs] at h ⊢
+    exact getElem_shiftArgs_LB d c rest i h
+
+theorem getElem_shiftAlts_fst (d c : Nat) :
+    ∀ (alts : List (List Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.shiftAlts d c alts).length),
+      (CExpr.shiftAlts d c alts)[i].1 = (alts[i]'(by
+        rw [length_shiftAlts] at h; exact h)).1
+  | [], i, h => by simp [CExpr.shiftAlts] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.shiftAlts]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.shiftAlts] at h ⊢
+    exact getElem_shiftAlts_fst d c rest i h
+
+theorem getElem_shiftAlts_snd (d c : Nat) :
+    ∀ (alts : List (List Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.shiftAlts d c alts).length),
+      (CExpr.shiftAlts d c alts)[i].2 = CExpr.shift d (c + (alts[i]'(by
+        rw [length_shiftAlts] at h; exact h)).1.length) (alts[i]'(by
+        rw [length_shiftAlts] at h; exact h)).2
+  | [], i, h => by simp [CExpr.shiftAlts] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.shiftAlts]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.shiftAlts] at h ⊢
+    exact getElem_shiftAlts_snd d c rest i h
+
+theorem getElem_shiftAlts_fst_LB (d c : Nat) :
+    ∀ (alts : List (List BinderName × LBTerm)) (i : Nat)
+        (h : i < (LBTerm.shiftAlts d c alts).length),
+      (LBTerm.shiftAlts d c alts)[i].1 = (alts[i]'(by
+        rw [length_shiftAlts_LB] at h; exact h)).1
+  | [], i, h => by simp [LBTerm.shiftAlts] at h
+  | (_, _) :: _, 0, _ => by simp [LBTerm.shiftAlts]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.shiftAlts] at h ⊢
+    exact getElem_shiftAlts_fst_LB d c rest i h
+
+theorem getElem_shiftAlts_snd_LB (d c : Nat) :
+    ∀ (alts : List (List BinderName × LBTerm)) (i : Nat)
+        (h : i < (LBTerm.shiftAlts d c alts).length),
+      (LBTerm.shiftAlts d c alts)[i].2 = LBTerm.shift d (c + (alts[i]'(by
+        rw [length_shiftAlts_LB] at h; exact h)).1.length) (alts[i]'(by
+        rw [length_shiftAlts_LB] at h; exact h)).2
+  | [], i, h => by simp [LBTerm.shiftAlts] at h
+  | (_, _) :: _, 0, _ => by simp [LBTerm.shiftAlts]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.shiftAlts] at h ⊢
+    exact getElem_shiftAlts_snd_LB d c rest i h
+
+theorem length_shiftDefs (d c : Nat) :
+    ∀ (defs : List (Lean.Name × CExpr)), (CExpr.shiftDefs d c defs).length = defs.length
+  | [] => rfl
+  | _ :: rest => by simp [CExpr.shiftDefs, length_shiftDefs]
+
+theorem length_shiftDefs_LB (d c : Nat) :
+    ∀ (defs : List (@FixDef LBTerm)), (LBTerm.shiftDefs d c defs).length = defs.length
+  | [] => rfl
+  | _ :: rest => by simp [LBTerm.shiftDefs, length_shiftDefs_LB]
+
+theorem getElem_shiftDefs_snd (d c : Nat) :
+    ∀ (defs : List (Lean.Name × CExpr)) (i : Nat)
+        (h : i < (CExpr.shiftDefs d c defs).length),
+      (CExpr.shiftDefs d c defs)[i].2 = CExpr.shift d c (defs[i]'(by
+        rw [length_shiftDefs] at h; exact h)).2
+  | [], i, h => by simp [CExpr.shiftDefs] at h
+  | (_, _) :: _, 0, _ => by simp [CExpr.shiftDefs]
+  | _ :: rest, i + 1, h => by
+    simp [CExpr.shiftDefs] at h ⊢
+    exact getElem_shiftDefs_snd d c rest i h
+
+theorem getElem_shiftDefs_body_LB (d c : Nat) :
+    ∀ (defs : List (@FixDef LBTerm)) (i : Nat)
+        (h : i < (LBTerm.shiftDefs d c defs).length),
+      (LBTerm.shiftDefs d c defs)[i].body = LBTerm.shift d c (defs[i]'(by
+        rw [length_shiftDefs_LB] at h; exact h)).body
+  | [], i, h => by simp [LBTerm.shiftDefs] at h
+  | _ :: _, 0, _ => by simp [LBTerm.shiftDefs]
+  | _ :: rest, i + 1, h => by
+    simp [LBTerm.shiftDefs] at h ⊢
+    exact getElem_shiftDefs_body_LB d c rest i h
+
+/-! ### General shift / subst preservation (full `Erases`). -/
+
+/-- Erasure commutes with `shift` for the **full** `Erases` relation
+    (no `InSubset` restriction). -/
+theorem erases_shift_general {Γ : ErasureCtx} (d : Nat) :
+    ∀ (c : Nat) {b : CExpr} {b' : LBTerm}, Erases Γ b b' →
+      Erases Γ (CExpr.shift d c b) (LBTerm.shift d c b') := by
+  intro c b b' hb
+  induction hb generalizing c with
+  | box =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .box
+  | bvar i =>
+    simp only [CExpr.shift, LBTerm.shift]
+    by_cases h : i ≥ c
+    · rw [if_pos h, if_pos h]; exact .bvar _
+    · rw [if_neg h, if_neg h]; exact .bvar _
+  | fvar x =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .fvar _
+  | const n kn heq =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .const _ _ heq
+  | app _ _ ihf iha =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .app (ihf c) (iha c)
+  | lam name _ ihb =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .lam name (ihb (c + 1))
+  | letE name _ _ ihv ihb =>
+    simp only [CExpr.shift, LBTerm.shift]; exact .letE name (ihv c) (ihb (c + 1))
+  | ctor tn k iid hi hl _hes ihhes =>
+    rename_i args args'
+    simp only [CExpr.shift, LBTerm.shift]
+    refine .ctor tn k iid hi ?lenEq ?pw
+    case lenEq => rw [length_shiftArgs, length_shiftArgs_LB]; exact hl
+    case pw =>
+      intros i h
+      have h_orig : i < args.length := by rw [length_shiftArgs] at h; exact h
+      rw [getElem_shiftArgs, getElem_shiftArgs_LB]
+      exact ihhes i h_orig c
+  | cases tn iid np hi _hd hl hns _hes ihhd ihhes =>
+    rename_i alts alts'
+    simp only [CExpr.shift, LBTerm.shift]
+    refine .cases tn iid np hi (ihhd c) ?lenEq ?nsEq ?pw
+    case lenEq => rw [length_shiftAlts, length_shiftAlts_LB]; exact hl
+    case nsEq =>
+      intros i h
+      have h_orig : i < alts.length := by rw [length_shiftAlts] at h; exact h
+      rw [getElem_shiftAlts_fst, getElem_shiftAlts_fst_LB]
+      exact hns i h_orig
+    case pw =>
+      intros i h
+      have h_orig : i < alts.length := by rw [length_shiftAlts] at h; exact h
+      rw [getElem_shiftAlts_snd, getElem_shiftAlts_snd_LB]
+      have hn := hns i h_orig
+      rw [← hn]
+      exact ihhes i h_orig (c + alts[i].1.length)
+  | fix i hl _hes ihhes =>
+    rename_i defs defs'
+    simp only [CExpr.shift, LBTerm.shift]
+    refine .fix i ?lenEq ?pw
+    case lenEq => rw [length_shiftDefs, length_shiftDefs_LB]; exact hl
+    case pw =>
+      intros j h
+      have h_orig : j < defs.length := by rw [length_shiftDefs] at h; exact h
+      rw [getElem_shiftDefs_snd, getElem_shiftDefs_body_LB]
+      have ih := ihhes j h_orig (c + defs.length)
+      have hdepth : c + defs.length = c + defs'.length := by rw [hl]
+      exact hdepth ▸ ih
+
+/-- Erasure commutes with substitution for the **full** `Erases` relation
+    (no `InSubset` restriction). -/
+theorem erases_subst_general {Γ : ErasureCtx} {s : CExpr} {s' : LBTerm}
+    (hs : Erases Γ s s') :
+    ∀ (n : Nat) {b : CExpr} {b' : LBTerm}, Erases Γ b b' →
+      Erases Γ (CExpr.subst s n b) (LBTerm.subst s' n b') := by
+  intro n b b' hb
+  induction hb generalizing n with
+  | box =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .box
+  | bvar i =>
+    simp only [CExpr.subst, LBTerm.subst]
+    by_cases h1 : i < n
+    · rw [if_pos h1, if_pos h1]; exact .bvar _
+    rw [if_neg h1, if_neg h1]
+    by_cases h2 : i = n
+    · rw [if_pos h2, if_pos h2]; exact erases_shift_general n 0 hs
+    · rw [if_neg h2, if_neg h2]; exact .bvar _
+  | fvar x =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .fvar _
+  | const _ _ heq =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .const _ _ heq
+  | app _ _ ihf iha =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .app (ihf n) (iha n)
+  | lam name _ ihb =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .lam name (ihb (n + 1))
+  | letE name _ _ ihv ihb =>
+    simp only [CExpr.subst, LBTerm.subst]; exact .letE name (ihv n) (ihb (n + 1))
+  | ctor tn k iid hi hl _hes ihhes =>
+    rename_i args args'
+    simp only [CExpr.subst, LBTerm.subst]
+    refine .ctor tn k iid hi ?lenEq ?pw
+    case lenEq => rw [length_substArgs, length_substArgs_LB]; exact hl
+    case pw =>
+      intros i h
+      have h_orig : i < args.length := by rw [length_substArgs] at h; exact h
+      rw [getElem_substArgs, getElem_substArgs_LB]
+      exact ihhes i h_orig n
+  | cases tn iid np hi _hd hl hns _hes ihhd ihhes =>
+    rename_i alts alts'
+    simp only [CExpr.subst, LBTerm.subst]
+    refine .cases tn iid np hi (ihhd n) ?lenEq ?nsEq ?pw
+    case lenEq => rw [length_substAlts, length_substAlts_LB]; exact hl
+    case nsEq =>
+      intros i h
+      have h_orig : i < alts.length := by rw [length_substAlts] at h; exact h
+      rw [getElem_substAlts_fst, getElem_substAlts_fst_LB]
+      exact hns i h_orig
+    case pw =>
+      intros i h
+      have h_orig : i < alts.length := by rw [length_substAlts] at h; exact h
+      rw [getElem_substAlts_snd, getElem_substAlts_snd_LB]
+      have hn := hns i h_orig
+      rw [← hn]
+      exact ihhes i h_orig (n + alts[i].1.length)
+  | fix i hl _hes ihhes =>
+    rename_i defs defs'
+    simp only [CExpr.subst, LBTerm.subst]
+    refine .fix i ?lenEq ?pw
+    case lenEq => rw [length_substDefs, length_substDefs_LB]; exact hl
+    case pw =>
+      intros j h
+      have h_orig : j < defs.length := by rw [length_substDefs] at h; exact h
+      rw [getElem_substDefs_snd, getElem_substDefs_body_LB]
+      have ih := ihhes j h_orig (n + defs.length)
+      have hdepth : n + defs.length = n + defs'.length := by rw [hl]
+      exact hdepth ▸ ih
 
 theorem preservation_inductives
     {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
