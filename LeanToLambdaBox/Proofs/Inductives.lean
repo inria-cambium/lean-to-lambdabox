@@ -418,6 +418,43 @@ theorem erases_subst_general {Γ : ErasureCtx} {s : CExpr} {s' : LBTerm}
       have hdepth : n + defs.length = n + defs'.length := by rw [hl]
       exact hdepth ▸ ih
 
+/-- Simultaneous-substitution preservation: substituting an erasure-related
+    list of terms into an erasure-related body preserves erasure. Used for
+    the `iota` case of `preservation_inductives`. -/
+theorem erases_substList {Γ : ErasureCtx} (xs : List CExpr) :
+    ∀ (xs' : List LBTerm) (hl : xs.length = xs'.length)
+      (hes : ∀ i (h : i < xs.length), Erases Γ xs[i] (xs'[i]'(hl ▸ h)))
+      {b : CExpr} {b' : LBTerm}, Erases Γ b b' →
+      Erases Γ (CExpr.substList xs b) (LBTerm.substList xs' b') := by
+  induction xs with
+  | nil =>
+    intros xs' hl _hes b b' hb
+    cases xs' with
+    | nil =>
+      show Erases Γ b b'  -- substList [] b = b by definition
+      exact hb
+    | cons => simp at hl
+  | cons x rest ih =>
+    intros xs' hl hes b b' hb
+    cases xs' with
+    | nil => simp at hl
+    | cons x' rest' =>
+      have hes0 : Erases Γ x x' := hes 0 (Nat.zero_lt_succ _)
+      have hb' : Erases Γ (CExpr.subst1 x b) (LBTerm.subst1 x' b') :=
+        erases_subst_general hes0 0 hb
+      have hl' : rest.length = rest'.length := by simpa using hl
+      have hes' : ∀ i (h : i < rest.length),
+                    Erases Γ rest[i] (rest'[i]'(hl' ▸ h)) := by
+        intros i h
+        have hbnd : i + 1 < (x :: rest).length := Nat.succ_lt_succ h
+        have := hes (i + 1) hbnd
+        simpa using this
+      have key := ih rest' hl' hes' hb'
+      -- substList (x :: rest) b = substList rest (subst1 x b) by foldl unfold
+      show Erases Γ (CExpr.substList rest (CExpr.subst1 x b))
+                    (LBTerm.substList rest' (LBTerm.subst1 x' b'))
+      exact key
+
 theorem preservation_inductives
     {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
     (hEnv : EnvConsistent Γ Δ E)
@@ -448,9 +485,10 @@ theorem preservation_inductives
     | app hSubf hSuba =>
       cases hred with
       | beta _ _ _ =>
-        -- This is the beta case: needs `erases_subst` extended to handle
-        -- bodies containing `ctor` / `cases`. Currently sorry.
-        sorry
+        cases hf with
+        | lam _ hb =>
+          exact ⟨_, LBTerm.Steps.single (.beta _ _ _),
+                 erases_subst_general ha 0 hb⟩
       | appLeft h =>
         obtain ⟨_, hsteps, hef'⟩ := ihf hSubf h
         exact ⟨_, LBTerm.Steps.appLeft hsteps, .app hef' ha⟩
@@ -459,22 +497,39 @@ theorem preservation_inductives
         exact ⟨_, LBTerm.Steps.appRight hsteps, .app hf hea'⟩
       | fixUnfold _ _ _ _ _ =>
         cases hSubf
-  | letE _ _ _ _ _ =>
+  | letE _ hv hb _ihv _ihb =>
     cases hSub with
     | letE _ _ _ =>
       cases hred with
       | zeta _ _ _ =>
-        -- Needs `erases_subst` extended; sorry for the same reason as beta.
-        sorry
+        exact ⟨_, LBTerm.Steps.single (.zeta _ _ _),
+               erases_subst_general hv 0 hb⟩
   | cases tn iid np hi hd hl hns hes hd_ih _hes_ih =>
+    rename_i alts alts'
     cases hSub with
     | cases _ hSubd _hSubalts =>
       cases hred with
-      | iota _ _ _ _ _ _ _ =>
-        -- The iota case needs `erases_substList` (substituting a list of
-        -- ctor args into the chosen alternative body, preserving erasure).
-        -- This is the big remaining obligation of Stage 3.
-        sorry
+      | iota _ k args _ names body h_alt =>
+        -- Source: e = .cases tn (.ctor tn k args) alts, e' = substList args body
+        cases hd with
+        | ctor _ _ iid_some hi_some hl_args hes_args =>
+          rename_i args'
+          -- Unify iid_some with iid via the two Γ.inductives tn = some _ hypotheses
+          have hiid : iid_some = iid := Option.some.inj (hi_some.symm.trans hi)
+          subst hiid
+          -- Extract k < alts.length and the alt's contents from h_alt
+          obtain ⟨hk, halt_eq⟩ := List.getElem?_eq_some_iff.mp h_alt
+          have hk' : k < alts'.length := hl ▸ hk
+          have h_alt' : alts'[k]? = some (alts'[k].1, alts'[k].2) := by
+            simp [List.getElem?_eq_some_iff, hk']
+          have hes_body : Erases Γ body alts'[k].2 := by
+            have := hes k hk
+            rw [halt_eq] at this
+            exact this
+          refine ⟨LBTerm.substList args' alts'[k].2,
+                  LBTerm.Steps.single ?_,
+                  erases_substList args args' hl_args hes_args hes_body⟩
+          exact .iota (iid_some, np) k args' alts' alts'[k].1 alts'[k].2 h_alt'
       | casesDiscr h =>
         obtain ⟨discr_new', hsteps, herr_discr_new⟩ := hd_ih hSubd h
         refine ⟨_, LBTerm.Steps.caseDiscr hsteps, ?_⟩
