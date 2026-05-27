@@ -42,6 +42,15 @@ theorem LBTerm.Steps.appRight {Γ : GlobalDeclarations} {f a a' : LBTerm}
   | refl _       => exact .refl _
   | step h₁ _ ih => exact .step (.appRight h₁) ih
 
+/-- `Steps` is closed under the discriminee of a `case`. -/
+theorem LBTerm.Steps.caseDiscr {Γ : GlobalDeclarations} {info s s'}
+    {alts : List (List BinderName × LBTerm)}
+    (h : LBTerm.Steps Γ s s') :
+    LBTerm.Steps Γ (.case info s alts) (.case info s' alts) := by
+  induction h with
+  | refl _       => exact .refl _
+  | step h₁ _ ih => exact .step (.caseDiscr h₁) ih
+
 namespace ErasureProofs.Lambda
 
 open LBTerm CExpr
