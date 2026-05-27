@@ -423,7 +423,7 @@ theorem erases_subst_general {Γ : ErasureCtx} {s : CExpr} {s' : LBTerm}
     the `iota` case of `preservation_inductives`. -/
 theorem erases_substList {Γ : ErasureCtx} (xs : List CExpr) :
     ∀ (xs' : List LBTerm) (hl : xs.length = xs'.length)
-      (hes : ∀ i (h : i < xs.length), Erases Γ xs[i] (xs'[i]'(hl ▸ h)))
+      (_hes : ∀ i (h : i < xs.length), Erases Γ xs[i] (xs'[i]'(hl ▸ h)))
       {b : CExpr} {b' : LBTerm}, Erases Γ b b' →
       Erases Γ (CExpr.substList xs b) (LBTerm.substList xs' b') := by
   induction xs with
@@ -521,7 +521,7 @@ theorem preservation_inductives
           obtain ⟨hk, halt_eq⟩ := List.getElem?_eq_some_iff.mp h_alt
           have hk' : k < alts'.length := hl ▸ hk
           have h_alt' : alts'[k]? = some (alts'[k].1, alts'[k].2) := by
-            simp [List.getElem?_eq_some_iff, hk']
+            simp [hk']
           have hes_body : Erases Γ body alts'[k].2 := by
             have := hes k hk
             rw [halt_eq] at this

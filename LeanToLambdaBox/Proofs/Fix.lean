@@ -151,4 +151,46 @@ theorem preservation_fix
         refine ⟨_, LBTerm.Steps.caseDiscr hsteps, ?_⟩
         exact .cases tn iid np hi herr_discr_new hl hns hes
 
+mutual
+/-- `Fix.InSubset` is universal: every `CExpr` satisfies it.
+This is the key bridge to the unrestricted `preservation_irrel` — Stage 5
+will instantiate the InSubset hypothesis trivially. Defined via mutual
+recursion across CExpr and its nested lists. -/
+def InSubset.always : ∀ (e : CExpr), InSubset e
+  | .box => .box
+  | .bvar i => .bvar i
+  | .fvar x => .fvar x
+  | .const n => .const n
+  | .app f a => .app (InSubset.always f) (InSubset.always a)
+  | .lam n b => .lam n (InSubset.always b)
+  | .letE n v b => .letE n (InSubset.always v) (InSubset.always b)
+  | .ctor tn k args => .ctor tn k (InSubset.alwaysArgs args)
+  | .cases tn discr alts =>
+    .cases tn (InSubset.always discr) (InSubset.alwaysAlts alts)
+  | .fix defs i => .fix i (InSubset.alwaysDefs defs)
+
+def InSubset.alwaysArgs :
+    ∀ (xs : List CExpr) (i : Nat) (h : i < xs.length), InSubset xs[i]
+  | [], _, h => absurd h (Nat.not_lt_zero _)
+  | x :: _, 0, _ => InSubset.always x
+  | _ :: rest, i + 1, h =>
+    InSubset.alwaysArgs rest i (Nat.lt_of_succ_lt_succ h)
+
+def InSubset.alwaysAlts :
+    ∀ (alts : List (List Lean.Name × CExpr)) (i : Nat)
+      (h : i < alts.length), InSubset alts[i].2
+  | [], _, h => absurd h (Nat.not_lt_zero _)
+  | (_, b) :: _, 0, _ => InSubset.always b
+  | _ :: rest, i + 1, h =>
+    InSubset.alwaysAlts rest i (Nat.lt_of_succ_lt_succ h)
+
+def InSubset.alwaysDefs :
+    ∀ (defs : List (Lean.Name × CExpr)) (j : Nat)
+      (h : j < defs.length), InSubset defs[j].2
+  | [], _, h => absurd h (Nat.not_lt_zero _)
+  | (_, b) :: _, 0, _ => InSubset.always b
+  | _ :: rest, j + 1, h =>
+    InSubset.alwaysDefs rest j (Nat.lt_of_succ_lt_succ h)
+end
+
 end ErasureProofs.Fix

@@ -23,16 +23,16 @@ Once this lands, the staged programme replaces the `sorry` in
 
 namespace ErasureProofs.Irrel
 
-/-- Final stage: the full `CExpr`. -/
-abbrev InSubset := fun (_ : CExpr) => True
-
 /--
-**Stage-5 / final preservation** — the statement targeted by the staged
-programme. Stub at this point; the proof discharges by combining
-`preservation_lambda`, `preservation_constants`, `preservation_inductives`,
-and `preservation_fix`, plus a dedicated lemma showing that `.box` on the
-target side absorbs any source-side reduction inside an irrelevant
-subterm.
+**Stage-5 / final preservation** — the unrestricted statement. Discharges
+directly via `Fix.preservation_fix` plus `Fix.InSubset.always`, the lemma
+showing that the full `CExpr` type is contained in the Fix stage's subset.
+
+Note: the "irrelevance" framing in the original plan anticipated extending
+`Erases` with a `box` constructor universally applicable to irrelevant
+subterms. With the current `Erases` (which only allows `Erases.box` between
+the explicit `.box` source and `.box` target), no further irrelevance
+argument is needed — Fix's preservation suffices for the full statement.
 -/
 theorem preservation_irrel
     {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
@@ -40,7 +40,7 @@ theorem preservation_irrel
     {e e' : CExpr} {t : LBTerm}
     (he   : Erases Γ e t)
     (hred : CExpr.Step Δ e e') :
-    ∃ t', LBTerm.Steps E t t' ∧ Erases Γ e' t' := by
-  sorry
+    ∃ t', LBTerm.Steps E t t' ∧ Erases Γ e' t' :=
+  ErasureProofs.Fix.preservation_fix hEnv (ErasureProofs.Fix.InSubset.always e) he hred
 
 end ErasureProofs.Irrel

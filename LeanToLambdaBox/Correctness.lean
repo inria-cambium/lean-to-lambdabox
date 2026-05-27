@@ -104,25 +104,21 @@ def EnvConsistent (Γ : ErasureCtx) (Δ : CExpr.Env) (E : GlobalDeclarations) : 
     ∃ b', LBTerm.envLookup E (Γ.constants n) = some (.constantDecl ⟨some b'⟩)
         ∧ Erases Γ b b'
 
-/--
-**Erasure preservation** (statement only):
+/-
+**Erasure preservation** — the top-level statement is proved as
+`ErasureProofs.Irrel.preservation_irrel` (see `Proofs/Irrel.lean`) and
+re-exported with this name as `erase_preservation` from the library root
+`LeanToLambdaBox.lean`.
+
+`Correctness.lean` cannot host the proof directly because the staged
+proofs in `Proofs/{Lambda,Constants,Inductives,Fix,Irrel}.lean` import
+`Correctness.lean`; the dependency cycle is broken by putting the final
+wrapper above `Irrel.lean`.
 
 If a source term `e` erases to target term `t` under context `Γ` with
 consistent global environments, and `e` takes one source-level reduction step
 to `e'`, then `t` reduces in zero or more target-level steps to some `t'`
 that erases `e'`.
 
-The proof is staged in Phase 3:
-
-  Lambda     → Constants → Inductives → Fix → Irrel
-
-Each stage extends the subset of `CExpr` handled before opening the next.
+Proof structure: Lambda → Constants → Inductives → Fix → Irrel.
 -/
-theorem erase_preservation
-    {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
-    (hEnv : EnvConsistent Γ Δ E)
-    {e e' : CExpr} {t : LBTerm}
-    (he   : Erases Γ e t)
-    (hred : CExpr.Step Δ e e') :
-    ∃ t', LBTerm.Steps E t t' ∧ Erases Γ e' t' := by
-  sorry

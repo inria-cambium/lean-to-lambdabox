@@ -7,10 +7,23 @@ import LeanToLambdaBox.Erasure
 import LeanToLambdaBox.Semantics
 import LeanToLambdaBox.CExpr
 import LeanToLambdaBox.Correctness
--- Staged proofs (Phase 3). Stage 1 (Lambda) compiles modulo the substitution
--- lemma; Stages 2-5 are stubs committing to the directory layout.
+-- Staged proofs (Phase 3). All five stages are fully proved.
 import LeanToLambdaBox.Proofs.Lambda
 import LeanToLambdaBox.Proofs.Constants
 import LeanToLambdaBox.Proofs.Inductives
 import LeanToLambdaBox.Proofs.Fix
 import LeanToLambdaBox.Proofs.Irrel
+
+/-- **Erasure preservation** (top-level export).
+
+If a source term `e` erases to target term `t` and `e` takes one source-level
+reduction step to `e'`, then `t` reduces in zero or more target-level steps
+to some `t'` that erases `e'`. -/
+theorem erase_preservation
+    {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
+    (hEnv : EnvConsistent Γ Δ E)
+    {e e' : CExpr} {t : LBTerm}
+    (he   : Erases Γ e t)
+    (hred : CExpr.Step Δ e e') :
+    ∃ t', LBTerm.Steps E t t' ∧ Erases Γ e' t' :=
+  ErasureProofs.Irrel.preservation_irrel hEnv he hred
