@@ -70,30 +70,18 @@ structure ErasureConfig: Type where
   /--
   Whether to detect typeclass-dispatch artifacts after erasure and mark them as inline,
   so Peregrine collapses chains like `HAdd.hAdd → instHAdd → instAddNat → Nat.add` into
-  a direct call. Two structural criteria are used (no name-matching):
-  - `Lean.Meta.isInstance name` — anything declared with `instance` — guarded by a small
-    body-size threshold so we never inline a heavy instance.
+  a direct call. Detection is structural (no name-matching):
+  - `Lean.Meta.isInstance name` — anything declared with `instance`, OR
   - Trivial-alias shape on the erased body: a bare `const`/`proj`, or a single-ctor
-    structure literal whose fields are shallow. Catches a few synthesised dispatch
-    constants Lean does not formally tag as instances.
+    structure literal whose fields are shallow.
+
+  Inlining is always skipped if the erased body contains a `LBTerm.fix`, since
+  inlining recursion would unfold the recursive definition at every call site.
+
+  Off by default: marking constants for inlining is a *directive* to Peregrine
+  (everything marked will be inlined), so enable only after profiling shows it pays off.
   -/
-  auto_inline_typeclass_dispatch: Bool := true
-
-/-- Maximum erased-body size (LBTerm node count) for which `auto_inline_typeclass_dispatch`
-will add a typeclass instance to the inlinings list. Larger instances are left as-is to
-avoid runaway code growth at call sites. -/
-def autoInlineMaxBodySize : Nat := 40
-
-/-- Recursive node count over LBTerm. Used as a coarse size guard. -/
-partial def _root_.LBTerm.size : LBTerm → Nat
-  | .box | .bvar _ | .fvar _ | .const _ | .prim _ => 1
-  | .lambda _ b => 1 + b.size
-  | .letIn _ v b => 1 + v.size + b.size
-  | .app a b => 1 + a.size + b.size
-  | .construct _ _ args => 1 + args.foldl (init := 0) (fun acc a => acc + a.size)
-  | .case _ d alts => 1 + d.size + alts.foldl (init := 0) (fun acc (_, b) => acc + b.size)
-  | .proj _ e => 1 + e.size
-  | .fix defs _ => 1 + defs.foldl (init := 0) (fun acc d => acc + d.body.size)
+  auto_inline_typeclass_dispatch: Bool := false
 
 /-- Strip leading lambdas (typeclass-instance parameters), exposing the body. -/
 partial def _root_.LBTerm.stripLambdas : LBTerm → LBTerm
@@ -101,18 +89,32 @@ partial def _root_.LBTerm.stripLambdas : LBTerm → LBTerm
   | t => t
 
 /--
+True iff the term contains a `LBTerm.fix` subterm anywhere. Used to refuse
+inlining of recursive definitions, which would unfold recursion at each call site.
+-/
+partial def _root_.LBTerm.containsFix : LBTerm → Bool
+  | .box | .bvar _ | .fvar _ | .const _ | .prim _ => false
+  | .lambda _ b => b.containsFix
+  | .letIn _ v b => v.containsFix || b.containsFix
+  | .app a b => a.containsFix || b.containsFix
+  | .construct _ _ args => args.any (·.containsFix)
+  | .case _ d alts => d.containsFix || alts.any (fun (_, b) => b.containsFix)
+  | .proj _ e => e.containsFix
+  | .fix _ _ => true
+
+/--
 True when the erased body, modulo a leading chain of lambdas, looks like a
 typeclass-dispatch artifact:
 - a bare `const` (alias such as `instDecidableEqNat := Nat.decEq`),
 - a `proj` (alias to a field projection),
-- a single-ctor structure literal with shallow fields (the usual `Foo.mk arg₁ … argₙ`
-  shape produced by `instance : Foo := ⟨…⟩` after erasure).
+- a single-ctor structure literal (the usual `Foo.mk arg₁ … argₙ` shape produced
+  by `instance : Foo := ⟨…⟩` after erasure).
 -/
 def _root_.LBTerm.isTrivialAlias (t : LBTerm) : Bool :=
   match t.stripLambdas with
   | .const _ => true
   | .proj _ _ => true
-  | .construct _ 0 args => args.all (fun a => a.size <= 10)
+  | .construct _ 0 _ => true
   | _ => false
 
 structure ErasureContext: Type where
@@ -658,11 +660,12 @@ where
       let kn := toKername name
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .constantDecl <| ⟨.some t⟩) })
       -- Post-erasure: structurally detect typeclass-dispatch artifacts and mark them inline.
-      -- Skipped if the @[inline] attribute already added this constant above.
-      if (← read).config.auto_inline_typeclass_dispatch && !leanInline then
+      -- Skipped if @[inline] already added this constant, or if the body contains a `fix`
+      -- (inlining recursion would unfold the recursive definition at every call site).
+      if (← read).config.auto_inline_typeclass_dispatch && !leanInline && !t.containsFix then
         let isInst ← Lean.Meta.isInstance name
-        if isInst && t.size <= autoInlineMaxBodySize then
-          logInfo s!"Auto-inlining typeclass instance {name} (body size {t.size})."
+        if isInst then
+          logInfo s!"Auto-inlining typeclass instance {name}."
           modify (fun s => { s with inlinings := s.inlinings.cons kn })
         else if t.isTrivialAlias then
           logInfo s!"Auto-inlining trivial alias {name}."
