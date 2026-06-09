@@ -169,7 +169,7 @@ def fvar_to_name (x: FVarId): EraseM BinderName := do
   let n := (← read).lctx.fvarIdToDecl |>.find! x |>.userName
   let s: String := n.toString
   -- check if s is ASCII graphic, otherwise the λbox parser will complain
-  if s.all (fun c => 33 <= c.toNat /\ c.toNat < 127) then
+  if s.all (fun (c : Char) => decide (33 <= c.toNat /\ c.toNat < 127)) then
     return .named n.toString
   else
     return .anon
@@ -348,7 +348,14 @@ def prepare_erasure (e: Expr): EraseM Expr := do
   e ← macroInline e
   if (← read).config.csimp then
     -- This has to be done after _unsafe_rec name replacement.
-    e := Compiler.CSimp.replaceConstants (← getEnv) e
+    -- The whole-tree `Compiler.CSimp.replaceConstants` was removed in v4.29; replicate its
+    -- behaviour by applying the single-node `replaceConstant?` at every subterm. A matched
+    -- constant is replaced and not re-descended into (`.done`), matching `Expr.replace`.
+    let env ← getEnv
+    e ← Core.transform e (pre := fun sub => do
+      match (← Compiler.CSimp.replaceConstant? env sub) with
+      | some sub' => return .done sub'
+      | none      => return .continue)
   pure e
 
 /--
@@ -507,9 +514,9 @@ where
       assumes expressions are well-typed, which wouldn't be the case naïvely as (n - 1).succ is not defeq to n.
       Using casts to make the dependent types typecheck would be an option now that Eq.rec is added to the axioms.
       -/
-      let zero_arm := args[casesInfo.altsRange.start]!
+      let zero_arm := args[casesInfo.altsRange.lower]!
       let zero_nt ← visitExpr zero_arm
-      let succ_arm := args[casesInfo.altsRange.start + 1]! -- a function with one argument of type Nat
+      let succ_arm := args[casesInfo.altsRange.lower + 1]! -- a function with one argument of type Nat
       let bool_indval := (← getConstInfo ``Bool).inductiveVal!
       let (bool_indid, _) ← register_inductive bool_indval
       withLocalDecl `n (.const ``Nat []) .default (fun n_fvar => do
@@ -527,8 +534,8 @@ where
       We build `LBTerm`s directly instead of building expressions and using visitExpr because visitExpr assumes typability.
       In effect, we can silently cast between Int and Nat.
       -/
-      let ofnat_fun := args[casesInfo.altsRange.start]!
-      let negsucc_fun := args[casesInfo.altsRange.start + 1]!
+      let ofnat_fun := args[casesInfo.altsRange.lower]!
+      let negsucc_fun := args[casesInfo.altsRange.lower + 1]!
       let bool_indval := (← getConstInfo ``Bool).inductiveVal!
       let (bool_indid, _) ← register_inductive bool_indval
       withLocalDecl `n (.const ``Nat []) .default (fun n_fvar => do
@@ -545,7 +552,9 @@ where
       let .inductInfo indVal ← getConstInfo typeName | unreachable!
       let (indid, argmasks) ← register_inductive indVal
       let mut alts := #[]
-      for i in casesInfo.altsRange, numFields in casesInfo.altNumParams /- which should proobably be called altNumFields -/, argmask in argmasks do
+      for i in casesInfo.altsRange.toArray, altInfo in casesInfo.altNumParams /- which should proobably be called altNumFields -/, argmask in argmasks do
+        -- `altNumParams` is now `Array CasesAltInfo` (v4.29); extract the field/hyp count.
+        let numFields := match altInfo with | .ctor _ n => n | .default n => n
         let alt ← visitAlt numFields argmask args[i]!
         alts := alts.push alt
       pure <| LBTerm.case (indid, indVal.numParams) discr_nt alts.toList
