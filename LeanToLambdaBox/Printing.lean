@@ -159,7 +159,7 @@ instance: Serialize AttributesConfig where
 
 /-- The Rocq/Coq lexer expects `"` characters in string literals to be represented by the sequence `""`. This is cursed. -/
 def rocq_escape (s: String): String :=
-  s.toList |>.map (fun c: Char => if c = '"' then [c, c] else [c]) |>.flatten |>.asString
+  String.ofList (s.toList |>.map (fun c: Char => if c = '"' then [c, c] else [c]) |>.flatten)
 
 /-- Print with surrounding `"` characters and internal `"` characters doubled, for copy-pasting into Rocq. -/
 def rocq_print (s: String): IO Unit := do
