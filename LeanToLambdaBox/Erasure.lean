@@ -68,35 +68,54 @@ structure ErasureConfig: Type where
   /-- Whether to remove irrelevant arguments from constructors. -/
   remove_irrel_constr_args: Bool := false
   /--
-  Whether to automatically mark a curated list of stdlib typeclass-dispatch instances
-  (`instHAdd`, `instAddNat`, `instOfNatNat`, ...) as inline.
-  These constants are not tagged `@[inline]` in Lean's stdlib but get aggressively specialized
-  by the Lean compiler; inlining them at the λ_◻ level shrinks the AST and lets the OCaml
-  compiler see through arithmetic dispatch.
+  Whether to detect typeclass-dispatch artifacts after erasure and mark them as inline,
+  so Peregrine collapses chains like `HAdd.hAdd → instHAdd → instAddNat → Nat.add` into
+  a direct call. Detection is structural (no name-matching):
+  - `Lean.Meta.isInstance name` — anything declared with `instance`, OR
+  - Trivial-alias shape on the erased body: a bare `const`/`proj`, or a single-ctor
+    structure literal whose fields are shallow.
+
+  Inlining is always skipped if the erased body contains a `LBTerm.fix`, since
+  inlining recursion would unfold the recursive definition at every call site.
+
+  Off by default: marking constants for inlining is a *directive* to Peregrine
+  (everything marked will be inlined), so enable only after profiling shows it pays off.
   -/
-  auto_inline_typeclass_dispatch: Bool := true
+  auto_inline_typeclass_dispatch: Bool := false
+
+/-- Strip leading lambdas (typeclass-instance parameters), exposing the body. -/
+partial def _root_.LBTerm.stripLambdas : LBTerm → LBTerm
+  | .lambda _ b => b.stripLambdas
+  | t => t
 
 /--
-Curated list of stdlib typeclass-related constants that are inlined when
-`ErasureConfig.auto_inline_typeclass_dispatch` is set.
+True iff the term contains a `LBTerm.fix` subterm anywhere. Used to refuse
+inlining of recursive definitions, which would unfold recursion at each call site.
 -/
-def autoInlineTypeclassNames : List Name := [
-  -- Generic heterogeneous → homogeneous dispatchers
-  `instHAdd, `instHSub, `instHMul, `instHDiv, `instHMod, `instHPow,
-  `instHAnd, `instHOr, `instHXor, `instHShiftLeft, `instHShiftRight,
-  -- Concrete Nat instances
-  `instAddNat, `instSubNat, `instMulNat, `instDivNat, `instModNat, `instPowNat,
-  `instOfNatNat, `instDecidableEqNat,
-  `instLENat, `instLTNat,
-  -- Concrete Int instances
-  `instAddInt, `instSubInt, `instMulInt, `instDivInt, `instModInt,
-  `instOfNatInt, `instNegInt, `instDecidableEqInt,
-  `instLEInt, `instLTInt,
-  -- Concrete Bool instances
-  `instDecidableEqBool
-]
+partial def _root_.LBTerm.containsFix : LBTerm → Bool
+  | .box | .bvar _ | .fvar _ | .const _ | .prim _ => false
+  | .lambda _ b => b.containsFix
+  | .letIn _ v b => v.containsFix || b.containsFix
+  | .app a b => a.containsFix || b.containsFix
+  | .construct _ _ args => args.any (·.containsFix)
+  | .case _ d alts => d.containsFix || alts.any (fun (_, b) => b.containsFix)
+  | .proj _ e => e.containsFix
+  | .fix _ _ => true
 
-def isAutoInlineTypeclass (n : Name) : Bool := autoInlineTypeclassNames.contains n
+/--
+True when the erased body, modulo a leading chain of lambdas, looks like a
+typeclass-dispatch artifact:
+- a bare `const` (alias such as `instDecidableEqNat := Nat.decEq`),
+- a `proj` (alias to a field projection),
+- a single-ctor structure literal (the usual `Foo.mk arg₁ … argₙ` shape produced
+  by `instance : Foo := ⟨…⟩` after erasure).
+-/
+def _root_.LBTerm.isTrivialAlias (t : LBTerm) : Bool :=
+  match t.stripLambdas with
+  | .const _ => true
+  | .proj _ _ => true
+  | .construct _ 0 _ => true
+  | _ => false
 
 structure ErasureContext: Type where
   lctx: LocalContext := {}
@@ -620,17 +639,14 @@ where
     let ci := (← Compiler.LCNF.getDeclInfo? name).get!
     let names := ci.all -- possibly these are ._unsafe_rec
     let single_decl := names.length == 1
+    -- Lean's @[inline] attribute is name-based, so we can decide pre-erasure.
+    let leanInline := single_decl && match Compiler.getInlineAttribute? (← getEnv) name with
+      | .some .inline | .some .alwaysInline => true
+      | _ => false
     -- A single declaration may have to be output as an axiom.
     if single_decl then
-      let leanInline := match Compiler.getInlineAttribute? (← getEnv) name with
-        | .some .inline | .some .alwaysInline => true
-        | _ => false
-      let autoInline := (← read).config.auto_inline_typeclass_dispatch && isAutoInlineTypeclass name
       if leanInline then
         logInfo s!"Name {name} is marked as inline."
-      else if autoInline then
-        logInfo s!"Auto-inlining typeclass-dispatch constant {name}."
-      if leanInline || autoInline then
         modify (fun s => { s with inlinings := s.inlinings.cons (toKername name) })
       match ci.value? (allowOpaque := true), isExtern (← getEnv) name, (← read).config.extern with
       | .none, _, _ =>
@@ -652,6 +668,17 @@ where
         pure (← visitExpr (← prepare_erasure e))
       let kn := toKername name
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .constantDecl <| ⟨.some t⟩) })
+      -- Post-erasure: structurally detect typeclass-dispatch artifacts and mark them inline.
+      -- Skipped if @[inline] already added this constant, or if the body contains a `fix`
+      -- (inlining recursion would unfold the recursive definition at every call site).
+      if (← read).config.auto_inline_typeclass_dispatch && !leanInline && !t.containsFix then
+        let isInst ← Lean.Meta.isInstance name
+        if isInst then
+          logInfo s!"Auto-inlining typeclass instance {name}."
+          modify (fun s => { s with inlinings := s.inlinings.cons kn })
+        else if t.isTrivialAlias then
+          logInfo s!"Auto-inlining trivial alias {name}."
+          modify (fun s => { s with inlinings := s.inlinings.cons kn })
     else -- translate into a mutual fixpoint declaration
       let ids ← names.mapM (fun _ => mkFreshFVarId)
       let fixvarnames := names.map remove_unsafe_rec
