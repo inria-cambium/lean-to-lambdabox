@@ -34,7 +34,7 @@ structure ErasureCtx where
 /-- Helper: convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
   let s := n.toString
-  if s.all (fun c => 33 ≤ c.toNat ∧ c.toNat < 127) then .named s else .anon
+  if s.all (fun (c : Char) => decide (33 ≤ c.toNat ∧ c.toNat < 127)) then .named s else .anon
 
 /--
 Inductive specification of the erasure function.
