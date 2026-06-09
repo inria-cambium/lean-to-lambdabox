@@ -2,5 +2,13 @@ name = "lean_to_lambdabox"
 version = "0.1.0"
 defaultTargets = ["LeanToLambdaBox"]
 
+# Grounds the verified-erasure development on lean4lean's formal Lean type theory
+# (VExpr, HasType/IsDefEq, TrExprS/VLCtx, TrEnv, inferType'.WF). Pinned to a SHA
+# on the v4.29.0 toolchain (matches lean-toolchain); pulls batteries transitively.
+[[require]]
+name = "lean4lean"
+git = "https://github.com/digama0/lean4lean"
+rev = "97addd51fac964f45c595ec2c21b1b60ff0a2cc8"
+
 [[lean_lib]]
 name = "LeanToLambdaBox"
