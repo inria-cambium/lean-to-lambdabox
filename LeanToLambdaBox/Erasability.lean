@@ -103,6 +103,19 @@ theorem IsArityUpTo.defeq {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExp
   obtain ⟨A', hd, har⟩ := h
   exact ⟨A', VEnv.IsDefEqU.trans henv hΓ hAA hd, har⟩
 
+/-- **Box-soundness core.** `Erasable` is preserved under definitional equality of
+the *term*: if `e` is erasable and `e ≡ e'`, then `e'` is erasable. Since a
+reduction step `e ⟶ e'` is a definitional equality, this says an irrelevant term
+stays irrelevant when reduced — the property that makes erasing it to `box` sound
+in `erases_correct`. The type witness transfers via lean4lean's `HasType.defeqU_l`
+(same type `A`, so the proof/arity disjunct carries over unchanged). -/
+theorem Erasable.defeq {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) {e e' : VExpr}
+    (hee : env.IsDefEqU U Γ e e') (h : Erasable env U Γ e) :
+    Erasable env U Γ e' := by
+  obtain ⟨A, hA, hcase⟩ := h
+  exact ⟨A, hA.defeqU_l henv hΓ hee, hcase⟩
+
 /-- `Erasable` is preserved by weakening: lifting an irrelevant term keeps it
 irrelevant. Uses lean4lean's `HasType.weakN` and `IsArity.liftN`; the type-of-type
 `Sort 0` is fixed by `liftN`. -/
