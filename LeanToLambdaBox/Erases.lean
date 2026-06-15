@@ -122,4 +122,46 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | letE hty hval _ _ ihv ihb =>
       exact .letE (hty.weakBV henv W) (hval.weakBV henv W) (ihv W) (ihb (W.cons _))
 
+/-- A `VLCtx.InstN` witness yields the de Bruijn weakening of the substitutee's
+context `Δ₀` into the instantiated context `Δ` (it gained `dk` binders). Used to
+lift the substitutee's erasure in the `bvar i = dk` case of `erases_subst`. -/
+theorem instN_toBVLift {Δ₀ Δ₁ Δ : VLCtx} {e₀' A₀ : VExpr} {dk k : Nat}
+    (W : VLCtx.InstN Δ₀ e₀' A₀ dk k Δ₁ Δ) : VLCtx.BVLift Δ₀ Δ dk 0 k 0 := by
+  induction W with
+  | zero => exact .refl
+  | @succ _ k _ _ d _ ih => cases d <;> exact ih.skip _
+
+/-! ### Erasure commutes with substitution (step A2.3).
+
+Mirrors lean4lean's `TrExprS.instN`: source `Expr.instantiate1'` ↔ target
+`LBTerm.subst` under a `VLCtx.InstN`. `box`/`lam`/`letE` discharge their
+`TrExprS`/`Erasable` premises via `instN`/`Erasable.inst`; the `bvar = dk` case
+lifts the substitutee via `erases_shift` (using `InstN.toBVLift`). -/
+theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} {Δ₀ : VLCtx} {e₀ : Expr} {e₀' A₀ : VExpr} {s' : LBTerm}
+    (ht₀ : TrExprS env Us Δ₀ e₀ e₀')
+    (t₀ : env.HasType Us.length Δ₀.toCtx e₀' A₀)
+    (h₀ : Erases env Us Γ Δ₀ e₀ s')
+    {Δ₁ Δ : VLCtx} {dk k : Nat} (W : VLCtx.InstN Δ₀ e₀' A₀ dk k Δ₁ Δ)
+    {e : Expr} {t : LBTerm} (h : Erases env Us Γ Δ₁ e t) :
+    Erases env Us Γ Δ (e.instantiate1' e₀ dk) (LBTerm.subst s' dk t) := by
+  induction h generalizing Δ dk k with
+  | box htr her =>
+      exact .box (TrExprS.instN henv ht₀ t₀ W htr) (her.inst henv W.toCtx t₀)
+  | bvar i =>
+      simp only [Expr.instantiate1', LBTerm.subst]
+      split <;> rename_i h
+      · exact .bvar i
+      · split <;> rename_i h2
+        · exact erases_shift henv (instN_toBVLift W) h₀
+        · exact .bvar (i - 1)
+  | fvar x => exact .fvar x
+  | const n us kn h => exact .const n us kn h
+  | app _ _ ihf iha => exact .app (ihf W) (iha W)
+  | lam hty _ ihb =>
+      exact .lam (TrExprS.instN henv ht₀ t₀ W hty) (ihb (W.succ (d := .vlam _)))
+  | letE hty hval _ _ ihv ihb =>
+      exact .letE (TrExprS.instN henv ht₀ t₀ W hty) (TrExprS.instN henv ht₀ t₀ W hval)
+        (ihv W) (ihb (W.succ (d := .vlet ..)))
+
 end LeanToLambdaBox
