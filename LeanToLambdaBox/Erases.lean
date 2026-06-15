@@ -39,6 +39,20 @@ So this relation covers the projection-free fragment as
 The legacy `_root_.Erases`/`erase_preservation` are left intact until the new
 substitution lemmas and big-step correctness (A2.2–A3) are in place; the cut-over
 that retires `CExpr.lean` is a separate, deliberate step.
+
+## Trust boundary: inherited `sorryAx`
+
+lean4lean's reusable `TrExprS` structural lemmas (`weakBV`, `inst`, `instN`, …) are
+monolithic inductions over *all* `Expr` constructors; their `proj` case calls
+lean4lean's sorried `TrProj`. So those lemmas carry `sorryAx`, and every result
+here that uses them (`erases_shift`, `erases_subst`, …) inherits `sorryAx` — *even
+on projection-free terms*. This is intentional and in scope: lean4lean's job is to
+prove the Lean kernel correct; ours is to prove the transpilation pipeline correct
+**assuming** that. lean4lean's results — including its still-open projection
+metatheory — are used as-is as assumed building blocks. The `sorryAx` reported by
+`#print axioms` is exactly the trust boundary "modulo the Lean kernel's correctness
+as formalized by lean4lean"; we do not try to eliminate it. See memory
+`lean4lean-sorry-boundary`.
 -/
 
 namespace LeanToLambdaBox
