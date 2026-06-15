@@ -30,6 +30,11 @@ structure ErasureCtx where
   inductives : Name → Option InductiveId
   /-- For each source constant, the kername it is bound to on the target side. -/
   constants  : Name → Kername
+  /-- For each source *constructor* name, its `(InductiveId, constructor index)`
+      as `register_inductive` assigns it. Used by the real-`Expr` `Erases`
+      (`LeanToLambdaBox.Erases`) to recognise constructor applications; the legacy
+      `CExpr`-based `Erases` does not reference it. -/
+  ctors : Name → Option (InductiveId × Nat) := fun _ => none
 
 /-- Helper: convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=

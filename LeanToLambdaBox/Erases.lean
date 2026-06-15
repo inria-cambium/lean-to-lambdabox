@@ -59,6 +59,39 @@ namespace LeanToLambdaBox
 
 open Lean Lean4Lean
 
+/-! ### Distribution of de Bruijn ops over an application spine.
+
+The implementation applies a (nullary) head to its arguments by a left fold of
+`Expr.app` (`visitAppArgs`). These lemmas push `liftLooseBVars'`/`instantiate1'`
+through that spine, used by the constructor/`casesOn` cases of the substitution
+lemmas. -/
+
+theorem liftLooseBVars'_foldl_app (s d : Nat) (f : Expr) (args : List Expr) :
+    (args.foldl Expr.app f).liftLooseBVars' s d
+      = (args.map (·.liftLooseBVars' s d)).foldl Expr.app (f.liftLooseBVars' s d) := by
+  induction args generalizing f with
+  | nil => rfl
+  | cons a as ih => simp only [List.foldl, List.map, ih, Expr.liftLooseBVars']
+
+theorem instantiate1'_foldl_app (e₀ : Expr) (d : Nat) (f : Expr) (args : List Expr) :
+    (args.foldl Expr.app f).instantiate1' e₀ d
+      = (args.map (·.instantiate1' e₀ d)).foldl Expr.app (f.instantiate1' e₀ d) := by
+  induction args generalizing f with
+  | nil => rfl
+  | cons a as ih => simp only [List.foldl, List.map, ih, Expr.instantiate1']
+
+theorem LBTerm.shiftArgs_eq_map (d c : Nat) (l : List LBTerm) :
+    LBTerm.shiftArgs d c l = l.map (LBTerm.shift d c) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.shiftArgs, List.map, ih]
+
+theorem LBTerm.substArgs_eq_map (s : LBTerm) (d : Nat) (l : List LBTerm) :
+    LBTerm.substArgs s d l = l.map (LBTerm.subst s d) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.substArgs, List.map, ih]
+
 /--
 Typed erasure relation between real `Lean.Expr` and `LBTerm`.
 
@@ -94,6 +127,19 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (hv : Erases env Us Γ Δ v v')
       (hb : Erases env Us Γ ((none, .vlet ty' val') :: Δ) b b') :
       Erases env Us Γ Δ (.letE name ty v b nd) (.letIn (nameToBinder name) v' b')
+  /-- A fully-applied constructor. The implementation emits `.construct iid cidx []`
+      applied to its (filtered) args via `.app`; here we use the abstract
+      args-inside `.construct iid cidx args'` (reusing `Semantics.lean`'s ι-rule).
+      The source is the application spine `args.foldl Expr.app (.const cn us)`. The
+      wrapping of the implementation's literal applied-`[]` output into this node is
+      anchored in Half B's refinement. -/
+  | ctor {Δ} (cn : Name) (us : List Level) (iid : InductiveId) (cidx : Nat)
+      {args : List Expr} {args' : List LBTerm}
+      (hc : Γ.ctors cn = some (iid, cidx))
+      (hlen : args.length = args'.length)
+      (hargs : ∀ i (h : i < args.length),
+                 Erases env Us Γ Δ args[i] (args'[i]'(hlen ▸ h))) :
+      Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) (.construct iid cidx args')
 
 /-! ### Erasure commutes with de Bruijn weakening (step A2.2).
 
@@ -121,6 +167,12 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | lam hty _ ihb => exact .lam (hty.weakBV henv W) (ihb (W.cons _))
   | letE hty hval _ _ ihv ihb =>
       exact .letE (hty.weakBV henv W) (hval.weakBV henv W) (ihv W) (ihb (W.cons _))
+  | ctor cn us iid cidx hc hlen _ ihargs =>
+      simp only [liftLooseBVars'_foldl_app, Expr.liftLooseBVars', LBTerm.shift,
+                 LBTerm.shiftArgs_eq_map]
+      refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
+      rw [List.getElem_map, List.getElem_map]
+      exact ihargs i (by simpa using hi) W
 
 /-- A `VLCtx.InstN` witness yields the de Bruijn weakening of the substitutee's
 context `Δ₀` into the instantiated context `Δ` (it gained `dk` binders). Used to
@@ -163,5 +215,11 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | letE hty hval _ _ ihv ihb =>
       exact .letE (TrExprS.instN henv ht₀ t₀ W hty) (TrExprS.instN henv ht₀ t₀ W hval)
         (ihv W) (ihb (W.succ (d := .vlet ..)))
+  | ctor cn us iid cidx hc hlen _ ihargs =>
+      simp only [instantiate1'_foldl_app, Expr.instantiate1', LBTerm.subst,
+                 LBTerm.substArgs_eq_map]
+      refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
+      rw [List.getElem_map, List.getElem_map]
+      exact ihargs i (by simpa using hi) W
 
 end LeanToLambdaBox
