@@ -24,17 +24,20 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
   projection translation `TrProj` and `inferProj.WF` are `sorry`* — see memory
   `lean4lean-sorry-boundary`. Including them would make every downstream result
   rest on lean4lean sorries.
-* **Constructors / `casesOn` / structural recursion are NOT dedicated rules.**
-  In real `Expr` these are applied `.const`s (`List.cons`, `Nat.casesOn`,
-  `f._unary`/`brecOn`), detected by the shipping `visitExpr` via environment
-  queries that have no place in a `Prop`-valued relation. Here they erase
-  *structurally* through `const`/`app` to a `.const`-spine on the target. The
-  agreement between that spine and the optimized `.construct`/`.case`/`.fix`
-  target nodes the real erasure emits is deferred to Half B
-  (`erase_refines_Erases`), where the environment is available.
+* **Constructors / `casesOn` / structural recursion ARE modelled** (aligning the
+  relation with what `visitExpr` emits), via dedicated `ctor`/`cases`/`fix` rules
+  producing `.construct`/`.case`/`.fix`. In real `Expr` these heads are applied
+  `.const`s; the rules carry the inductive metadata via `Γ` (`ctors`/`casesOns`)
+  rather than running environment queries. We use the **abstract** target form
+  (constructor args inside `.construct`; alternatives as `(field-names, body)`),
+  reusing `Semantics.lean`'s ι-rule; the wrapping of the implementation's literal
+  output (`.construct iid k []` applied via `.app`; minor functions) into this
+  abstract structure is anchored in Half B's `erase_refines_Erases`.
+* `machine`-`Nat`/`Int` lowering and `@[extern]`/`@[csimp]` rewrites are out of
+  scope (documented), as before.
 
-So this relation covers the projection-free fragment as
-`box | bvar | fvar | const | app | lam | letE`.
+This relation covers the projection-free fragment:
+`box | bvar | fvar | const | app | lam | letE | ctor | cases` (`fix` next).
 
 The legacy `_root_.Erases`/`erase_preservation` are left intact until the new
 substitution lemmas and big-step correctness (A2.2–A3) are in place; the cut-over
@@ -92,6 +95,43 @@ theorem LBTerm.substArgs_eq_map (s : LBTerm) (d : Nat) (l : List LBTerm) :
   | nil => rfl
   | cons a as ih => simp only [LBTerm.substArgs, List.map, ih]
 
+/-- Re-wrap a `casesOn` alternative `(field-names, body)` as the lambda chain the
+minor function erases to. Lets the `casesOn` rule reuse the `lam` rule for the
+alternative's field binders. -/
+def mkLambdas : List BinderName → LBTerm → LBTerm
+  | [], body => body
+  | n :: ns, body => .lambda n (mkLambdas ns body)
+
+theorem shift_mkLambdas (d c : Nat) (names : List BinderName) (body : LBTerm) :
+    LBTerm.shift d c (mkLambdas names body)
+      = mkLambdas names (LBTerm.shift d (c + names.length) body) := by
+  induction names generalizing c with
+  | nil => rfl
+  | cons n ns ih =>
+      have h : c + (ns.length + 1) = (c + 1) + ns.length := by omega
+      simp only [mkLambdas, LBTerm.shift, List.length_cons, h, ih]
+
+theorem subst_mkLambdas (s : LBTerm) (d : Nat) (names : List BinderName) (body : LBTerm) :
+    LBTerm.subst s d (mkLambdas names body)
+      = mkLambdas names (LBTerm.subst s (d + names.length) body) := by
+  induction names generalizing d with
+  | nil => rfl
+  | cons n ns ih =>
+      have h : d + (ns.length + 1) = (d + 1) + ns.length := by omega
+      simp only [mkLambdas, LBTerm.subst, List.length_cons, h, ih]
+
+theorem LBTerm.shiftAlts_eq_map (d c : Nat) (l : List (List BinderName × LBTerm)) :
+    LBTerm.shiftAlts d c l = l.map (fun a => (a.1, LBTerm.shift d (c + a.1.length) a.2)) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.shiftAlts, List.map, ih]
+
+theorem LBTerm.substAlts_eq_map (s : LBTerm) (d : Nat) (l : List (List BinderName × LBTerm)) :
+    LBTerm.substAlts s d l = l.map (fun a => (a.1, LBTerm.subst s (d + a.1.length) a.2)) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.substAlts, List.map, ih]
+
 /--
 Typed erasure relation between real `Lean.Expr` and `LBTerm`.
 
@@ -140,6 +180,26 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (hargs : ∀ i (h : i < args.length),
                  Erases env Us Γ Δ args[i] (args'[i]'(hlen ▸ h))) :
       Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) (.construct iid cidx args')
+  /-- A `casesOn` application. The implementation (`visitCases`) erases only the
+      discriminant and the minor functions, dropping params/motive/indices, and
+      turns each minor into an alternative `(field-names, body)` via
+      `lambdaOrIntroToArity`. We model the minors with the normal relation by
+      relating each to its alternative **re-wrapped** as a lambda chain
+      (`mkLambdas`), so the `lam` rule handles the field binders. `pre` carries the
+      dropped leading arguments (params/motive/indices). -/
+  | cases {Δ} (con : Name) (us : List Level) (iid : InductiveId) (numParams : Nat)
+      (pre : List Expr)
+      {discr : Expr} {discr' : LBTerm}
+      {minors : List Expr} {alts' : List (List BinderName × LBTerm)}
+      (hc : Γ.casesOns con = some (iid, numParams))
+      (hd : Erases env Us Γ Δ discr discr')
+      (hlen : minors.length = alts'.length)
+      (halts : ∀ j (h : j < minors.length),
+                 Erases env Us Γ Δ minors[j]
+                   (mkLambdas (alts'[j]'(hlen ▸ h)).1 (alts'[j]'(hlen ▸ h)).2)) :
+      Erases env Us Γ Δ
+        ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us)))
+        (.case (iid, numParams) discr' alts')
 
 /-! ### Erasure commutes with de Bruijn weakening (step A2.2).
 
@@ -173,6 +233,15 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
       refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
       rw [List.getElem_map, List.getElem_map]
       exact ihargs i (by simpa using hi) W
+  | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
+      simp only [liftLooseBVars'_foldl_app, List.map_cons,
+                 Expr.liftLooseBVars', LBTerm.shift, LBTerm.shiftAlts_eq_map]
+      refine .cases con us iid numParams (pre.map (·.liftLooseBVars' dk dn)) hc (ihd W)
+        (minors := minors.map (·.liftLooseBVars' dk dn))
+        (alts' := alts'.map (fun a => (a.1, LBTerm.shift dn (dk + a.1.length) a.2)))
+        (by simpa using hlen) (fun j hj => ?_)
+      rw [List.getElem_map, List.getElem_map, ← shift_mkLambdas]
+      exact ihalts j (by simpa using hj) W
 
 /-- A `VLCtx.InstN` witness yields the de Bruijn weakening of the substitutee's
 context `Δ₀` into the instantiated context `Δ` (it gained `dk` binders). Used to
@@ -221,5 +290,14 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
       refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
       rw [List.getElem_map, List.getElem_map]
       exact ihargs i (by simpa using hi) W
+  | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
+      simp only [instantiate1'_foldl_app, List.map_cons,
+                 Expr.instantiate1', LBTerm.subst, LBTerm.substAlts_eq_map]
+      refine .cases con us iid numParams (pre.map (·.instantiate1' e₀ dk)) hc (ihd W)
+        (minors := minors.map (·.instantiate1' e₀ dk))
+        (alts' := alts'.map (fun a => (a.1, LBTerm.subst s' (dk + a.1.length) a.2)))
+        (by simpa using hlen) (fun j hj => ?_)
+      rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
+      exact ihalts j (by simpa using hj) W
 
 end LeanToLambdaBox

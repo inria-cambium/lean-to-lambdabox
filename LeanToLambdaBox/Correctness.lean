@@ -35,6 +35,9 @@ structure ErasureCtx where
       (`LeanToLambdaBox.Erases`) to recognise constructor applications; the legacy
       `CExpr`-based `Erases` does not reference it. -/
   ctors : Name → Option (InductiveId × Nat) := fun _ => none
+  /-- For each source `casesOn`-like name, its `(InductiveId, #params)`. Used by
+      the real-`Expr` `Erases` to recognise `casesOn` applications. -/
+  casesOns : Name → Option (InductiveId × Nat) := fun _ => none
 
 /-- Helper: convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
