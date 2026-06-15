@@ -13,6 +13,11 @@ import LeanToLambdaBox.Proofs.Constants
 import LeanToLambdaBox.Proofs.Inductives
 import LeanToLambdaBox.Proofs.Fix
 import LeanToLambdaBox.Proofs.Irrel
+-- Grounding re-base on lean4lean (Half A): typed `Erases` over real `Lean.Expr`,
+-- irrelevance predicate, substitution lemmas, and big-step λ□ evaluation.
+import LeanToLambdaBox.Erasability
+import LeanToLambdaBox.Erases
+import LeanToLambdaBox.Eval
 
 /-- **Erasure preservation** (top-level export).
 
