@@ -2,6 +2,7 @@ import LeanToLambdaBox.Basic
 import LeanToLambdaBox.Correctness
 import LeanToLambdaBox.Erasability
 import Lean4Lean.Verify.Typing.Expr
+import Lean4Lean.Verify.Typing.Lemmas
 
 /-!
 # Typed erasure relation over real `Lean.Expr` (step A2.1)
@@ -79,5 +80,32 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (hv : Erases env Us Γ Δ v v')
       (hb : Erases env Us Γ ((none, .vlet ty' val') :: Δ) b b') :
       Erases env Us Γ Δ (.letE name ty v b nd) (.letIn (nameToBinder name) v' b')
+
+/-! ### Erasure commutes with de Bruijn weakening (step A2.2).
+
+Mirrors lean4lean's `TrExprS.weakBV`: lifting the source `Expr` by
+`liftLooseBVars'` matches lifting the target `LBTerm` by `shift`, under a
+`VLCtx.BVLift` weakening of the context. The `box`/`lam`/`letE` cases reuse
+`weakBV`/`Erasable.weakN` for their `TrExprS`/`Erasable` premises; the rest is
+structural index bookkeeping (the conventions align: source `if i < dk then i
+else i + dn` equals `LBTerm.shift dn dk`). -/
+theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} {Δ Δ' : VLCtx} {dn dk n k : Nat}
+    (W : VLCtx.BVLift Δ Δ' dn dk n k)
+    {e : Expr} {t : LBTerm} (h : Erases env Us Γ Δ e t) :
+    Erases env Us Γ Δ' (e.liftLooseBVars' dk dn) (LBTerm.shift dn dk t) := by
+  induction h generalizing Δ' dk k with
+  | box htr her => exact .box (htr.weakBV henv W) (her.weakN henv W.toCtx)
+  | bvar i =>
+    simp only [Expr.liftLooseBVars', LBTerm.shift]
+    by_cases hlt : i < dk
+    · rw [if_pos hlt, if_neg (by omega : ¬ i ≥ dk)]; exact .bvar i
+    · rw [if_neg hlt, if_pos (by omega : i ≥ dk)]; exact .bvar (i + dn)
+  | fvar x => exact .fvar x
+  | const n us kn h => exact .const n us kn h
+  | app _ _ ihf iha => exact .app (ihf W) (iha W)
+  | lam hty _ ihb => exact .lam (hty.weakBV henv W) (ihb (W.cons _))
+  | letE hty hval _ _ ihv ihb =>
+      exact .letE (hty.weakBV henv W) (hval.weakBV henv W) (ihv W) (ihb (W.cons _))
 
 end LeanToLambdaBox
