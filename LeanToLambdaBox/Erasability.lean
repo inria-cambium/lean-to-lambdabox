@@ -1,6 +1,7 @@
 import Lean4Lean.Theory.VExpr
 import Lean4Lean.Theory.Typing.Basic
 import Lean4Lean.Theory.Typing.Lemmas
+import Lean4Lean.Theory.Typing.UniqueTyping
 
 /-!
 # Erasability over lean4lean's `VExpr`
@@ -34,18 +35,26 @@ inductive IsArity : VExpr → Prop
   | sort (u : VLevel) : IsArity (.sort u)
   | forallE (A B : VExpr) : IsArity B → IsArity (.forallE A B)
 
+/-- `A` is an arity *up to definitional equality* — defeq to a syntactic arity.
+Unlike `IsArity`, this is defeq-invariant (by transitivity of `IsDefEqU`), which is
+what lets `Erasable` survive reduction (needed for box-soundness in
+`erases_correct`). It is also more faithful to `Meta.isTypeFormerType`, which
+whnf-reduces while peeling `∀`s. -/
+def IsArityUpTo (env : VEnv) (U : Nat) (Γ : List VExpr) (A : VExpr) : Prop :=
+  ∃ A', env.IsDefEqU U Γ A A' ∧ IsArity A'
+
 /--
 `Erasable env U Γ e` holds when `e` is irrelevant in the typing context `Γ`
 (with `U` universe parameters) under environment `env`: either
 
 * a **proof** — its type `A` itself has type `Prop = Sort 0`; or
-* a **type-former** — its type `A` is an arity (`IsArity A`).
+* a **type-former** — its type `A` is an arity up to defeq (`IsArityUpTo`).
 
 This is the `VExpr` analogue of `Erasure.isErasable`
 (`Meta.isProp (inferType e) ∨ Meta.isTypeFormerType (inferType e)`).
 -/
 def Erasable (env : VEnv) (U : Nat) (Γ : List VExpr) (e : VExpr) : Prop :=
-  ∃ A, env.HasType U Γ e A ∧ (env.HasType U Γ A (.sort .zero) ∨ IsArity A)
+  ∃ A, env.HasType U Γ e A ∧ (env.HasType U Γ A (.sort .zero) ∨ IsArityUpTo env U Γ A)
 
 /-! ### Stability of `IsArity`/`Erasable` under instantiation and weakening (step A2.0).
 
@@ -67,6 +76,33 @@ theorem IsArity.liftN {A : VExpr} (h : IsArity A) (n k : Nat) :
   | sort u => exact .sort u
   | forallE _ _ _ ih => exact .forallE _ _ (ih (k + 1))
 
+theorem IsArityUpTo.inst {env : VEnv} (henv : env.Ordered)
+    {U : Nat} {Γ₀ Γ₁ Γ : List VExpr} {e₀ A₀ : VExpr} {k : Nat}
+    (W : Ctx.InstN Γ₀ e₀ A₀ k Γ₁ Γ) (h₀ : env.HasType U Γ₀ e₀ A₀)
+    {A : VExpr} (h : IsArityUpTo env U Γ₁ A) :
+    IsArityUpTo env U Γ (A.inst e₀ k) := by
+  obtain ⟨A', hd, har⟩ := h
+  exact ⟨A'.inst e₀ k, hd.instN henv W h₀, har.inst e₀ k⟩
+
+theorem IsArityUpTo.weakN {env : VEnv} (henv : env.Ordered)
+    {U : Nat} {Γ Γ' : List VExpr} {n k : Nat} (W : Ctx.LiftN n k Γ Γ')
+    {A : VExpr} (h : IsArityUpTo env U Γ A) :
+    IsArityUpTo env U Γ' (A.liftN n k) := by
+  obtain ⟨A', hd, har⟩ := h
+  exact ⟨A'.liftN n k, hd.weakN henv W, har.liftN n k⟩
+
+/-- The payoff of the up-to-defeq refinement: `IsArityUpTo` is **defeq-invariant**
+in its type argument (which the syntactic `IsArity` was not). If `A''` is defeq to
+`A` and `A` is an arity-up-to-defeq, so is `A''` — by transitivity of `IsDefEqU`.
+This is what lets the type-former disjunct of `Erasable` survive reduction in the
+forthcoming box-soundness argument. -/
+theorem IsArityUpTo.defeq {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) {A A'' : VExpr}
+    (hAA : env.IsDefEqU U Γ A'' A) (h : IsArityUpTo env U Γ A) :
+    IsArityUpTo env U Γ A'' := by
+  obtain ⟨A', hd, har⟩ := h
+  exact ⟨A', VEnv.IsDefEqU.trans henv hΓ hAA hd, har⟩
+
 /-- `Erasable` is preserved by weakening: lifting an irrelevant term keeps it
 irrelevant. Uses lean4lean's `HasType.weakN` and `IsArity.liftN`; the type-of-type
 `Sort 0` is fixed by `liftN`. -/
@@ -78,7 +114,7 @@ theorem Erasable.weakN {env : VEnv} (henv : env.Ordered)
   refine ⟨A.liftN n k, hA.weakN henv W, ?_⟩
   cases hcase with
   | inl hp => exact .inl (hp.weakN henv W)
-  | inr ha => exact .inr (ha.liftN n k)
+  | inr ha => exact .inr (ha.weakN henv W)
 
 /-- `Erasable` is preserved by instantiation: substituting into an irrelevant term
 keeps it irrelevant. Uses lean4lean's `HasType.instN` and `IsArity.inst`; the
@@ -93,6 +129,6 @@ theorem Erasable.inst {env : VEnv} (henv : env.Ordered)
   refine ⟨A.inst e₀ k, hA.instN henv W h₀, ?_⟩
   cases hcase with
   | inl hp => exact .inl (hp.instN henv W h₀)
-  | inr ha => exact .inr (ha.inst e₀ k)
+  | inr ha => exact .inr (ha.inst henv W h₀)
 
 end LeanToLambdaBox
