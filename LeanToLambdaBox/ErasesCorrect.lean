@@ -41,4 +41,23 @@ theorem erases_beta_struct {env : VEnv} (henv : env.Ordered) {Us : List Name}
     Erases env Us Γ Δ (b.instantiate1' a 0) (LBTerm.subst1 a' b') :=
   erases_subst henv hta hTa ha .zero hb
 
+/-- **β-reduction preservation** (the operational core of erasure correctness for
+the β case). If a β-redex `(fun x : ty => b) a` erases structurally to
+`(λ. b') a'` — with `a` of the binder type — then the target redex takes one
+`Step` to `subst1 a' b'`, and that target reduct still erases the source reduct
+`b[a]`.
+
+This is the forward-simulation square for β closed end-to-end, composing the
+target β-`Step` with `erases_beta_struct`. It is the typed-`Erases`/real-`Expr`
+analogue of the β case of the legacy `erase_preservation`. -/
+theorem erases_beta_step {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} {Δ : VLCtx} {E : GlobalDeclarations}
+    {b a : Expr} {n' : BinderName} {b' a' : LBTerm} {ty' va : VExpr}
+    (hta : TrExprS env Us Δ a va) (hTa : env.HasType Us.length Δ.toCtx va ty')
+    (hb : Erases env Us Γ ((none, .vlam ty') :: Δ) b b')
+    (ha : Erases env Us Γ Δ a a') :
+    LBTerm.Step E (.app (.lambda n' b') a') (LBTerm.subst1 a' b')
+    ∧ Erases env Us Γ Δ (b.instantiate1' a 0) (LBTerm.subst1 a' b') :=
+  ⟨.beta n' b' a', erases_beta_struct henv hta hTa hb ha⟩
+
 end LeanToLambdaBox
