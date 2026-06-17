@@ -18,6 +18,7 @@ import LeanToLambdaBox.Proofs.Irrel
 import LeanToLambdaBox.Erasability
 import LeanToLambdaBox.Erases
 import LeanToLambdaBox.Eval
+import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.ErasesCorrect
 
 /-- **Erasure preservation** (top-level export).
