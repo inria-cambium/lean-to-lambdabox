@@ -144,4 +144,67 @@ theorem Erasable.inst {env : VEnv} (henv : env.Ordered)
   | inl hp => exact .inl (hp.instN henv W h₀)
   | inr ha => exact .inr (ha.inst henv W h₀)
 
+/-! ### Box propagation through application (MetaCoq's `eval_box` content).
+
+If a function `f` is erasable (a proof or a type-former) and `f a` is well-typed,
+then `f a` is erasable too. This is the type-theoretic fact behind the target
+`Eval.app_box` rule: applying an irrelevant head yields an irrelevant result.
+
+* If `f` is a **proof** (`f : A`, `A : Sort 0`): then `A`, being defeq to the
+  function type `∀ x : Aᵈ, B`, is a `Prop`, so `imax · v ≈ 0` forces `v ≈ 0`,
+  i.e. `B : Sort 0`; hence `f a : B[a] : Sort 0` is a proof.
+* If `f` is a **type-former** (`A` is an arity up to defeq): then `B` is an arity
+  up to defeq, so `B[a]` is too (`IsArityUpTo.inst`); hence `f a` is a
+  type-former. -/
+theorem Erasable.app {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) {f a A B : VExpr}
+    (hf : Erasable env U Γ f)
+    (hTf : env.HasType U Γ f (.forallE A B))
+    (hTa : env.HasType U Γ a A) :
+    Erasable env U Γ (.app f a) := by
+  obtain ⟨T, hfT, hcase⟩ := hf
+  -- `f`'s type `T` is defeq to its function type `∀ A, B`.
+  have hTeq : env.IsDefEqU U Γ T (.forallE A B) :=
+    VEnv.IsDefEq.uniqU henv hΓ hfT hTf
+  -- `f a : B.inst a`.
+  have hTapp : env.HasType U Γ (.app f a) (B.inst a) := hTf.app hTa
+  refine ⟨B.inst a, hTapp, ?_⟩
+  cases hcase with
+  | inl hp =>
+      -- Proof case: `∀ A, B : Sort 0`, so `B : Sort 0`, so `B.inst a : Sort 0`.
+      left
+      -- Transport `T : Sort 0` to `∀ A, B : Sort 0`.
+      have hforallProp : env.HasType U Γ (.forallE A B) (.sort .zero) :=
+        hp.defeqU_l henv hΓ hTeq
+      -- Invert: `B : Sort v` with `imax u v ≈ 0`, i.e. `v ≈ 0`.
+      obtain ⟨⟨u, hAu⟩, v, hBv⟩ := VEnv.IsType.forallE_inv henv.ordered ⟨_, hforallProp⟩
+      have hforallImax : env.HasType U Γ (.forallE A B) (.sort (.imax u v)) :=
+        hAu.forallE hBv
+      have hsorteq : env.IsDefEqU U Γ (.sort .zero) (.sort (.imax u v)) :=
+        VEnv.IsDefEq.uniqU henv hΓ hforallProp hforallImax
+      have hzero : VLevel.imax u v ≈ VLevel.zero :=
+        (VEnv.IsDefEqU.sort_inv henv hΓ hsorteq).symm
+      have hv0 : v ≈ VLevel.zero := VLevel.imax_eq_zero.1 hzero
+      -- `B : Sort v ≡ Sort 0`, so `B : Sort 0` (in `A :: Γ`).
+      have hΓA : OnCtx (A :: Γ) (env.IsType U) := ⟨hΓ, _, hAu⟩
+      have hvWF : v.WF U := hBv.sort_r henv.ordered hΓA
+      have hB0 : env.HasType U (A :: Γ) B (.sort .zero) :=
+        (VEnv.IsDefEq.sortDF hvWF (l' := VLevel.zero) trivial hv0).defeq hBv
+      -- Instantiate by `a : A` at depth 0: `(Sort 0).inst a = Sort 0`.
+      have := hB0.instN henv.ordered (Ctx.InstN.zero) hTa
+      simpa [VExpr.inst] using this
+  | inr ha =>
+      -- Type-former case: `B` is an arity up to defeq, so `B.inst a` is too.
+      right
+      have hforallAr : IsArityUpTo env U Γ (.forallE A B) :=
+        ha.defeq henv hΓ (VEnv.IsDefEqU.symm hTeq)
+      obtain ⟨C, hC, harC⟩ := hforallAr
+      -- `forallE A B ≡ C` and `IsArity C`; `C` must itself be a `.forallE`.
+      cases harC with
+      | sort u => exact absurd hC (VEnv.IsDefEqU.sort_forallE_inv henv hΓ ∘ VEnv.IsDefEqU.symm)
+      | forallE A' B' harB' =>
+          obtain ⟨_, _, hBB'⟩ := VEnv.IsDefEqU.forallE_inv henv hΓ hC
+          exact IsArityUpTo.inst henv.ordered (Ctx.InstN.zero) hTa
+            ⟨B', ⟨_, hBB'⟩, harB'⟩
+
 end LeanToLambdaBox
