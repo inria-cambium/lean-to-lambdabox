@@ -196,14 +196,95 @@ theorem Erases.app_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
         Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
     (∃ f' a', Erases env Us Γ Δ f f' ∧ Erases env Us Γ Δ a a' ∧ t = .app f' a') ∨
     (∃ (cn : Name) (us : List Level) (args : List Expr),
-        Expr.app f a = args.foldl Expr.app (.const cn us)) := by
+        Expr.app f a = args.foldl Expr.app (.const cn us) ∧
+        (Γ.ctors cn ≠ none ∨ Γ.casesOns cn ≠ none)) := by
   generalize he : (Expr.app f a) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
   | app hf ha => cases he; exact .inr (.inl ⟨_, _, hf, ha, rfl⟩)
-  | @ctor _ cn us _ _ args _ _ _ _ => exact .inr (.inr ⟨cn, us, args, rfl⟩)
-  | @cases _ con us _ numParams pre discr _ minors _ _ _ _ _ _ =>
-      exact .inr (.inr ⟨con, us, pre ++ discr :: minors, (List.foldl_append ..).symm⟩)
+  | @ctor _ cn us _ _ args _ hc _ _ _ =>
+      exact .inr (.inr ⟨cn, us, args, rfl, .inl (by rw [hc]; simp)⟩)
+  | @cases _ con us _ numParams pre discr _ minors _ hc _ _ _ _ _ =>
+      exact .inr (.inr ⟨con, us, pre ++ discr :: minors, (List.foldl_append ..).symm,
+        .inr (by rw [hc]; simp)⟩)
+  | _ => exact absurd he (by simp)
+
+/-! ### Inversion of `Erases` on `.letE`/`.const` sources (for ζ/δ correctness). -/
+
+/-- A `.const`-headed spine is never a `.letE`. -/
+theorem foldl_app_const_ne_letE {cn : Name} {us : List Level} {args : List Expr}
+    {n : Name} {ty val b : Expr} {nd : Bool} :
+    args.foldl Expr.app (.const cn us) ≠ .letE n ty val b nd := by
+  intro heq
+  rcases foldl_app_eq_or_isApp (.const cn us) args with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
+/-- A non-empty spine `(discr :: minors).foldl Expr.app pre` is never a `.letE`. -/
+theorem foldl_app_cons_ne_letE {pre : Expr} {discr : Expr} {minors : List Expr}
+    {n : Name} {ty val b : Expr} {nd : Bool} :
+    (discr :: minors).foldl Expr.app pre ≠ .letE n ty val b nd := by
+  intro heq
+  simp only [List.foldl] at heq
+  rcases foldl_app_eq_or_isApp (pre.app discr) minors with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
+/-- **Inversion of `Erases` on a `.letE` source.** Only `box` and `letE` apply. -/
+theorem Erases.letE_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {ty val b : Expr} {nd : Bool} {t : LBTerm}
+    (h : Erases env Us Γ Δ (.letE n ty val b nd) t) :
+    (∃ ve, TrExprS env Us Δ (.letE n ty val b nd) ve ∧
+        Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
+    (∃ (ty' val' : VExpr) (v' b' : LBTerm),
+        TrExprS env Us Δ ty ty' ∧ TrExprS env Us Δ val val' ∧
+        Erases env Us Γ Δ val v' ∧
+        Erases env Us Γ ((none, .vlet ty' val') :: Δ) b b' ∧
+        t = .letIn (nameToBinder n) v' b') := by
+  generalize he : (Expr.letE n ty val b nd) = e₀ at h
+  induction h with
+  | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
+  | letE hty hval hv hb => cases he; exact .inr ⟨_, _, _, _, hty, hval, hv, hb, rfl⟩
+  | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_letE
+  | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_letE
+  | _ => exact absurd he (by simp)
+
+/-- **Inversion of `Erases` on a `.const` source.** Either irrelevant (`box`),
+the `const` rule (`t = .const kn`), or a *nullary* `ctor` spine (`args = []`,
+`t = .construct iid cidx []`). The `cases` rule needs a non-empty spine, so it is
+excluded; a non-nullary `ctor` would make the source an `.app`, also excluded. -/
+theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {us : List Level} {t : LBTerm}
+    (h : Erases env Us Γ Δ (.const n us) t) :
+    (∃ ve, TrExprS env Us Δ (.const n us) ve ∧
+        Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
+    (∃ kn, Γ.constants n = kn ∧ t = .const kn) ∨
+    (∃ (iid : InductiveId) (cidx : Nat),
+        Γ.ctors n = some (iid, cidx) ∧ t = .construct iid cidx []) := by
+  generalize he : (Expr.const n us) = e₀ at h
+  induction h with
+  | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
+  | const m ms kn hkn => cases he; exact .inr (.inl ⟨_, hkn, rfl⟩)
+  | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
+      -- The spine `args.foldl app (.const cn cus) = .const n us` forces `args = []`.
+      rcases List.eq_nil_or_concat args with rfl | ⟨init, last, hcat⟩
+      · simp only [List.foldl] at he
+        cases he
+        have hlen' : args'.length = 0 := by simpa using hlen.symm
+        have : args' = [] := List.eq_nil_of_length_eq_zero hlen'
+        subst this
+        exact .inr (.inr ⟨iid, cidx, hc, rfl⟩)
+      · subst hcat
+        rw [List.concat_eq_append, List.foldl_append, List.foldl_cons,
+          List.foldl_nil] at he
+        exact absurd he (by simp)
+  | @cases _ con cus _ numParams pre discr _ minors _ _ _ _ _ _ =>
+      -- The non-empty cons spine is `.app`-shaped, never a `.const`.
+      simp only [List.foldl_cons] at he
+      rcases foldl_app_eq_or_isApp ((pre.foldl Expr.app (.const con cus)).app discr)
+        minors with hh | hh
+      · rw [← he] at hh; simp at hh
+      · rw [← he] at hh; simp [Expr.isApp] at hh
   | _ => exact absurd he (by simp)
 
 end LeanToLambdaBox

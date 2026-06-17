@@ -116,6 +116,26 @@ theorem Erasable.defeq {env : VEnv} (henv : env.WF) {U : Nat} {Γ : List VExpr}
   obtain ⟨A, hA, hcase⟩ := h
   exact ⟨A, hA.defeqU_l henv hΓ hee, hcase⟩
 
+/-- `IsArityUpTo` transports along a definitionally-equal *context*: the witness
+defeq transports via `IsDefEqU.defeqDFC`, the syntactic `IsArity` is context-blind. -/
+theorem IsArityUpTo.defeqDFC {env : VEnv} (henv : env.Ordered) {U : Nat}
+    {Γ₀ Γ₁ Γ₂ : List VExpr} (hΓ : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂)
+    {A : VExpr} (h : IsArityUpTo env U Γ₁ A) : IsArityUpTo env U Γ₂ A :=
+  let ⟨A', hd, har⟩ := h; ⟨A', hd.defeqDFC henv hΓ, har⟩
+
+/-- `Erasable` transports along a definitionally-equal *context*: the type witness
+transports via `HasType.defeqDFC`, and each disjunct via `HasType.defeqDFC` /
+`IsArityUpTo.defeqDFC`. Used to move an irrelevance witness between defeq contexts
+(e.g. when a `vlet` binder's value is replaced by a defeq one). -/
+theorem Erasable.defeqDFC {env : VEnv} (henv : env.Ordered) {U : Nat}
+    {Γ₀ Γ₁ Γ₂ : List VExpr} (hΓ : VEnv.IsDefEqCtx env U Γ₀ Γ₁ Γ₂)
+    {e : VExpr} (h : Erasable env U Γ₁ e) : Erasable env U Γ₂ e := by
+  obtain ⟨A, hA, hcase⟩ := h
+  refine ⟨A, hA.defeqDFC henv hΓ, ?_⟩
+  cases hcase with
+  | inl hp => exact .inl (hp.defeqDFC henv hΓ)
+  | inr ha => exact .inr (ha.defeqDFC henv hΓ)
+
 /-- `Erasable` is preserved by weakening: lifting an irrelevant term keeps it
 irrelevant. Uses lean4lean's `HasType.weakN` and `IsArity.liftN`; the type-of-type
 `Sort 0` is fixed by `liftN`. -/

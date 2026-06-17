@@ -20,6 +20,7 @@ import LeanToLambdaBox.Erases
 import LeanToLambdaBox.Eval
 import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.SubjectReduction
+import LeanToLambdaBox.SubjectReductionFull
 import LeanToLambdaBox.ErasesCorrect
 
 /-- **Erasure preservation** (top-level export).
