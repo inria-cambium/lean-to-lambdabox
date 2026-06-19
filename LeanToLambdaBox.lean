@@ -22,6 +22,8 @@ import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
 import LeanToLambdaBox.ErasesCorrect
+-- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
+import LeanToLambdaBox.EraseCore
 
 /-- **Erasure preservation** (top-level export).
 
