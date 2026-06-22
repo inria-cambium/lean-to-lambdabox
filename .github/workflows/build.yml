@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch ${{ github.ref_name }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Lean and build
         uses: leanprover/lean-action@v1
