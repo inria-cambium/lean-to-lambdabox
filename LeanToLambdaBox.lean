@@ -24,6 +24,9 @@ import LeanToLambdaBox.SubjectReductionFull
 import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
 import LeanToLambdaBox.EraseCore
+-- Closing the gap to MetaCoq §7.3/§7.4: first-order determinism + the `optimize` pass.
+import LeanToLambdaBox.FirstOrder
+import LeanToLambdaBox.Optimize
 
 /-- **Erasure preservation** (top-level export).
 
