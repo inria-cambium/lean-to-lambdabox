@@ -1,5 +1,6 @@
 import LeanToLambdaBox.Basic
-import LeanToLambdaBox.Correctness
+import LeanToLambdaBox.ErasureContext
+import LeanToLambdaBox.Semantics.Substitution
 import LeanToLambdaBox.Erasability
 import Lean4Lean.Verify.Typing.Expr
 import Lean4Lean.Verify.Typing.Lemmas
@@ -7,11 +8,10 @@ import Lean4Lean.Verify.Typing.Lemmas
 /-!
 # Typed erasure relation over real `Lean.Expr` (step A2.1)
 
-This is the grounding re-base of the erasure relation: where the legacy
-`_root_.Erases` (in `Correctness.lean`) relates the hand-written IR `CExpr` to
-`LBTerm` with a *trivial* box rule, `LeanToLambdaBox.Erases` relates the **real**
-`Lean.Expr` to `LBTerm`, and its `box` rule carries a genuine irrelevance witness
-phrased over lean4lean's `VExpr` typing (`TrExprS` + `Erasable`).
+This is the erasure relation grounded on lean4lean: `LeanToLambdaBox.Erases` relates
+the **real** `Lean.Expr` to `LBTerm`, and its `box` rule carries a genuine irrelevance
+witness phrased over lean4lean's `VExpr` typing (`TrExprS` + `Erasable`). (It replaced
+an earlier hand-written-IR (`CExpr`) stub with a trivial box rule, now removed.)
 
 Both languages are locally-nameless (`bvar`/`fvar`), so they line up
 constructor-for-constructor; the typing premise on `box` lives over `VExpr`, so
@@ -30,18 +30,14 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
   `.const`s; the rules carry the inductive metadata via `Γ` (`ctors`/`casesOns`)
   rather than running environment queries. We use the **abstract** target form
   (constructor args inside `.construct`; alternatives as `(field-names, body)`),
-  reusing `Semantics.lean`'s ι-rule; the wrapping of the implementation's literal
-  output (`.construct iid k []` applied via `.app`; minor functions) into this
-  abstract structure is anchored in Half B's `erase_refines_Erases`.
+  reusing the semantics' ι-rule (`Semantics/Eval.lean`); the wrapping of the
+  implementation's literal output (`.construct iid k []` applied via `.app`; minor
+  functions) into this abstract structure is anchored in Half B's `erase_refines_Erases`.
 * `machine`-`Nat`/`Int` lowering and `@[extern]`/`@[csimp]` rewrites are out of
   scope (documented), as before.
 
 This relation covers the projection-free fragment:
 `box | bvar | fvar | const | app | lam | letE | ctor | cases` (`fix` next).
-
-The legacy `_root_.Erases`/`erase_preservation` are left intact until the new
-substitution lemmas and big-step correctness (A2.2–A3) are in place; the cut-over
-that retires `CExpr.lean` is a separate, deliberate step.
 
 ## Trust boundary: inherited `sorryAx`
 

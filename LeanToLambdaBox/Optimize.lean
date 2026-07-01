@@ -7,24 +7,18 @@ evaluation. Pure target-side reasoning (no lean4lean) → theorems must be
 -/
 import LeanToLambdaBox.Basic
 import LeanToLambdaBox.Semantics
+import LeanToLambdaBox.Semantics.Env
 import LeanToLambdaBox.Eval
+import LeanToLambdaBox.Semantics.Metatheory
 
 namespace LeanToLambdaBox
 
 open Lean
 
-/-! ## B1 — the `optimize` pass -/
+/-! ## B1 — the `optimize` pass
 
-/-- Is the inductive `iid` propositional? Lookup chain:
-    `envLookup Γ iid.mutualBlockName` → `some (.inductiveDecl body)` →
-    `body.bodies[iid.idx]?` → `OneInductiveBody.propositional`. -/
-def isPropositionalInductive (Γ : GlobalDeclarations) (iid : InductiveId) : Bool :=
-  match LBTerm.envLookup Γ iid.mutualBlockName with
-  | some (.inductiveDecl body) =>
-    match body.bodies[iid.idx]? with
-    | some oib => oib.propositional
-    | none => false
-  | _ => false
+`isPropositionalInductive` and `wouldCollapse` now live in `Semantics/Env.lean`
+(the semantics needs them to guard the prop-case rules). -/
 
 /-- Decide whether an (already-optimized) case collapses: a propositional,
     single-branch case becomes the branch body with `|names|` boxes substituted
@@ -36,6 +30,14 @@ def caseCollapse (info : InductiveId × Nat) (isProp : Bool)
   | true, [(names, body')] =>
     LBTerm.substList (List.replicate names.length .box) body'
   | _, _ => .case info discr' alts'
+
+/-- Collapse a projection on a **propositional** inductive to `.box` (a projection
+    of an erased proof is a proof, hence `□`); otherwise keep it. This is the
+    projection analogue of `caseCollapse` (MetaCoq's `remove_match_on_box` handles
+    `tProj` as well as `tCase`). Non-recursive so it sits outside the `mutual`
+    block. -/
+def projCollapse (Γ : GlobalDeclarations) (p : ProjectionInfo) (e' : LBTerm) : LBTerm :=
+  if isPropositionalInductive Γ p.indType then .box else .proj p e'
 
 /- The `optimize` pass: structural identity except on a propositional,
     single-branch `.case`, which collapses to the branch body with `|names|`
@@ -56,7 +58,7 @@ def LBOptimize (Γ : GlobalDeclarations) : LBTerm → LBTerm
   | .case (iid, np) discr alts =>
     caseCollapse (iid, np) (isPropositionalInductive Γ iid)
       (LBOptimize Γ discr) (LBOptimizeAlts Γ alts)
-  | .proj p e => .proj p (LBOptimize Γ e)
+  | .proj p e => projCollapse Γ p (LBOptimize Γ e)
   | .fix defs i => .fix (LBOptimizeDefs Γ defs) i
   | .prim p => .prim p
 
@@ -383,8 +385,19 @@ theorem LBOptimizeDefs_eq_map (Γ : GlobalDeclarations) (l : List (@FixDef LBTer
     LBOptimize Γ (.letIn n v b) = .letIn n (LBOptimize Γ v) (LBOptimize Γ b) := rfl
 @[simp] theorem LBOptimize_app (Γ f a) :
     LBOptimize Γ (.app f a) = .app (LBOptimize Γ f) (LBOptimize Γ a) := rfl
-@[simp] theorem LBOptimize_proj (Γ p e) :
-    LBOptimize Γ (.proj p e) = .proj p (LBOptimize Γ e) := rfl
+theorem LBOptimize_proj (Γ p e) :
+    LBOptimize Γ (.proj p e) = projCollapse Γ p (LBOptimize Γ e) := rfl
+/-- `subst` commutes with `projCollapse` (`.box` is closed; the non-prop branch is
+    structural). -/
+theorem projCollapse_subst (Γ p) (s : LBTerm) (d : Nat) (e' : LBTerm) :
+    LBTerm.subst s d (projCollapse Γ p e') = projCollapse Γ p (LBTerm.subst s d e') := by
+  unfold projCollapse
+  cases isPropositionalInductive Γ p.indType <;> simp [LBTerm.subst]
+/-- `shift` commutes with `projCollapse`. -/
+theorem projCollapse_shift (Γ p) (d c : Nat) (e' : LBTerm) :
+    LBTerm.shift d c (projCollapse Γ p e') = projCollapse Γ p (LBTerm.shift d c e') := by
+  unfold projCollapse
+  cases isPropositionalInductive Γ p.indType <;> simp [LBTerm.shift]
 @[simp] theorem LBOptimize_construct (Γ iid k args) :
     LBOptimize Γ (.construct iid k args) = .construct iid k (LBOptimizeArgs Γ args) := rfl
 @[simp] theorem LBOptimize_fix (Γ defs i) :
@@ -548,7 +561,8 @@ theorem LBOptimize_shift_comm (Γ : GlobalDeclarations) (d : Nat) :
   | hletIn n v b ihv ihb =>
     simp only [LBTerm.shift, LBOptimize_letIn]; rw [ihv c, ihb (c + 1)]
   | happ f a ihf iha => simp only [LBTerm.shift, LBOptimize_app]; rw [ihf c, iha c]
-  | hproj p e ih => simp only [LBTerm.shift, LBOptimize_proj]; rw [ih c]
+  | hproj p e ih =>
+    simp only [LBTerm.shift, LBOptimize_proj]; rw [ih c, projCollapse_shift]
   | hconstruct iid k args ih =>
     simp only [LBTerm.shift, LBOptimize_construct, LBOptimizeArgs_eq_map,
       shiftArgs_eq_map, List.map_map]
@@ -610,7 +624,7 @@ theorem LBOptimize_subst_comm (Γ : GlobalDeclarations) (s : LBTerm) :
   | happ f a ihf iha =>
     simp only [LBTerm.subst, LBOptimize_app]; rw [ihf d, iha d]
   | hproj p e ih =>
-    simp only [LBTerm.subst, LBOptimize_proj]; rw [ih d]
+    simp only [LBTerm.subst, LBOptimize_proj]; rw [ih d, projCollapse_subst]
   | hconstruct iid k args ih =>
     simp only [LBTerm.subst, LBOptimize_construct, LBOptimizeArgs_eq_map,
       substArgs_eq_map, List.map_map]
@@ -669,55 +683,13 @@ theorem LBOptimize_substList (Γ : GlobalDeclarations) :
     rw [hstep, ih (LBTerm.subst1 s t), LBTerm.subst1, LBOptimize_subst_comm Γ s 0 t]
     simp only [List.map_cons, LBTerm.substList, List.foldl_cons, LBTerm.subst1]
 
-/-- Does `LBOptimize` collapse this case?  `true` exactly when the inductive is
-    propositional *and* the branch list is a single branch. -/
-def wouldCollapse (Γ : GlobalDeclarations) (iid : InductiveId)
-    (alts : List (List BinderName × LBTerm)) : Bool :=
-  isPropositionalInductive Γ iid &&
-    (match alts with | [_] => true | _ => false)
-
 /-! ## B2 — the flagged big-step relation `EvalProp`.
 
-A faithful copy of `Eval` (all ten rules) **plus** the prop-case rule
-`iota_box`: a propositional single-branch case whose discriminant evaluates to
-`box` reduces by substituting boxes for the branch's field binders. This is
-MetaCoq's prop-case rule that the `optimize` pass *removes*; our flag-less
-`Eval` is exactly the `disable_prop_cases` semantics. -/
-inductive EvalProp (Γ : GlobalDeclarations) : LBTerm → LBTerm → Prop
-  | box : EvalProp Γ .box .box
-  | lam (n : BinderName) (b : LBTerm) : EvalProp Γ (.lambda n b) (.lambda n b)
-  | fvar (x : FVarId) : EvalProp Γ (.fvar x) (.fvar x)
-  | prim (p : PrimVal) : EvalProp Γ (.prim p) (.prim p)
-  | beta {f a : LBTerm} {n : BinderName} {b av r : LBTerm} :
-      EvalProp Γ f (.lambda n b) → EvalProp Γ a av → EvalProp Γ (LBTerm.subst1 av b) r →
-      EvalProp Γ (.app f a) r
-  | app_box {f a : LBTerm} : EvalProp Γ f .box → EvalProp Γ (.app f a) .box
-  | zeta {n : BinderName} {v b vv r : LBTerm} :
-      EvalProp Γ v vv → EvalProp Γ (LBTerm.subst1 vv b) r → EvalProp Γ (.letIn n v b) r
-  | delta {kn : Kername} {body r : LBTerm} :
-      LBTerm.envLookup Γ kn = some (.constantDecl ⟨some body⟩) → EvalProp Γ body r →
-      EvalProp Γ (.const kn) r
-  | construct {iid : InductiveId} {k : Nat} {args vs : List LBTerm}
-      (hl : args.length = vs.length)
-      (hargs : ∀ i (h : i < args.length), EvalProp Γ args[i] (vs[i]'(hl ▸ h))) :
-      EvalProp Γ (.construct iid k args) (.construct iid k vs)
-  | iota {iid : InductiveId} {np k : Nat} {discr : LBTerm}
-         {alts : List (List BinderName × LBTerm)} {cargs : List LBTerm}
-         {names : List BinderName} {body r : LBTerm} :
-      wouldCollapse Γ iid alts = false →
-      EvalProp Γ discr (.construct iid k cargs) →
-      alts[k]? = some (names, body) →
-      EvalProp Γ (LBTerm.substList cargs body) r →
-      EvalProp Γ (.case (iid, np) discr alts) r
-  /-- The prop-case rule (`enable_prop_cases`): a single-branch case on a
-      propositional inductive, whose discriminant evaluates to `box`, reduces by
-      substituting `|names|` boxes for the field binders of its sole branch. -/
-  | iota_box {iid : InductiveId} {np : Nat} {discr : LBTerm}
-             {names : List BinderName} {body r : LBTerm} :
-      isPropositionalInductive Γ iid = true →
-      EvalProp Γ discr .box →
-      EvalProp Γ (LBTerm.substList (List.replicate names.length .box) body) r →
-      EvalProp Γ (.case (iid, np) discr [(names, body)]) r
+`EvalProp` is now the `abbrev` `WcbvEval Γ defaultFlags` (prop-cases **on**), and
+plain `Eval` is `WcbvEval Γ optFlags` (prop-cases **off**, MetaCoq's
+`disable_prop_cases`), both defined in `Semantics/Eval.lean`. The prop-case rule
+that the `optimize` pass removes is `WcbvEval.iota_sing` (formerly `EvalProp.iota_box`),
+guarded by `with_prop_case = true`. -/
 
 /-! ### `LBOptimize_env` lookup compatibility. -/
 
@@ -798,12 +770,128 @@ theorem LBOptimize_case_collapse (Γ iid np discr names body)
   simp only [LBOptimizeAlts]
   rw [hp, caseCollapse_prop_single (iid, np) iid np _ _ rfl]
 
+/-! ### `LBOptimize` on a `.proj`, split by whether it collapses. -/
+
+theorem LBOptimize_proj_noncollapse (Γ p e)
+    (h : isPropositionalInductive Γ p.indType = false) :
+    LBOptimize Γ (.proj p e) = .proj p (LBOptimize Γ e) := by
+  simp [LBOptimize_proj, projCollapse, h]
+
+theorem LBOptimize_proj_collapse (Γ p e)
+    (h : isPropositionalInductive Γ p.indType = true) :
+    LBOptimize Γ (.proj p e) = .box := by
+  simp [LBOptimize_proj, projCollapse, h]
+
+/-! ### `LBOptimize` preserves head-shape predicates and inductive metadata. -/
+
+/-- `LBOptimize` preserves being a constructor value (a `construct` stays a
+    `construct`). -/
+theorem isConstructorValue_LBOptimize_true (Γ : GlobalDeclarations) {t : LBTerm}
+    (h : isConstructorValue t = true) : isConstructorValue (LBOptimize Γ t) = true := by
+  cases t <;> simp_all [isConstructorValue]
+
+/-- On a *value*, `LBOptimize` preserves the constructor-value test (a value is
+    never a `.case`, so no collapse can turn a non-constructor into one). -/
+theorem isConstructorValue_LBOptimize_of_value (Γ : GlobalDeclarations) {fl : WcbvFlags}
+    {v : LBTerm} (hv : Value fl v) :
+    isConstructorValue (LBOptimize Γ v) = isConstructorValue v := by
+  cases v with
+  | construct iid k args => simp [isConstructorValue, LBOptimize_construct]
+  | app f a => simp [isConstructorValue, LBOptimize_app]
+  | fix defs i => simp [isConstructorValue, LBOptimize_fix]
+  | case info d alts => cases hv with | atom h => simp [atomValue] at h  -- never a value
+  | proj p e => cases hv with | atom h => simp [atomValue] at h          -- never a value
+  | box => rfl
+  | bvar i => rfl
+  | fvar x => rfl
+  | prim p => rfl
+  | lambda n b => rfl
+  | letIn n a b => rfl
+  | const kn => rfl
+
+/-- `LBOptimize` preserves being a stuck application head. -/
+theorem isStuckApp_LBOptimize (Γ : GlobalDeclarations) (fl : WcbvFlags) {t : LBTerm}
+    (h : isStuckApp fl t = true) : isStuckApp fl (LBOptimize Γ t) = true := by
+  cases t <;> simp_all [isStuckApp]
+
+/-! ### `LBOptimize_env` preserves inductive metadata. -/
+
+/-- Per-declaration action of `LBOptimize_env` (optimize constant bodies, leave
+    inductives and body-less constants untouched). -/
+def optDecl (Γ : GlobalDeclarations) : GlobalDecl → GlobalDecl
+  | .constantDecl ⟨some b⟩ => .constantDecl ⟨some (LBOptimize Γ b)⟩
+  | d => d
+
+theorem LBOptimize_env_eq_map (Γ : GlobalDeclarations) :
+    LBOptimize_env Γ = Γ.map (fun p => (p.1, optDecl Γ p.2)) := by
+  unfold LBOptimize_env
+  apply List.map_congr_left
+  rintro ⟨k, d⟩ _
+  match d with
+  | .constantDecl ⟨some b⟩ => rfl
+  | .constantDecl ⟨none⟩ => rfl
+  | .inductiveDecl b => rfl
+
+theorem envLookup_map_optDecl (Γ : GlobalDeclarations) :
+    ∀ (L : GlobalDeclarations) (kn : Kername),
+    LBTerm.envLookup (L.map (fun p => (p.1, optDecl Γ p.2))) kn
+      = (LBTerm.envLookup L kn).map (optDecl Γ) := by
+  intro L
+  induction L with
+  | nil => intro kn; rfl
+  | cons hd rest ih =>
+    intro kn; obtain ⟨k, d⟩ := hd
+    simp only [List.map_cons]
+    unfold LBTerm.envLookup
+    by_cases hk : k.id == kn.id
+    · rw [if_pos hk, if_pos hk]; rfl
+    · rw [if_neg hk, if_neg hk]; exact ih kn
+
+/-- Optimising the environment does not change which inductives are propositional. -/
+theorem isPropositionalInductive_LBOptimize_env (Γ : GlobalDeclarations) (iid : InductiveId) :
+    isPropositionalInductive (LBOptimize_env Γ) iid = isPropositionalInductive Γ iid := by
+  unfold isPropositionalInductive
+  rw [LBOptimize_env_eq_map, envLookup_map_optDecl]
+  cases h : LBTerm.envLookup Γ iid.mutualBlockName with
+  | none => rfl
+  | some d =>
+    cases d with
+    | inductiveDecl b => rfl
+    | constantDecl cb => cases cb with | mk ob => cases ob <;> rfl
+
+/-! ### `LBOptimize` commutes with the `fix` unfolding. -/
+
+theorem LBOptimizeDefs_length (Γ : GlobalDeclarations) (defs : List (@FixDef LBTerm)) :
+    (LBOptimizeDefs Γ defs).length = defs.length := by
+  rw [LBOptimizeDefs_eq_map, List.length_map]
+
+/-- `LBOptimize` distributes over the `fix`-unfolding substitution: optimising the
+    unfolded body equals unfolding the optimised `fix`. -/
+theorem LBOptimize_fixUnfold_body (Γ : GlobalDeclarations) (defs : List (@FixDef LBTerm))
+    (def_i : @FixDef LBTerm) :
+    LBOptimize Γ (LBTerm.substList ((List.range defs.length).map (fun j => LBTerm.fix defs j)) def_i.body)
+      = LBTerm.substList ((List.range (LBOptimizeDefs Γ defs).length).map
+          (fun j => LBTerm.fix (LBOptimizeDefs Γ defs) j)) (LBOptimize Γ def_i.body) := by
+  have hmap : ((List.range defs.length).map (fun j => LBTerm.fix defs j)).map (LBOptimize Γ)
+      = (List.range (LBOptimizeDefs Γ defs).length).map
+          (fun j => LBTerm.fix (LBOptimizeDefs Γ defs) j) := by
+    rw [List.map_map, LBOptimizeDefs_length]
+    apply List.map_congr_left
+    intro j _
+    simp only [Function.comp]
+    exact LBOptimize_fix Γ defs j
+  rw [LBOptimize_substList, hmap]
+
 /-! ## B3 — `LBOptimize_correct`.
 
-`EvalProp` (prop-cases enabled) implies `Eval` on the optimized term in the
-optimized environment. The crux is `iota_box`, discharged by
-`LBOptimize_substList_box`; the regular `iota` is guarded by `wouldCollapse =
-false`, so the optimized case stays a `.case` and reuses `Eval.iota`. -/
+`EvalProp = WcbvEval Γ defaultFlags` (prop-cases enabled) implies `Eval =
+WcbvEval Γ optFlags` on the optimized term in the optimized environment — MetaCoq's
+`optimize_correct` (`eval fl → eval (disable_prop_cases fl)`). The prop-case rules
+(`iota_sing`, `proj_prop`) are discharged by the `LBOptimize` collapse of the
+corresponding `.case`/`.proj`; `iota`/`proj` are guarded non-propositional, so the
+optimized node stays a `.case`/`.proj` and reuses `Eval.iota`/`Eval.proj`. The
+`fix` unfolding commutes with `LBOptimize` via `LBOptimize_fixUnfold_body`;
+`fix_unguarded` is unreachable under `defaultFlags`. -/
 theorem LBOptimize_correct {Γ : GlobalDeclarations} {t v : LBTerm} :
     EvalProp Γ t v → Eval (LBOptimize_env Γ) (LBOptimize Γ t) (LBOptimize Γ v) := by
   intro h
@@ -812,18 +900,23 @@ theorem LBOptimize_correct {Γ : GlobalDeclarations} {t v : LBTerm} :
   | lam n b => exact .lam n (LBOptimize Γ b)
   | fvar x => exact .fvar x
   | prim p => exact .prim p
+  | fix_atom defs i => exact .fix_atom (LBOptimizeDefs Γ defs) i
   | @beta f a n b av r _ _ _ ihf iha ihbody =>
     refine .beta (n := n) (b := LBOptimize Γ b) ?_ iha ?_
     · simpa using ihf
     · rw [LBTerm.subst1, LBOptimize_subst_comm Γ av 0 b] at ihbody
       exact ihbody
-  | @app_box f a _ ihf => exact .app_box (by simpa using ihf)
+  | @app_box f a av _ _ ihf iha => exact .app_box (by simpa using ihf) iha
   | @zeta n v b vv r _ _ ihv ihbody =>
     refine .zeta (vv := LBOptimize Γ vv) ihv ?_
     rw [LBTerm.subst1, LBOptimize_subst_comm Γ vv 0 b] at ihbody
     exact ihbody
   | @delta kn body r hlk _ ihbody =>
     exact .delta (envLookup_LBOptimize_env hlk) ihbody
+  | @construct_app hb _ _ _ _ _ _ _ _ _ _ _ _ _ =>
+    -- `EvalProp = WcbvEval defaultFlags` has `with_constructor_as_block = true`,
+    -- so the non-block accumulation rule is unreachable here.
+    simp [defaultFlags] at hb
   | @construct iid k args vs hl hargs ihargs =>
     simp only [LBOptimize_construct, LBOptimizeArgs_eq_map]
     refine .construct (by simp [hl]) (fun i hi => ?_)
@@ -831,18 +924,54 @@ theorem LBOptimize_correct {Γ : GlobalDeclarations} {t v : LBTerm} :
     have hi' : i < args.length := by simpa using hi
     have := ihargs i hi'
     simpa using this
-  | @iota iid np k discr alts cargs names body r hwc hdiscr hsel _ ihd ihbody =>
+  | @iota iid np k discr alts cargs names body r hnp hdiscr hsel _ ihd ihbody =>
+    have hwc : wouldCollapse Γ iid alts = false := by simp [wouldCollapse, hnp]
     rw [LBOptimize_case_noncollapse Γ iid np discr alts hwc]
     refine .iota (k := k) (cargs := LBOptimizeArgs Γ cargs)
-      (names := names) (body := LBOptimize Γ body) ?_ ?_ ?_
+      (names := names) (body := LBOptimize Γ body) ?_ ?_ ?_ ?_
+    · rw [isPropositionalInductive_LBOptimize_env]; exact hnp
     · simpa using ihd
     · rw [LBOptimizeAlts_eq_map, List.getElem?_map, hsel]; rfl
     · rw [LBOptimizeArgs_eq_map, ← LBOptimize_substList Γ cargs body]
       exact ihbody
-  | @iota_box iid np discr names body r hp _ _ ihd ihbody =>
+  | @iota_sing hpc iid np discr names body r hp _ _ ihd ihbody =>
     rw [LBOptimize_case_collapse Γ iid np discr names body hp]
     rw [← LBOptimize_substList_box Γ names.length body]
     exact ihbody
+  | @proj p discr iid k cargs v r hnp hdiscr hsel _ ihd ihv =>
+    rw [LBOptimize_proj_noncollapse Γ p discr hnp]
+    refine .proj (iid := iid) (k := k) (cargs := LBOptimizeArgs Γ cargs)
+      (v := LBOptimize Γ v) ?_ ?_ ?_ ?_
+    · rw [isPropositionalInductive_LBOptimize_env]; exact hnp
+    · simpa using ihd
+    · rw [LBOptimizeArgs_eq_map, List.getElem?_map, hsel]; rfl
+    · exact ihv
+  | @proj_prop hpc p discr hp _ ihd =>
+    rw [LBOptimize_proj_collapse Γ p discr hp]
+    exact .box
+  | @fix_guarded hg f arg defs i def_i argv r hf hsel harg hctor _ ihf iharg ihunf =>
+    simp only [LBOptimize_app]
+    refine .fix_guarded (hg := rfl) (defs := LBOptimizeDefs Γ defs) (i := i)
+      (def_i := { def_i with body := LBOptimize Γ def_i.body }) (argv := LBOptimize Γ argv) ?_ ?_ ?_ ?_ ?_
+    · simpa using ihf
+    · rw [LBOptimizeDefs_eq_map, List.getElem?_map, hsel]; rfl
+    · exact iharg
+    · exact isConstructorValue_LBOptimize_true Γ hctor
+    · have hu := ihunf
+      rw [LBOptimize_app, LBOptimize_fixUnfold_body] at hu
+      exact hu
+  | @fix_stuck hg f arg defs i argv hf harg hnc ihf iharg =>
+    simp only [LBOptimize_app, LBOptimize_fix]
+    refine .fix_stuck (hg := rfl) (defs := LBOptimizeDefs Γ defs) (i := i)
+      (argv := LBOptimize Γ argv) ?_ ?_ ?_
+    · simpa using ihf
+    · exact iharg
+    · rw [isConstructorValue_LBOptimize_of_value Γ (eval_to_value harg)]; exact hnc
+  | @fix_unguarded hg _ _ _ _ _ _ _ _ _ _ _ _ _ _ =>
+    exact absurd hg (by decide)
+  | @app_cong f a f' a' hf hstuck ha ihf iha =>
+    simp only [LBOptimize_app]
+    exact .app_cong ihf (isStuckApp_LBOptimize Γ optFlags hstuck) iha
 
 /-! ## Vacuity guard for `LBOptimize_correct`.
 
@@ -894,7 +1023,7 @@ theorem vac_optimize_collapses : LBOptimize vacΓ vacTerm = .box := by
     the witness, with result `box`. -/
 theorem LBOptimize_correct_hyps_satisfiable :
     EvalProp vacΓ vacTerm .box := by
-  refine EvalProp.iota_box (names := [.anon]) (body := .bvar 0) vac_isProp .box ?_
+  refine WcbvEval.iota_sing (by decide) (names := [.anon]) (body := .bvar 0) vac_isProp .box ?_
   -- substList [box] (bvar 0) = box, and EvalProp box box
   show EvalProp vacΓ (LBTerm.substList (List.replicate 1 .box) (.bvar 0)) .box
   rw [show LBTerm.substList (List.replicate 1 .box) (.bvar 0) = .box from rfl]

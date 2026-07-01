@@ -2,22 +2,24 @@
 -- Import modules here that should be built as part of the library.
 import LeanToLambdaBox.Basic
 import LeanToLambdaBox.Erasure
--- Verification scaffolding (Phase 2 of the attack plan). Definitions only;
--- the correctness theorem ships with a `sorry` to be discharged in Phase 3.
+-- Operational-semantics model (a Lean translation of MetaCoq `EWcbvEval`). The
+-- `Semantics/` directory holds the de Bruijn substitution kit, `WcbvFlags`, the
+-- faithful `Value`/`atom` predicates, the flag-parameterised big-step `WcbvEval`
+-- (with `Eval`/`EvalProp` recovered as abbrevs), and its metatheory (determinism,
+-- `eval_to_value`, `value_final`, …).
+import LeanToLambdaBox.Semantics.Substitution
+import LeanToLambdaBox.Semantics.Env
+import LeanToLambdaBox.Semantics.Flags
+import LeanToLambdaBox.Semantics.Values
+import LeanToLambdaBox.Semantics.Eval
+import LeanToLambdaBox.Semantics.Metatheory
 import LeanToLambdaBox.Semantics
-import LeanToLambdaBox.CExpr
-import LeanToLambdaBox.Correctness
--- Staged proofs (Phase 3). All five stages are fully proved.
-import LeanToLambdaBox.Proofs.Lambda
-import LeanToLambdaBox.Proofs.Constants
-import LeanToLambdaBox.Proofs.Inductives
-import LeanToLambdaBox.Proofs.Fix
-import LeanToLambdaBox.Proofs.Irrel
--- Grounding re-base on lean4lean (Half A): typed `Erases` over real `Lean.Expr`,
--- irrelevance predicate, substitution lemmas, and big-step λ□ evaluation.
+-- Grounding on lean4lean (Half A): the erasure context, the typed `Erases` relation
+-- over real `Lean.Expr`, the irrelevance predicate, substitution lemmas, source-side
+-- evaluation, subject reduction, and forward-simulation correctness.
+import LeanToLambdaBox.ErasureContext
 import LeanToLambdaBox.Erasability
 import LeanToLambdaBox.Erases
-import LeanToLambdaBox.Eval
 import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
@@ -27,17 +29,3 @@ import LeanToLambdaBox.EraseCore
 -- Closing the gap to MetaCoq §7.3/§7.4: first-order determinism + the `optimize` pass.
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.Optimize
-
-/-- **Erasure preservation** (top-level export).
-
-If a source term `e` erases to target term `t` and `e` takes one source-level
-reduction step to `e'`, then `t` reduces in zero or more target-level steps
-to some `t'` that erases `e'`. -/
-theorem erase_preservation
-    {Γ : ErasureCtx} {Δ : CExpr.Env} {E : GlobalDeclarations}
-    (hEnv : EnvConsistent Γ Δ E)
-    {e e' : CExpr} {t : LBTerm}
-    (he   : Erases Γ e t)
-    (hred : CExpr.Step Δ e e') :
-    ∃ t', LBTerm.Steps E t t' ∧ Erases Γ e' t' :=
-  ErasureProofs.Irrel.preservation_irrel hEnv he hred

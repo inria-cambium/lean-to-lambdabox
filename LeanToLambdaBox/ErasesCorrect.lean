@@ -43,25 +43,6 @@ theorem erases_beta_struct {env : VEnv} (henv : env.Ordered) {Us : List Name}
     Erases env Us Γ Δ (b.instantiate1' a 0) (LBTerm.subst1 a' b') :=
   erases_subst henv hta hTa ha .zero hb
 
-/-- **β-reduction preservation** (the operational core of erasure correctness for
-the β case). If a β-redex `(fun x : ty => b) a` erases structurally to
-`(λ. b') a'` — with `a` of the binder type — then the target redex takes one
-`Step` to `subst1 a' b'`, and that target reduct still erases the source reduct
-`b[a]`.
-
-This is the forward-simulation square for β closed end-to-end, composing the
-target β-`Step` with `erases_beta_struct`. It is the typed-`Erases`/real-`Expr`
-analogue of the β case of the legacy `erase_preservation`. -/
-theorem erases_beta_step {env : VEnv} (henv : env.Ordered) {Us : List Name}
-    {Γ : ErasureCtx} {Δ : VLCtx} {E : GlobalDeclarations}
-    {b a : Expr} {n' : BinderName} {b' a' : LBTerm} {ty' va : VExpr}
-    (hta : TrExprS env Us Δ a va) (hTa : env.HasType Us.length Δ.toCtx va ty')
-    (hb : Erases env Us Γ ((none, .vlam ty') :: Δ) b b')
-    (ha : Erases env Us Γ Δ a a') :
-    LBTerm.Step E (.app (.lambda n' b') a') (LBTerm.subst1 a' b')
-    ∧ Erases env Us Γ Δ (b.instantiate1' a 0) (LBTerm.subst1 a' b') :=
-  ⟨.beta n' b' a', erases_beta_struct henv hta hTa hb ha⟩
-
 /-- **Erasure correctness — forward simulation, β fragment.**
 
 If the source term `e` translates to `ve` (`TrExprS`), erases to the target term
@@ -135,7 +116,9 @@ theorem erases_correct_beta {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
             -- The whole redex `f' a''` is erasable, hence so is its value `vve`.
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
-            exact ⟨.box, vve, .app_box hEf, htrr,
+            -- `eval_box` evaluates the argument too: run the argument IH.
+            obtain ⟨_, _, hEa, _, _⟩ := iha htra ha'
+            exact ⟨.box, vve, .app_box hEf hEa, htrr,
               .box htrr (herapp.defeq henv hΓ hdef)⟩
           · -- Head erased to a λ. Subject reduction gives `f' ≡ λ`-translation;
             -- invert *that* translation to expose the λ body.
@@ -366,7 +349,9 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
                 henv hΓ (VEnv.IsDefEqU.symm hfdef)
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
-            exact ⟨.box, vve, .app_box hEf, htrr,
+            -- `eval_box` evaluates the argument too: run the argument IH.
+            obtain ⟨_, _, hEa, _, _⟩ := iha htra ha'
+            exact ⟨.box, vve, .app_box hEf hEa, htrr,
               .box htrr (herapp.defeq henv hΓ hdef)⟩
           · -- Head erased to a λ.
             obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβζδ_defeq henv hΔ hcon htrf hf.toβζδ

@@ -582,8 +582,7 @@ or higher-order-combinator obstruction was found empirically) rather than blocke
   literals, `Nat.succ`↦`+1`), **projections** (`.proj`, blocked by lean4lean's
   sorried `TrProj`), and **string literals** are all out of scope — `eraseCore`
   errors on them. These are exactly the "additional, unverified rewrites layered on
-  top" that `Correctness.lean` already documents as deliberately out of the verified
-  subset.
+  top" — deliberately out of the verified subset.
 
 In short: the refinement bridge is *complete and sorry-free for the supported
 fragment*, and the remaining gap is precisely (a) one honest, Lean-unprovable oracle
