@@ -396,15 +396,14 @@ theorem firstOrderValue_erases_eq_eraseCore {env : VEnv} (henv : env.WF)
   | @ctor cn us iid cidx args hc hcas info hargs ih =>
       -- The head node is not erasable (A2 core, directly from `info`), so `orc`
       -- cannot fire under `OracleSound`.
-      have hnotEr : ∀ {ve : VExpr},
-          TrExprS env Us Δ (args.foldl Expr.app (.const cn us)) ve →
-          ¬ Erasable env Us.length Δ.toCtx ve := fun htr =>
-        informativeType_not_erasable henv hΔ info htr
       have horc : orc (args.foldl Expr.app (.const cn us)) = false := by
         by_contra hb
         simp only [Bool.not_eq_false] at hb
-        obtain ⟨ve, htr, her'⟩ := hos Δ _ hb
-        exact hnotEr htr her'
+        -- The `InformativeType` witness supplies a translation `htr₀`; the (now
+        -- judgment-assuming) oracle then makes the value `Erasable`, contradicting
+        -- that an informative-typed value is not erasable.
+        have ⟨ve₀, _, htr₀, _, _, _⟩ := info
+        exact informativeType_not_erasable henv hΔ info htr₀ (hos Δ _ ve₀ htr₀ hb)
       -- Each argument erases at some fuel; unify to a common fuel.
       obtain ⟨fuel, hfuel⟩ := exists_uniform_fuel args (fun i hi => ih i hi)
       obtain ⟨args', hmap⟩ := mapM_firstorder args hfuel

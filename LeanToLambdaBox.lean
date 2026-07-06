@@ -26,6 +26,9 @@ import LeanToLambdaBox.SubjectReductionFull
 import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
 import LeanToLambdaBox.EraseCore
+-- Relevance-oracle soundness via lean4lean's verified checker (discharges the
+-- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).
+import LeanToLambdaBox.RelevanceCheck
 -- Closing the gap to MetaCoq §7.3/§7.4: first-order determinism + the `optimize` pass.
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.Optimize

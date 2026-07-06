@@ -131,25 +131,25 @@ where
 /-! ## The oracle-soundness hypothesis (the trust boundary) -/
 
 /--
-**Oracle soundness — the honest trust boundary, stated as a hypothesis.**
+**Oracle soundness — the relevance-decision correctness obligation.**
 
-`OracleSound env Us Γ orc` says: for *every* context `Δ'` and subterm `e'`, if the
-oracle fires (`orc e' = true`), then `e'` really is an irrelevant term in that
-context — there is a lean4lean translation `TrExprS … Δ' e' ve` together with an
-`Erasable` witness over `VExpr`. This is precisely what makes the `box` rule of
-`Erases` applicable wherever `eraseCore` emits `.box`.
+`OracleSound env Us orc` says: for *every* well-typed subterm `e'` (one that
+translates to a `VExpr` `ve`, `TrExprS … Δ' e' ve`), if the oracle fires
+(`orc e' = true`) then `ve` really is irrelevant (`Erasable`). This is precisely
+what makes the `box` rule of `Erases` applicable wherever `eraseCore` emits `.box`.
 
-The quantification over *all* `Δ'` is what threads the context through the binder
-cases (`lam`/`letE` extend `Δ`); `orc : Expr → Bool` itself is context-blind, so the
-honest bridge must hold uniformly.
-
-This is exactly the obligation that the real `Meta.isProp ∘ inferType` /
-`Meta.isTypeFormerType ∘ inferType` would have to meet to be sound, expressed over
-lean4lean's formal type theory rather than `MetaM`.
+Following the collaborators' guidance, the lean4lean typing judgment is **assumed**
+(`TrExprS` is a premise) rather than produced by the oracle: the oracle's only job is
+to *decide* relevance on already-well-typed terms. This is what makes `OracleSound`
+*dischargeable* — by a relevance check reimplemented on lean4lean's verified checker
+(`isProp ∨ isArity` on the inferred type), whose soundness against `Erasable` is a
+theorem, not an axiom (see `isProp_refines_Erasable`/`isErasable_sound` — WIP). The
+real `Meta.isProp ∘ inferType` / `Meta.isTypeFormerType ∘ inferType` is the shipping
+instance of exactly this obligation.
 -/
 def OracleSound (env : VEnv) (Us : List Name) (orc : Expr → Bool) : Prop :=
-  ∀ (Δ' : VLCtx) (e' : Expr), orc e' = true →
-    ∃ ve, TrExprS env Us Δ' e' ve ∧ Erasable env Us.length Δ'.toCtx ve
+  ∀ (Δ' : VLCtx) (e' : Expr) (ve : VExpr),
+    TrExprS env Us Δ' e' ve → orc e' = true → Erasable env Us.length Δ'.toCtx ve
 
 /-! ## Application-spine translation inversion
 
@@ -412,8 +412,9 @@ theorem eraseCore_refines {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
       · -- oracle fired: box.
         rename_i horc
         injection heq with heq; subst heq
-        obtain ⟨ve', htr', her⟩ := hos Δ e horc
-        exact .box htr' her
+        -- The source's own translation `htr` supplies `TrExprS`; the oracle
+        -- (assumed sound) supplies `Erasable`.
+        exact .box htr (hos Δ e ve htr horc)
       · -- structural: hand off to `go_refines` with the fuel-IH.
         exact go_refines (fun Δ' e' ve' t' htr' h => ih htr' h) e Δ [] ve t htr heq
 
@@ -463,7 +464,7 @@ satisfiable*, so the repaired theorems are non-vacuous. -/
 hypothesis `(fun _ => false) e' = true` is `false = true`, i.e. `False`. -/
 theorem oracleSound_false (env : VEnv) (Us : List Name) :
     OracleSound env Us (fun _ => false) := by
-  intro Δ' e' h; exact absurd h (by simp)
+  intro Δ' e' ve _ h; exact absurd h (by simp)
 
 /-- A concrete, satisfiable `TrExprS` witness: `Sort 0` translates (no environment,
 no universe params, empty context). This is exactly the kind of source `htr` the new

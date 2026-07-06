@@ -3,6 +3,7 @@ import Lean.Meta
 
 import LeanToLambdaBox.Basic
 import LeanToLambdaBox.Printing
+import LeanToLambdaBox.Relevance
 import Std.Data
 
 open Lean
@@ -137,12 +138,10 @@ def run (x : EraseM α) (config: ErasureConfig): CoreM (α × ErasureState) :=
 @[inline] def liftMetaM (x : MetaM α) : EraseM α := do
   x.run' { lctx := (← read).lctx }
 
-/--
-TODO: The function ToLCNF.isTypeFormerType has an auxiliary function "quick"
-which I removed here because I didn't understand why it was correct.
-Maybe putting it back makes things faster.
--/
-def isErasable (e : Expr) : MetaM Bool := do
+/-- Fallback relevance check via the Lean elaborator (the original implementation):
+    erase proofs (`Meta.isProp`) and type-formers (`Meta.isTypeFormerType`). Used when
+    the lean4lean kernel checker cannot run on a term. -/
+def isErasableMeta (e : Expr) : MetaM Bool := do
     let type ← Meta.inferType e
     -- Erase evidence of propositions
     -- ToLCNF includes an explicit check for isLcProof, but I think the type information should be enough to erase those here.
@@ -152,6 +151,27 @@ def isErasable (e : Expr) : MetaM Bool := do
     if (← Meta.isTypeFormerType type) then
       return true
     return false
+
+/-- Relevance decision: is `e` irrelevant (a proof or a type-former)?
+
+    This routes the decision through the **lean4lean-verified** relevance check
+    `LeanToLambdaBox.isErasable` (`isProp ∨ isArity` on lean4lean's kernel checker),
+    whose soundness against the formal `Erasable` predicate is proved as
+    `LeanToLambdaBox.isErasable.WF` (no axiom of ours). Universe parameters are
+    collected from the term itself, and the checker is run in the current local
+    context. If lean4lean's checker cannot run (e.g. a construct it does not
+    support), we fall back to the elaborator-based `isErasableMeta` so the transpiler
+    never fails on that account.
+
+    NB: relevance decisions can differ from the previous `Meta.*`-only implementation
+    on edge cases; extracted output should be re-validated against the benchmarks. -/
+def isErasable (e : Expr) : MetaM Bool := do
+    let lparams := (Lean.collectLevelParams {} e).params.toList
+    match Lean4Lean.TypeChecker.M.run (← getEnv).toKernelEnv (safety := .safe)
+        (lctx := ← getLCtx) (lparams := lparams)
+        (Lean4Lean.TypeChecker.RecM.run (LeanToLambdaBox.isErasable e)) with
+    | .ok b => return b
+    | .error _ => isErasableMeta e
 
 def addAxiom (name: Name): EraseM Unit := do
   if (← get).constants.contains name then panic! s!"Constant {name} is already defined, cannot add axiom."
