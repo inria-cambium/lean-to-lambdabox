@@ -348,12 +348,147 @@ def lambdaOrIntroToArity {α} [Inhabited α] (e type: Expr) (arity: Nat) (k: Exp
   | n+1 => lambdaMonocularOrIntro e type fun body bodytype fvarid =>
       lambdaOrIntroToArity body bodytype n (fun e fvarids => k e (.cons fvarid fvarids))
 
+/-! ### Monotonicity lemmas for `partial_fixpoint` (verification infrastructure)
+
+The erasure family below (`visitExpr` & co.) is defined with `partial_fixpoint`
+rather than `partial def`, so that it has equational lemmas (`….eq_def`) and a
+fixpoint-induction principle (`….mutual_fixpoint_induct`) to reason about —
+Task A of the verification (see `PROJECT_STATUS_HANDOFF.md`). `partial_fixpoint`
+must prove every definition monotone in its recursive calls; recursion flowing
+through the continuation-passing helpers above (`withLocalDecl`,
+`lambdaMonocular`, …) requires the `@[partial_fixpoint_monotone]` lemmas below.
+These are proof-only artifacts: they change the compiled behaviour of nothing. -/
+
+section Monotonicity
+open Lean.Order
+
+@[partial_fixpoint_monotone]
+theorem withReader_mono {γ} [PartialOrder γ] {α} (f : ErasureContext → ErasureContext)
+    (k : γ → EraseM α) (hmono : monotone k) :
+    monotone (fun x => withReader f (k x)) := by
+  change monotone (fun x (s : ErasureState) (ctx : ErasureContext) => k x s (f ctx))
+  apply monotone_of_monotone_apply; intro s
+  apply monotone_of_monotone_apply; intro ctx
+  exact monotone_apply (f ctx) _ (monotone_apply s _ hmono)
+
+@[partial_fixpoint_monotone]
+theorem withLocalDecl_mono {γ} [PartialOrder γ] {α} (n : Name) (type : Expr) (bi : BinderInfo)
+    (k : γ → FVarId → EraseM α) (hmono : monotone k) :
+    monotone (fun x => Erasure.withLocalDecl n type bi (k x)) := by
+  unfold Erasure.withLocalDecl
+  monotonicity
+  · apply monotone_const
+  · apply monotone_of_monotone_apply; intro fvarid
+    exact withReader_mono _ _ (monotone_apply fvarid _ hmono)
+
+@[partial_fixpoint_monotone]
+theorem withLocalDef_mono {γ} [PartialOrder γ] {α} (n : Name) (type val : Expr) (nd : Bool)
+    (k : γ → FVarId → EraseM α) (hmono : monotone k) :
+    monotone (fun x => Erasure.withLocalDef n type val nd (k x)) := by
+  unfold Erasure.withLocalDef
+  monotonicity
+  · apply monotone_const
+  · apply monotone_of_monotone_apply; intro fvarid
+    exact withReader_mono _ _ (monotone_apply fvarid _ hmono)
+
+@[partial_fixpoint_monotone]
+theorem lambdaMonocular_mono {γ} [PartialOrder γ] {α} [Inhabited α] (e : Expr)
+    (k : γ → FVarId → Expr → EraseM α) (hmono : monotone k) :
+    monotone (fun x => lambdaMonocular e (k x)) := by
+  unfold lambdaMonocular
+  monotonicity
+  all_goals first
+    | apply monotone_const
+    | (apply withLocalDecl_mono
+       apply monotone_of_monotone_apply; intro fvarid
+       exact monotone_apply _ _ (monotone_apply fvarid _ hmono))
+
+@[partial_fixpoint_monotone]
+theorem letMonocular_mono {γ} [PartialOrder γ] {α} [Inhabited α] (e : Expr)
+    (k : γ → FVarId → Expr → Expr → EraseM α) (hmono : monotone k) :
+    monotone (fun x => letMonocular e (k x)) := by
+  unfold letMonocular
+  monotonicity
+  all_goals first
+    | apply monotone_const
+    | (apply withLocalDef_mono
+       apply monotone_of_monotone_apply; intro fvarid
+       exact monotone_apply _ _ (monotone_apply _ _ (monotone_apply fvarid _ hmono)))
+
+@[partial_fixpoint_monotone]
+theorem forallMonocular_mono {γ} [PartialOrder γ] {α} [Inhabited α] (t : Expr)
+    (k : γ → FVarId → Expr → EraseM α) (hmono : monotone k) :
+    monotone (fun x => forallMonocular t (k x)) := by
+  unfold forallMonocular
+  monotonicity
+  all_goals first
+    | apply monotone_const
+    | (apply withLocalDecl_mono
+       apply monotone_of_monotone_apply; intro fvarid
+       exact monotone_apply _ _ (monotone_apply fvarid _ hmono))
+
+@[partial_fixpoint_monotone]
+theorem lambdaMonocularOrIntro_mono {γ} [PartialOrder γ] {α} [Inhabited α] (e type : Expr)
+    (k : γ → Expr → Expr → FVarId → EraseM α) (hmono : monotone k) :
+    monotone (fun x => lambdaMonocularOrIntro e type (k x)) := by
+  unfold lambdaMonocularOrIntro
+  apply forallMonocular_mono
+  apply monotone_of_monotone_apply; intro fvarid
+  apply monotone_of_monotone_apply; intro bodytype
+  monotonicity
+  all_goals exact monotone_apply _ _ (monotone_apply _ _ (monotone_apply _ _ hmono))
+
+@[partial_fixpoint_monotone]
+theorem lambdaOrIntroToArity_mono {γ} [PartialOrder γ] {α} [Inhabited α] (e type : Expr) (arity : Nat)
+    (k : γ → Expr → List FVarId → EraseM α) (hmono : monotone k) :
+    monotone (fun x => lambdaOrIntroToArity e type arity (k x)) := by
+  induction arity generalizing e type k with
+  | zero =>
+    unfold lambdaOrIntroToArity
+    exact monotone_apply _ _ (monotone_apply _ _ hmono)
+  | succ n ih =>
+    unfold lambdaOrIntroToArity
+    apply lambdaMonocularOrIntro_mono
+    apply monotone_of_monotone_apply; intro body
+    apply monotone_of_monotone_apply; intro bodytype
+    apply monotone_of_monotone_apply; intro fvarid
+    apply ih
+    apply monotone_of_monotone_apply; intro e'
+    apply monotone_of_monotone_apply; intro fvarids
+    exact monotone_apply _ _ (monotone_apply _ _ hmono)
+
+open private Lean.Expr.getAppArgsAux from Lean.Expr in
+/-- `Expr.withApp` computes `k e.getAppFn e.getAppArgs` in a single traversal.
+Same statement and proof as lean4lean's `Lean4Lean.withApp_eq` (re-proved here so
+the shipping build does not import lean4lean's heavy `Verify` layer). -/
+theorem expr_withApp_eq {α} {e : Expr} {k : Expr → Array Expr → α} :
+    e.withApp k = k e.getAppFn e.getAppArgs := loop
+where
+  loop {e arr n} : Expr.withAppAux k e arr n = k e.getAppFn (Lean.Expr.getAppArgsAux e arr n) := by
+    unfold Expr.withAppAux Lean.Expr.getAppArgsAux
+    split <;> [exact loop; simp [Expr.getAppFn]]
+
+@[partial_fixpoint_monotone]
+theorem expr_withApp_mono {γ} [PartialOrder γ] {β} [PartialOrder β] (e : Expr)
+    (k : γ → Expr → Array Expr → β) (hmono : monotone k) :
+    monotone (fun x => e.withApp (k x)) := by
+  simp only [expr_withApp_eq]
+  exact monotone_apply _ _ (monotone_apply _ _ hmono)
+
+end Monotonicity
+
 /--
 Given an expression, deconstruct it into an application to at least arity arguments,
 then build a LBTerm from it given the continuation.
 This will eta-expand if necessary, and close the lambdas after running `k`.
 For example: withAppEtaToMinArity "Nat.add 42" 2 k = mkLambda "y" (k "Nat.add" ["42", "y"])
 Panics if the type of e does not start with at least arity .forallE constructors.
+
+NB (verification): the erasure family below no longer calls this — `partial_fixpoint`
+cannot handle a recursive call inside the *argument* of another recursive call
+(nested recursion), which is what `withAppEtaToMinArity e arity (fun _ args =>
+visitCases …)` would be. It is specialized as `visitCasesEta`/`visitCtorEta`
+inside the mutual block, with identical behaviour. Kept for API compatibility.
 -/
 partial def withAppEtaToMinArity (e: Expr) (arity: Nat) (k: Expr -> Array Expr -> EraseM LBTerm): EraseM LBTerm := do
   let type ← liftMetaM do Meta.inferType e
@@ -427,18 +562,19 @@ def prepare_erasure (e: Expr): EraseM Expr := do
       | none      => return .continue)
   pure e
 
-/--
-Copied over from toLCNF, then quite heavily pruned and modified.
-
-This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
+/-!
+The erasure family. This was a single `partial def erase … where visitExpr …`;
+it is now a `mutual` block of total-by-`partial_fixpoint` definitions (Task A of
+the verification): same code, same behaviour, but with equational lemmas and a
+fixpoint-induction principle. The only two behaviour-preserving deviations,
+forced by `partial_fixpoint`'s no-nested-recursion limitation and missing
+`LawfulMonad` instances for the v4.29 `EST` monad, are documented inline:
+`visitCasesEta`/`visitCtorEta` (specializations of `withAppEtaToMinArity`) and a
+`.toArray` on the over-application `Subarray` loop in `visitCases`.
 -/
-partial def erase (e : Expr) (config: ErasureConfig): CoreM (Program × List Kername) := do
-  let (t, s) ← run (do visitExpr (← prepare_erasure e)) config
-  return (.untyped s.gdecls (.some t), s.inlinings)
-
-where
+mutual
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
-  visitExpr (e : Expr) : EraseM LBTerm := do
+  def visitExpr (e : Expr) : EraseM LBTerm := do
     if (← liftMetaM <| isErasable e) then
       return .box
     match e with
@@ -451,8 +587,9 @@ where
     | .lit l     => visitLiteral l
     | .fvar fvarId => pure (.fvar fvarId)
     | .forallE .. | .mvar .. | .bvar .. | .sort ..  => unreachable!
+  partial_fixpoint
 
-  visitLiteral (l: Literal): EraseM LBTerm := do
+  def visitLiteral (l: Literal): EraseM LBTerm := do
     match (← read).config.nat, l with
     | .peano, .natVal 0 => visitConstructor ``Nat.zero #[]
     | .peano, .natVal (n+1) => visitConstructor ``Nat.succ #[.lit (.natVal n)]
@@ -462,29 +599,33 @@ where
       else
         panic! "Nat literal not representable as a 63-bit signed integer."
     | _, .strVal _ => panic! "String literals not supported."
+  partial_fixpoint
 
   /-
   The original in ToLCNF also handles eta-reduction of implicit lambdas introduced by the elaborator.
   This is beyond the scope of what I want to do here for the moment.
   -/
-  visitLambda (e : Expr) : EraseM LBTerm :=
+  def visitLambda (e : Expr) : EraseM LBTerm :=
     lambdaMonocular e (fun fvarid body => do mkLambda fvarid (← visitExpr body))
+  partial_fixpoint
 
-  visitLet (e : Expr): EraseM LBTerm :=
+  def visitLet (e : Expr): EraseM LBTerm :=
     /-
     In the original ToLCNF, if the bound value is erasable then the let-binding is not generated,
     since all occurrences of the variable must be erased anyway.
     Keep this optimization?
     -/
     letMonocular e (fun fvarid val body => do mkLetIn fvarid (← visitExpr val) (← visitExpr body))
+  partial_fixpoint
 
-  visitProj (s : Name) (i : Nat) (e : Expr) : EraseM LBTerm := do
+  def visitProj (s : Name) (i : Nat) (e : Expr) : EraseM LBTerm := do
     let .inductInfo indinfo ← getConstInfo s | unreachable!
     let (indid, argmasks) ← register_inductive indinfo
     -- i is the index among all fields, but some are erased
     let fieldIdx := argmasks[0]![:i].toArray.count .keep
     let projinfo: ProjectionInfo := { indType := indid, paramCount := indinfo.numParams, fieldIdx }
     return .proj projinfo (← visitExpr e)
+  partial_fixpoint
 
   /--
   When visiting expressions of the form f g, it is not sufficient to just recurse on f and g.
@@ -492,28 +633,30 @@ where
   then handle the case where it is a constant specially; otherwise, straightforward recursion is correct.
   Contrary to the original ToLCNF, I have removed CSimp.replaceConstants here and assume it will just be run once before erasure.
   -/
-  visitApp (e : Expr) : EraseM LBTerm :=
+  def visitApp (e : Expr) : EraseM LBTerm :=
     -- The applicand is a constant, check for special cases
     if let .const .. := e.getAppFn then
       visitConstApp e
     -- The applicand is not a constant, so we just normally recurse.
     else
       e.withApp fun f args => do visitAppArgs (← visitExpr f) args
+  partial_fixpoint
 
   /-- A constant which is being defined in the current mutual block will be replaced with a free variable (to be bound by mkDef later).
   Other constants should previously have been added to the (λbox-side) context and will just be translated to Rocq kernames. -/
-  visitConst (e: Expr): EraseM LBTerm := do
+  def visitConst (e: Expr): EraseM LBTerm := do
     let .const declName _ := e | unreachable!
     if let .some id := (← read).fixvars.bind (fun hmap => hmap[declName]?) then
       return .fvar id
     return .const (← get_constant_kername declName)
+  partial_fixpoint
 
   /--
   Special handling of
   - casesOn (will be eta-expanded)
   - constructors (will be eta-expanded)
   -/
-  visitConstApp (e: Expr): EraseM LBTerm :=
+  def visitConstApp (e: Expr): EraseM LBTerm :=
     e.withApp fun f args => do
       let .const declName _ := f | unreachable!
       if let some casesInfo ← getCasesInfo? declName then
@@ -521,9 +664,9 @@ where
         I have removed the check for whether there is an [implemented_by] annotation.
         This is only relevant for the implementation of computed fields, such as for hash consing in the `Expr` type.
         -/
-        withAppEtaToMinArity e casesInfo.arity (fun _ args => visitCases casesInfo args)
+        visitCasesEta casesInfo e
       else if let some arity ← getCtorArity? declName then
-        withAppEtaToMinArity e arity (fun _ args => visitConstructor declName args)
+        visitCtorEta declName arity e
       /-
       Removed special check for automatically defined projection functions out of structures.
       In toLCNF these are inlined and β-reduced, unless the projection is out of a builtin type of the runtime.
@@ -533,8 +676,46 @@ where
       -/
       else
         visitAppArgs (← visitConst f) args
+  partial_fixpoint
 
-  visitConstructor (ctorname: Name) (args: Array Expr): EraseM LBTerm := do
+  /-- `withAppEtaToMinArity` specialized to a `visitCases` continuation.
+  (`partial_fixpoint` cannot handle nested recursion — a recursive call inside an
+  *argument* of another recursive call — which is what passing a continuation
+  mentioning `visitCases` to `withAppEtaToMinArity` would be. Specializing turns
+  it into plain mutual recursion; the behaviour is byte-for-byte the original.) -/
+  def visitCasesEta (casesInfo : CasesInfo) (e : Expr) : EraseM LBTerm := do
+    let type ← liftMetaM do Meta.inferType e
+    e.withApp (fun f args => visitCasesEtaGo casesInfo type f args)
+  partial_fixpoint
+
+  -- Invariant: type is the type of f *args.
+  def visitCasesEtaGo (casesInfo : CasesInfo) (type f : Expr) (args : Array Expr) : EraseM LBTerm :=
+    if args.size >= casesInfo.arity then
+      visitCases casesInfo args
+    else
+      forallMonocular type fun fvarid bodytype => do
+        let res ← visitCasesEtaGo casesInfo bodytype f (args.push (.fvar fvarid))
+        mkLambda fvarid res
+  partial_fixpoint
+
+  /-- `withAppEtaToMinArity` specialized to a `visitConstructor` continuation
+  (see `visitCasesEta`). -/
+  def visitCtorEta (ctorname : Name) (arity : Nat) (e : Expr) : EraseM LBTerm := do
+    let type ← liftMetaM do Meta.inferType e
+    e.withApp (fun f args => visitCtorEtaGo ctorname arity type f args)
+  partial_fixpoint
+
+  -- Invariant: type is the type of f *args.
+  def visitCtorEtaGo (ctorname : Name) (arity : Nat) (type f : Expr) (args : Array Expr) : EraseM LBTerm :=
+    if args.size >= arity then
+      visitConstructor ctorname args
+    else
+      forallMonocular type fun fvarid bodytype => do
+        let res ← visitCtorEtaGo ctorname arity bodytype f (args.push (.fvar fvarid))
+        mkLambda fvarid res
+  partial_fixpoint
+
+  def visitConstructor (ctorname: Name) (args: Array Expr): EraseM LBTerm := do
     let .ctorInfo info ← getConstInfo ctorname | unreachable!
     let cidx := info.cidx
     let .inductInfo indinfo ← getConstInfo info.induct | unreachable!
@@ -564,12 +745,14 @@ where
     let filtered_args := param_args.toArray ++ (filter argmask field_args) ++ extra_args.toArray
     -- Instead of making this a "real" use of .construct, in the stage of λbox I am targeting constructor application is function application
     visitAppArgs (.construct indid cidx []) filtered_args
+  partial_fixpoint
 
   /-- Normal application of a function to some arguments. -/
-  visitAppArgs (f : LBTerm) (args : Array Expr) : EraseM LBTerm := do
+  def visitAppArgs (f : LBTerm) (args : Array Expr) : EraseM LBTerm := do
       args.foldlM (fun e arg => do return LBTerm.app e (← visitExpr arg)) f
+  partial_fixpoint
 
-  visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM LBTerm := do
+  def visitCases (casesInfo : CasesInfo) (args: Array Expr) : EraseM LBTerm := do
     let discr_nt ← visitExpr args[casesInfo.discrPos]!
     let typeName := casesInfo.declName.getPrefix
 
@@ -630,31 +813,37 @@ where
     )
 
     -- The casesOn function may be overapplied, so handle the extra arguments.
-    for arg in args[casesInfo.arity:] do
+    -- (`.toArray`: iterate the Array copy rather than the `Subarray` — same elements;
+    -- v4.29's `Subarray` `ForIn` goes through the iterator framework, for which no
+    -- `partial_fixpoint` monotonicity lemma is derivable without `LawfulMonad EST`.)
+    for arg in (args[casesInfo.arity:]).toArray do
       ret := .app ret (← visitExpr arg)
     return ret
+  partial_fixpoint
 
   /--
   Visit a `matcher`/`casesOn` alternative.
   On the Lean side, e should be a function taking numFields arguments.
   For λbox, I think we only need the body, as the LBTerm.cases constructor handles the bindings.
   -/
-  visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List BinderName × LBTerm) := do
+  def visitAlt (numFields : Nat) (argmask: ConstructorArgMask) (e : Expr) : EraseM (List BinderName × LBTerm) := do
     lambdaOrIntroToArity e (← liftMetaM <| Meta.inferType e) numFields fun e fvarids => do
       mkAlt (filter argmask fvarids.toArray).toList (← visitExpr e)
+  partial_fixpoint
 
-  get_constant_kername (n: Name): EraseM Kername := do
+  def get_constant_kername (n: Name): EraseM Kername := do
     if let .some kn := (← get).constants.get? n then
       return kn
     else
      visitMutual n
      return (← get).constants[n]!
+  partial_fixpoint
 
   /--
   Add all the declarations in the Lean-side mutual block of `name` to the global_declarations,
   and add their mappings to kernames to the erasure state.
   -/
-  visitMutual (name: Name): EraseM Unit := do
+  def visitMutual (name: Name): EraseM Unit := do
     -- Use original recursive definition, not the elaborated one with recursors, if available.
     let ci := (← Compiler.LCNF.getDeclInfo? name).get!
     let names := ci.all -- possibly these are ._unsafe_rec
@@ -713,6 +902,17 @@ where
         for (n, i) in fixvarnames.zipIdx do
           let kn := toKername n
           modify (fun s => { s with constants := s.constants.insert n kn, gdecls := s.gdecls.cons (kn, .constantDecl ⟨.some <| .fix defs i⟩) })
+  partial_fixpoint
+end
+
+/--
+Copied over from toLCNF, then quite heavily pruned and modified.
+
+This not only erases the expression but also gives a context with all necessary global declarations of inductive types and top-level constants.
+-/
+def erase (e : Expr) (config: ErasureConfig): CoreM (Program × List Kername) := do
+  let (t, s) ← run (do visitExpr (← prepare_erasure e)) config
+  return (.untyped s.gdecls (.some t), s.inlinings)
 
 inductive MLType: Type where
   | arrow (a b: MLType)
