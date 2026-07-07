@@ -27,6 +27,17 @@ import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
 import LeanToLambdaBox.Abstract
 import LeanToLambdaBox.EraseCore
+-- The shipping bridge (Half B, plan of record): `visitExpr` → `Erases` directly.
+-- `Bridge` holds the supported-fragment predicate; the fvar↔de-Bruijn transport
+-- (`ErasesAbstract`), the vlet strengthening (`ErasesStrengthen`), and the
+-- `EraseM` run/admissibility toolkit (`ErasureRun`) feed the fixpoint-induction
+-- bridge theorem.
+import LeanToLambdaBox.Bridge
+import LeanToLambdaBox.ErasesAbstract
+import LeanToLambdaBox.ErasesStrengthen
+import LeanToLambdaBox.ErasureRun
+import LeanToLambdaBox.VisitExprRefines
+import LeanToLambdaBox.ShippingCorrect
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).
 import LeanToLambdaBox.RelevanceCheck

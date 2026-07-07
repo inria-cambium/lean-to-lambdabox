@@ -590,6 +590,31 @@ fragment*, and the remaining gap is precisely (a) one honest, Lean-unprovable or
 assumption (kept as a hypothesis, not an axiom), (b) a re-declaration of `visitExpr`
 as a `partial_fixpoint` def (empirically viable in `CoreM`), and (c) the
 fvar↔de-Bruijn telescope simulation plus the deliberately-unmodelled rewrite passes.
+
+### (d) 2026-07-07 addendum: `eraseCore` CANNOT be the bridge target (adversarially verified)
+
+Obstacle (c) is worse than "real bookkeeping work": **no** instantiation of
+`orc : Expr → Bool` makes `visitExpr` refine *this de-Bruijn* `eraseCore`.
+Oracle-independent counterexample: with `g : Nat → True → Nat` and
+`f : (Nat → True → Nat) → (True → Nat → Nat) → Nat`, the closed, fragment-internal
+term `f (fun (n : Nat) (h : True) => g n h) (fun (h : True) (n : Nat) => g n h)`
+has the de-Bruijn lambda bodies `g #1 #0` and `g #0 #1`. `visitExpr` opens all four
+binders and its oracle (running in the ambient lctx) boxes exactly the proof-typed
+occurrences — *different* bvar indices in the two lambdas — while `eraseCore`
+queries `orc` on the raw de-Bruijn leaves and must treat the syntactically identical
+`.bvar i` identically in both. So the outputs differ at ≥ 2 positions for **every**
+`orc`: a function of the bare `Expr` cannot disambiguate occurrences of the same
+bvar under different binder types. (Verified by a 4-lens adversarial review,
+2026-07-07.)
+
+Consequently the plan of record routes the bridge **directly to `Erases`** (which
+threads the `VLCtx` and whose `box` rule consumes the typing judgment at the exact
+fvar-opened context the shipping oracle decides): `visitExpr` —(fixpoint induction
+over the now-`partial_fixpoint` family)→ `Erases` —(`erases_correct`)→ `Eval`, using
+`Erases.abstract`/`Erases.uninstantiate` (`ErasesAbstract.lean`) at the binder cases.
+`eraseCore` and the theorems in this file remain valid and are **re-scoped as the
+pure specification model** (and the non-vacuity anchor for `Erases`); they are no
+longer claimed as the stepping stone to the shipping function.
 -/
 
 /-- **Refutability of the deleted `BinderTrans`-style premise** (recorded as a proof

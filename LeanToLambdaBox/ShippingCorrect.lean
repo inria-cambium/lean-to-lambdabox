@@ -1,0 +1,129 @@
+import LeanToLambdaBox.VisitExprRefines
+import LeanToLambdaBox.ErasesCorrect
+
+/-!
+# The top-level theorem: the shipping erasure is semantically correct
+
+This composes the two halves of the verification:
+
+* **the bridge** (`visitExpr_refines_erases`, `VisitExprRefines.lean`): a
+  successful run of the *shipping* `Erasure.visitExpr` produces an `LBTerm`
+  related to the source by the typed erasure relation `Erases` — proved by
+  fixpoint induction over the (de-partialized) implementation itself;
+* **the simulation** (`erases_correct`, `ErasesCorrect.lean`): `Erases`
+  forward-simulates source evaluation (β + δ fragment) into the λ□ semantics.
+
+The conclusion is that of `erases_correct` — and of `eraseCore_correct`, the
+pure-model predecessor this theorem supersedes as the statement about the real
+transpiler: the erased program `Eval`-uates to an erasure of the source value.
+
+## Trust boundary (each premise, honestly)
+
+* `henv`/`htr` (+ `hΔ`): lean4lean's model of the kernel — the environment
+  translates (`VEnv.WF`) and the source term is well-typed as witnessed by a
+  translation `TrExprS`. These are exactly what lean4lean's `TrEnv`/
+  `VContext.mk'` machinery provides for kernel-accepted input; producing them
+  for a *concrete* `Lean.Environment` is lean4lean's own trust boundary
+  (`PROJECT_STATUS_HANDOFF.md`, Task C), stated here as premises — not
+  axiomatized away.
+* `H : BridgeHyps`: Hoare-style specs of the four opaque runtime primitives the
+  supported fragment exercises (the relevance oracle, `mkFreshFVarId`,
+  `getCasesInfo?`, `getCtorArity?`), relative to a ghost name-generator measure
+  `gw`. The oracle field is the run-level form of the old `OracleSound`; its
+  kernel-checker path is morally discharged by `isErasable.WF`
+  (`RelevanceCheck.lean`) — mechanizing that discharge needs lean4lean's
+  `M.WF.run` generalized to non-empty local contexts (upstream work); the
+  `Meta` fallback path remains an assumption, as before.
+* `hcon`/`hdelta`: source-env ↔ `VEnv` ↔ target-env consistency, as in
+  `erases_correct`.
+* `hinv`/`hsup`: the run starts in a state corresponding to `Δ`/`Γ` with all
+  `known` constants pre-registered, and the source lies in the supported v1
+  fragment (`Supported`, `Bridge.lean`) — `box|bvar|fvar|const|app|lam|letE`,
+  constructor/`casesOn`/literal/`mdata`/projection-free.
+
+Everything else — the de Bruijn↔fvar reconciliation, the traversal, the state
+and name-generator bookkeeping, the relation to the semantics — is proved.
+-/
+
+namespace LeanToLambdaBox
+
+open Lean Lean4Lean Erasure
+
+/--
+**The shipping term-level eraser is semantically correct** on the supported
+fragment (β + δ): if the real `Erasure.visitExpr` succeeds on `e` producing
+`t`, and the source `e` `SEvalβδ`-evaluates to a value `v`, then `t`
+`Eval`-uates to an erasure of `v`.
+
+This is the "single top-level *the shipping erase is correct* theorem" the
+handoff asked to conclude, with `eraseCore` replaced by the real
+implementation (see the module docstring for why the pure-model route was
+impossible). Environment-level erasure (`visitMutual`/`fix`) and the
+constructor/`casesOn` fragment remain future work, exactly as scoped in
+`Bridge.lean`.
+-/
+theorem shipping_visitExpr_correct
+    {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ)
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    (hcon : SEnvConsistent env Us Esrc)
+    (hdelta : ErasesEnvDelta env Us Γ Esrc E)
+    {gw : Void IO.RealWorld → NameGenerator}
+    (H : BridgeHyps env Us Γ gw)
+    {e v : Expr} {ve : VExpr} {t : LBTerm}
+    {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
+    (hinv : BridgeInv env Us known Γ (gw w) ctx s Δ)
+    (hsup : Supported known Γ e)
+    (htr : TrExprS env Us Δ e ve)
+    (hev : SEvalβδ Esrc e v) :
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' :=
+  erases_correct henv hΔ hcon hdelta htr
+    (visitExpr_refines_erases H henv.ordered e s ctx cctx ref w t s' w' hrun
+      Δ hinv hsup ⟨ve, htr⟩).1
+    hev
+
+/-! ## Non-vacuity guard
+
+The logical premises are jointly satisfiable and the theorem fires. As in
+`VisitExprRefines.lean`'s guard, the run equation and `BridgeHyps` — statements
+about *opaque* runtime primitives, whose truth is not in-logic decidable — are
+taken as inputs (the documented trust boundary); everything else is
+**constructed**: the empty (well-formed) `VEnv`, the empty source environment
+(making both consistency premises vacuously true), a concrete well-typed,
+supported source term `fun (a : Sort 0) => a` that `SEvalβδ`-evaluates (to
+itself, as a value), its `TrExprS` witness, and a concrete `BridgeInv` at
+`Δ = []`. -/
+example (Γ : ErasureCtx) (cfg : ErasureConfig)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps .empty [] Γ gw)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.lam `a (.sort .zero) (.bvar 0) .default) {}
+      ⟨{}, none, cfg⟩ cctx ref w = .ok (t, s') w') :
+    ∃ t' vve, Eval ([] : GlobalDeclarations) t t' ∧
+      TrExprS .empty [] [] (.lam `a (.sort .zero) (.bvar 0) .default) vve ∧
+      Erases .empty [] Γ [] (.lam `a (.sort .zero) (.bvar 0) .default) t' := by
+  have henv : VEnv.WF .empty := ⟨[], .empty⟩
+  have hty : TrExprS .empty [] [] (.sort .zero) (.sort .zero) := .sort rfl
+  have hfind : Lean4Lean.VLCtx.find?
+      [(none, Lean4Lean.VLocalDecl.vlam (.sort .zero))] (.inl 0)
+      = some (.bvar 0, (VExpr.sort .zero).lift) := by
+    simp [Lean4Lean.VLCtx.find?, Lean4Lean.VLCtx.next,
+      Lean4Lean.VLocalDecl.value, Lean4Lean.VLocalDecl.type]
+  have hbody : TrExprS .empty [] [(none, .vlam (.sort .zero))] (.bvar 0) (.bvar 0) :=
+    .bvar hfind
+  have htr : TrExprS .empty [] [] (.lam `a (.sort .zero) (.bvar 0) .default)
+      (.lam (.sort .zero) (.bvar 0)) :=
+    .lam ⟨_, .sortDF trivial trivial rfl⟩ hty hbody
+  exact shipping_visitExpr_correct (Esrc := fun _ => none) henv
+    (Lean4Lean.TrLCtx.nil (env := .empty) (Us := [])).wf
+    (fun h _ => nomatch h) (fun h => nomatch h) H (known := fun _ => False) hrun
+    { trlctx := Lean4Lean.TrLCtx.nil
+      fixvars := rfl
+      reserved := fun _ h => nomatch h
+      consts := fun _ h => h.elim }
+    (.lam _ _ _ (.bvar 0)) htr (.lam `a (.sort .zero) (.bvar 0) .default)
+
+end LeanToLambdaBox

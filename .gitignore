@@ -2,3 +2,4 @@
 *.ast
 *.mlf
 LeanToLambdaBox/Test.lean
+*.md
