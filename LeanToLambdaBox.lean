@@ -25,6 +25,7 @@ import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
 import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
+import LeanToLambdaBox.Abstract
 import LeanToLambdaBox.EraseCore
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).

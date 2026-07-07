@@ -105,9 +105,13 @@ inductive LBTerm where
   | prim: PrimVal -> LBTerm
   deriving Inhabited, Repr
 
-/-- This is actually structurally recursive, I think, Lean just has trouble seeing it because of the inductive nesting. -/
-partial def toBvar (x: FVarId) (lvl: Nat) (e: LBTerm): LBTerm :=
-  match e with
+/-! Replace the free variable `x` by the de Bruijn index `lvl` (incrementing `lvl`
+under binders). Structurally recursive: the per-list traversals are factored into
+dedicated mutually-recursive helpers (mirroring `Semantics.shift`/`subst`) so the
+structural-recursion checker sees through the nested `List` occurrences — hence a
+real `def` (with equational lemmas) rather than the former `partial def`. -/
+mutual
+def toBvar (x: FVarId) (lvl: Nat) : LBTerm → LBTerm
   | .box => .box
   | .bvar i => .bvar i
   | .fvar y => if y == x then .bvar lvl else .fvar y
@@ -115,13 +119,25 @@ partial def toBvar (x: FVarId) (lvl: Nat) (e: LBTerm): LBTerm :=
   | .letIn name val body => .letIn name (toBvar x lvl val) (toBvar x (lvl + 1) body)
   | .app a b => .app (toBvar x lvl a) (toBvar x lvl b)
   | .const kn => .const kn
-  | .construct indid n args => .construct indid n (args.map <| toBvar x lvl)
-  | .case (indid, n) discr alts => .case (indid, n) (toBvar x lvl discr) (alts.map fun (names, alt) => (names, toBvar x (lvl + names.length) alt))
+  | .construct indid n args => .construct indid n (toBvarArgs x lvl args)
+  | .case (indid, n) discr alts => .case (indid, n) (toBvar x lvl discr) (toBvarAlts x lvl alts)
   | .proj pinfo e => .proj pinfo (toBvar x lvl e)
-  | .fix defs i =>
-    let def_count := defs.length;
-    .fix (defs.map fun nd => { nd with body := toBvar x (lvl + def_count) nd.body }) i
+  | .fix defs i => .fix (toBvarDefs x (lvl + defs.length) defs) i
   | .prim p => .prim p
+
+def toBvarArgs (x: FVarId) (lvl: Nat) : List LBTerm → List LBTerm
+  | [] => []
+  | t :: rest => toBvar x lvl t :: toBvarArgs x lvl rest
+
+def toBvarAlts (x: FVarId) (lvl: Nat) :
+    List (List BinderName × LBTerm) → List (List BinderName × LBTerm)
+  | [] => []
+  | (ns, b) :: rest => (ns, toBvar x (lvl + ns.length) b) :: toBvarAlts x lvl rest
+
+def toBvarDefs (x: FVarId) (lvl: Nat) : List (@FixDef LBTerm) → List (@FixDef LBTerm)
+  | [] => []
+  | fd :: rest => { fd with body := toBvar x lvl fd.body } :: toBvarDefs x lvl rest
+end
 
 def abstract (x: FVarId) (e: LBTerm): LBTerm := toBvar x 0 e
 
