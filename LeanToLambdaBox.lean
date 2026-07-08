@@ -58,3 +58,8 @@ import LeanToLambdaBox.ShippingCorrect
 -- Closing the gap to MetaCoq §7.3/§7.4: first-order determinism + the `optimize` pass.
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.Optimize
+-- ι (`casesOn`) fragment (WS-F2, C2/C3): subject-reduction-as-defeq over `SEvalDataι`
+-- (`SEvalDataι_defeq`, discharging ι only via `IotaConsistent`), the non-vacuity guards
+-- for the ζ-fragment theorems, and the documented C3 forward-simulation finding
+-- (`Erases.cases` under-constrains minor arities — an upstream `Erases.lean` gap).
+import LeanToLambdaBox.SubjectReductionIota

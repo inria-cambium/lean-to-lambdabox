@@ -65,6 +65,17 @@ open LeanToLambdaBox
 #print axioms construct_app_spine
 #print axioms Erases.ctor_spine_inv
 #print axioms erases_correct_data
+-- WS-F2 (theory): ζ transport + ζ-including data simulation, and the ι subject
+-- reduction. Expected: 4 standard + lean4lean `sorryAx` (inherited TrProj cluster).
+-- `IotaConsistent` is a HYPOTHESIS of `SEvalDataι_defeq` (never an axiom), so it adds
+-- nothing to the axiom set. (No `erases_correct_dataι`: the general ι forward
+-- simulation is falsified by the under-constrained `Erases.cases` — see
+-- `SubjectReductionIota.lean`'s C3 finding.)
+#print axioms Erases.defeqDFC
+#print axioms erases_correct_data_zeta
+#print axioms SEvalDataι_defeq
+#print axioms erases_correct_data_zeta_fires
+#print axioms Erases_defeqDFC_fires
 -- D0–D2: uniqueness of the applied erasure on first-order values.
 #print axioms firstOrder_value_erases_unique
 #print axioms firstOrderValue_erases_eq_eraseCore
