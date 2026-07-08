@@ -61,6 +61,20 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
   | letE {v b : Expr} (n : Name) (ty : Expr) (nd : Bool)
       (hv : Supported known Γ v) (hb : Supported known Γ b) :
       Supported known Γ (.letE n ty v b nd)
+  /-- A **saturated constructor application** (data-fragment extension, A8). The
+      head `cn` is a registered constructor (`Γ.ctors`) with declared arity `ar`
+      (`Γ.ctorArities`); the spine is exactly saturated (`args.length = ar`), so the
+      shipping `visitCtorEta` takes the `visitConstructor` branch (no η-expansion),
+      and — being neither `Nat.zero` nor `Nat.succ` — the machine-`Nat` special-casing
+      of `visitConstructor` is dead. Every argument is itself supported. -/
+  | ctorApp {cn : Name} {us : List Level} {iid : InductiveId} {cidx ar : Nat}
+      {args : List Expr}
+      (hc : Γ.ctors cn = some (iid, cidx)) (hcases : Γ.casesOns cn = none)
+      (har : Γ.ctorArities cn = some ar)
+      (hsat : args.length = ar)
+      (hzero : cn ≠ ``Nat.zero) (hsucc : cn ≠ ``Nat.succ)
+      (hargs : ∀ i (hi : i < args.length), Supported known Γ (args[i])) :
+      Supported known Γ (args.foldl Expr.app (.const cn us))
 
 /-- The fragment is closed under opening a binder with a free variable — the
 form in which the bridge's binder cases recurse (`lambdaMonocular`/`letMonocular`
@@ -81,6 +95,12 @@ theorem Supported.instantiate1' {known : Name → Prop} {Γ : ErasureCtx} {e : E
   | app _ _ ihf iha => exact .app (ihf k) (iha k)
   | lam n ty bi _ ihb => exact .lam n _ bi (ihb (k + 1))
   | letE n ty nd _ _ ihv ihb => exact .letE n _ nd (ihv k) (ihb (k + 1))
+  | ctorApp hc hcases har hsat hzero hsucc _ ihargs =>
+    rw [instantiate1'_foldl_app]
+    simp only [Expr.instantiate1']
+    refine .ctorApp hc hcases har (by simp [hsat]) hzero hsucc (fun i hi => ?_)
+    rw [List.getElem_map]
+    exact ihargs i (by simpa using hi) k
 
 /-- Version at the real `Expr.instantiate1` (what the shipping code runs),
 transported along lean4lean's modeling axiom `instantiate1_eq`. -/
@@ -99,18 +119,43 @@ example : Supported (fun _ => True)
   .lam _ _ _ (.bvar 0)
 
 example {known : Name → Prop} {Γ : ErasureCtx} :
-    ¬ Supported known Γ (.lit (.natVal 0)) := by rintro ⟨⟩
+    ¬ Supported known Γ (.lit (.natVal 0)) := by
+  intro h
+  generalize he : (Expr.lit (Literal.natVal 0)) = e at h
+  cases h with
+  | @ctorApp cn us iid cidx ar args hc hcases har hsat hz hs hargs =>
+      rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
+        simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
+          List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
+  | _ => simp_all
 
 example {known : Name → Prop} {Γ : ErasureCtx} :
-    ¬ Supported known Γ (.proj `Prod 0 (.fvar ⟨`p⟩)) := by rintro ⟨⟩
+    ¬ Supported known Γ (.proj `Prod 0 (.fvar ⟨`p⟩)) := by
+  intro h
+  generalize he : (Expr.proj `Prod 0 (.fvar ⟨`p⟩)) = e at h
+  cases h with
+  | @ctorApp cn us iid cidx ar args hc hcases har hsat hz hs hargs =>
+      rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
+        simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
+          List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
+  | _ => simp_all
 
-/-- A registered-constructor head is excluded. -/
+/-- A saturated nullary constructor *is* in the fragment (`ctorApp`, `args = []`,
+`ar = 0`). -/
 example (iid : InductiveId) :
-    ¬ Supported (fun _ => True)
+    Supported (fun _ => True)
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩,
-        fun _ => some (iid, 0), fun _ => none, fun _ => none⟩
+        fun n => if n = `c then some (iid, 0) else none,
+        fun n => if n = `c then some 0 else none, fun _ => none⟩
       (.const `c []) := by
-  rintro ⟨_, _, _, hctor, _⟩; simp_all
+  have h : (Expr.const `c []) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  rw [h]
+  refine .ctorApp (iid := iid) (cidx := 0) (ar := 0) (args := []) ?_ rfl ?_ rfl ?_ ?_ ?_
+  · simp
+  · simp
+  · decide
+  · decide
+  · intro i hi; exact absurd hi (by simp)
 
 /-! ## lctx ↔ `VLCtx` correspondence: extension lemmas
 

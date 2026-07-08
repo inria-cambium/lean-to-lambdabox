@@ -52,6 +52,9 @@ import LeanToLambdaBox.RelevanceCheck
 -- and the oracle discharge (`ResidualHyps ⟹ BridgeHyps`) that plugs it into the
 -- bridge, shrinking the oracle trust to reflection + `Meta` fallback.
 import LeanToLambdaBox.CheckerAdequacy
+-- The data-fragment trust bundle (constructor data-path primitive specs), beside
+-- `BridgeHyps`; consumed by the widened bridge.
+import LeanToLambdaBox.DataBridgeHyps
 import LeanToLambdaBox.VisitExprRefines
 import LeanToLambdaBox.OracleDischarge
 import LeanToLambdaBox.ShippingCorrect
@@ -63,3 +66,10 @@ import LeanToLambdaBox.Optimize
 -- for the ζ-fragment theorems, and the documented C3 forward-simulation finding
 -- (`Erases.cases` under-constrains minor arities — an upstream `Erases.lean` gap).
 import LeanToLambdaBox.SubjectReductionIota
+-- The shipping eraser is correct on the data fragment (β+δ+saturated constructors)
+-- at MetaRocq's non-block `appliedFlags` (`shipping_visitExpr_correct_data`, A9), and
+-- the first-order capstone (`shipping_erase_correct_firstorder`, D3): the shipping
+-- erasure of a source term evaluating to a first-order value reaches the unique
+-- applied-form erasure of that value.
+import LeanToLambdaBox.ShippingCorrectData
+import LeanToLambdaBox.FirstOrderShipping
