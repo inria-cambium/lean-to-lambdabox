@@ -168,7 +168,7 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   | box htr her => exact .box (TrExprS.thin_vlet W htr sc) (W.toCtx ▸ her)
   | bvar i => exact .bvar i
   | fvar y => exact .fvar y
-  | const n us kn h => exact .const n us kn h
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
   | app _ _ ihf iha => exact .app (ihf W sc.1) (iha W sc.2)
   | lam hty _ ihb => exact .lam (TrExprS.thin_vlet W hty sc.1) (ihb W.succ sc.2)
   | letE hty hval _ _ ihv ihb =>

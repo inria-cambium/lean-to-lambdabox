@@ -210,7 +210,7 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
         · exact erases_shift henv (instLet_toBVLift W) h₀
         · exact .bvar (i - 1)
   | fvar x => exact .fvar x
-  | const n us kn h => exact .const n us kn h
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
   | app _ _ ihf iha => exact .app (ihf W) (iha W)
   | lam hty _ ihb =>
       exact .lam (TrExprS.instN_let henv ht₀ W hty) (ihb (W.succ (d := .vlam _)))

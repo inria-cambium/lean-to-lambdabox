@@ -496,7 +496,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     obtain ⟨kn, s₃, w₃, hgck, hp2⟩ := hk
     rw [run_pure] at hp2; cases hp2
     obtain ⟨hkn', hs, hle⟩ := ih5 _ _ _ _ _ _ _ _ _ hgck Δ hinv hkn
-    exact ⟨.const n us kn hkn'.symm, hs, hle⟩
+    exact ⟨.const n us kn hkn'.symm hctor hcases, hs, hle⟩
   -- Step 5: get_constant_kername — the hit branch is forced by the invariant.
   · intro _vMut _ih6
     intro n s ctx cctx ref w kn s' w' hrun Δ hinv hkn

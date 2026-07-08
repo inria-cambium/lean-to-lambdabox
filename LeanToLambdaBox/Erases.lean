@@ -148,7 +148,8 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
   | fvar {Δ} (x : FVarId) :
       Erases env Us Γ Δ (.fvar x) (.fvar x)
   | const {Δ} (n : Name) (us : List Level) (kn : Kername)
-      (h : Γ.constants n = kn) :
+      (h : Γ.constants n = kn)
+      (hctor : Γ.ctors n = none) (hcases : Γ.casesOns n = none) :
       Erases env Us Γ Δ (.const n us) (.const kn)
   | app {Δ f f' a a'}
       (hf : Erases env Us Γ Δ f f') (ha : Erases env Us Γ Δ a a') :
@@ -218,7 +219,7 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
     · rw [if_pos hlt, if_neg (by omega : ¬ i ≥ dk)]; exact .bvar i
     · rw [if_neg hlt, if_pos (by omega : i ≥ dk)]; exact .bvar (i + dn)
   | fvar x => exact .fvar x
-  | const n us kn h => exact .const n us kn h
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
   | app _ _ ihf iha => exact .app (ihf W) (iha W)
   | lam hty _ ihb => exact .lam (hty.weakBV henv W) (ihb (W.cons _))
   | letE hty hval _ _ ihv ihb =>
@@ -273,7 +274,7 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
         · exact erases_shift henv (instN_toBVLift W) h₀
         · exact .bvar (i - 1)
   | fvar x => exact .fvar x
-  | const n us kn h => exact .const n us kn h
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
   | app _ _ ihf iha => exact .app (ihf W) (iha W)
   | lam hty _ ihb =>
       exact .lam (TrExprS.instN henv ht₀ t₀ W hty) (ihb (W.succ (d := .vlam _)))

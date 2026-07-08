@@ -264,7 +264,7 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
   generalize he : (Expr.const n us) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
-  | const m ms kn hkn => cases he; exact .inr (.inl ⟨_, hkn, rfl⟩)
+  | const m ms kn hkn _ _ => cases he; exact .inr (.inl ⟨_, hkn, rfl⟩)
   | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
       -- The spine `args.foldl app (.const cn cus) = .const n us` forces `args = []`.
       rcases List.eq_nil_or_concat args with rfl | ⟨init, last, hcat⟩

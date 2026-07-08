@@ -137,7 +137,7 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
       exact .fvar y
     · simp only [if_true]
       exact .bvar dk
-  | const n us kn h => exact .const n us kn h
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
   | app _ _ ihf iha => exact .app (ihf W hc.1) (iha W hc.2)
   | lam hty _ ihb => exact .lam (hty.abstract W) (ihb W.succ hc.2)
   | letE hty hval _ _ ihv ihb =>
@@ -226,10 +226,11 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ : VLCtx)
 conclusion's `toBvar v₀ 0 (.const kn)` computes to `.const kn`. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ : VLCtx)
     (v₀ : FVarId) (deps : List FVarId) (d : VLocalDecl)
-    (n : Name) (kn : Kername) (h : Γ.constants n = kn) :
+    (n : Name) (kn : Kername) (h : Γ.constants n = kn)
+    (hctor : Γ.ctors n = none) (hcases : Γ.casesOns n = none) :
     Erases env Us Γ ((none, d) :: Δ) (.const n []) (.const kn) := by
   have H : Erases env Us Γ ((some (v₀, deps), d) :: Δ)
-      ((Expr.const n []).instantiate1' (.fvar v₀)) (.const kn) := .const n [] kn h
+      ((Expr.const n []).instantiate1' (.fvar v₀)) (.const kn) := .const n [] kn h hctor hcases
   exact H.uninstantiate (sc := by intro u hu; cases hu) (hc := True.intro)
 
 /- Axiom audit (2026-07-07, via temporary `#print axioms`, since removed):

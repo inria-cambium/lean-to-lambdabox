@@ -306,11 +306,10 @@ theorem go_refines {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
               (fun a ave ta htra hta => hrec Δ a ave ta htra hta)
               acc args' hptr hmap
             exact .ctor cn us iid cidx hctor hlen hpt
-        · rename_i hctor
-          exact eraseArgs_refines (Δ := Δ)
+        · exact eraseArgs_refines (Δ := Δ)
             (fun a ave ta htra hta => hrec Δ a ave ta htra hta)
             acc (.const cn us) (.const (Γ.constants cn)) t
-            hptr (.const cn us _ rfl) heq
+            hptr (.const cn us _ rfl (by assumption) (by assumption)) heq
   | fvar x =>
       intro Δ acc ve t htr heq
       cases acc with
