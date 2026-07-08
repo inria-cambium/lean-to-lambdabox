@@ -121,6 +121,13 @@ def _root_.LBTerm.isTrivialAlias (t : LBTerm) : Bool :=
 structure ErasureContext: Type where
   lctx: LocalContext := {}
   fixvars: Option (Std.HashMap Name FVarId) := .none
+  /-- The declaration-level universe parameters of the definition currently being
+      erased, threaded to the relevance oracle (`isErasable`) so lean4lean's
+      kernel checker runs in the *declaration's* universe context (matching the
+      ambient `MLCtx`/`Us` the bridge reasons about), rather than universe params
+      re-collected from each subterm. Set per-declaration in `visitMutual`; the
+      `#erase` entry point (`erase`) leaves it at the default `[]`. -/
+  lparams: List Name := []
   config: ErasureConfig
 
 /-- The monad in ToLCNF has caches, a local context and toAny as a set of fvars, all as mutable state for some reason.
@@ -157,16 +164,17 @@ def isErasableMeta (e : Expr) : MetaM Bool := do
     This routes the decision through the **lean4lean-verified** relevance check
     `LeanToLambdaBox.isErasable` (`isProp ∨ isArity` on lean4lean's kernel checker),
     whose soundness against the formal `Erasable` predicate is proved as
-    `LeanToLambdaBox.isErasable.WF` (no axiom of ours). Universe parameters are
-    collected from the term itself, and the checker is run in the current local
-    context. If lean4lean's checker cannot run (e.g. a construct it does not
-    support), we fall back to the elaborator-based `isErasableMeta` so the transpiler
-    never fails on that account.
+    `LeanToLambdaBox.isErasable.WF` (no axiom of ours). Universe parameters
+    (`lparams`) are supplied by the caller — the declaration-level `levelParams`
+    of the definition being erased (threaded through `ErasureContext.lparams`) —
+    so the checker runs in the same universe context the verified bridge reasons
+    about; the checker is run in the current local context. If lean4lean's checker
+    cannot run (e.g. a construct it does not support), we fall back to the
+    elaborator-based `isErasableMeta` so the transpiler never fails on that account.
 
     NB: relevance decisions can differ from the previous `Meta.*`-only implementation
     on edge cases; extracted output should be re-validated against the benchmarks. -/
-def isErasable (e : Expr) : MetaM Bool := do
-    let lparams := (Lean.collectLevelParams {} e).params.toList
+def isErasable (lparams : List Name) (e : Expr) : MetaM Bool := do
     match Lean4Lean.TypeChecker.M.run (← getEnv).toKernelEnv (safety := .safe)
         (lctx := ← getLCtx) (lparams := lparams)
         (Lean4Lean.TypeChecker.RecM.run (LeanToLambdaBox.isErasable e)) with
@@ -206,7 +214,7 @@ def register_inductive (indinfo: InductiveVal): EraseM (InductiveId × Inductive
             else fields
             do
             let mask: ConstructorArgMask ← fields.mapM fun v => do
-              if ← isErasable v then pure .erase else pure .keep
+              if ← isErasable ci.levelParams v then pure .erase else pure .keep
             if (mask.any (· == .erase)) then logInfo s!"Argmask for constructor {ctor_name}: {repr mask}"
             pure mask
         else
@@ -274,10 +282,15 @@ def withLocalDecl (n: Name) (type: Expr) (bi: BinderInfo) (k: FVarId -> EraseM �
   let fvarid <- mkFreshFVarId;
   withReader (fun ctx => { ctx with lctx := ctx.lctx.mkLocalDecl fvarid n type bi }) (k fvarid)
 
-/-- Like Meta.withLetDecl. -/
-def withLocalDef (n: Name) (type val: Expr) (nd: Bool) (k: FVarId -> EraseM α): EraseM α := do
+/-- Like Meta.withLetDecl. The `nd` (nonDep) flag is elaborator metadata that
+lean4lean's `MLCtx` cannot represent, so it is dropped from the `mkLetDecl` call
+(matching `MLCtx.vlet`'s `c.lctx.mkLetDecl id name ty val`, which uses the default
+nonDep); the parameter is retained for signature stability. Behaviour is
+byte-identical on the corpus — nonDep affects neither kernel type inference nor
+the λ□ output. -/
+def withLocalDef (n: Name) (type val: Expr) (_nd: Bool) (k: FVarId -> EraseM α): EraseM α := do
   let fvarid <- mkFreshFVarId;
-  withReader (fun ctx => { ctx with lctx := ctx.lctx.mkLetDecl fvarid n type val nd }) (k fvarid)
+  withReader (fun ctx => { ctx with lctx := ctx.lctx.mkLetDecl fvarid n type val }) (k fvarid)
 
 /--
 A version of Meta.lambdaTelescope that
@@ -575,7 +588,7 @@ forced by `partial_fixpoint`'s no-nested-recursion limitation and missing
 mutual
   /- Proofs (terms whose type is of type Prop) and type formers/predicates are all erased. -/
   def visitExpr (e : Expr) : EraseM LBTerm := do
-    if (← liftMetaM <| isErasable e) then
+    if (← liftMetaM <| isErasable (← read).lparams e) then
       return .box
     match e with
     | .app ..      => visitApp e
@@ -873,7 +886,7 @@ mutual
     if nonrecursive
     then -- translate into a single nonrecursive constant declaration
       let e: Expr := ci.value! (allowOpaque := true)
-      let t ← withReader (fun env => { env with fixvars := .none }) do
+      let t ← withReader (fun env => { env with fixvars := .none, lparams := ci.levelParams }) do
         pure (← visitExpr (← prepare_erasure e))
       let kn := toKername name
       modify (fun s => { s with constants := s.constants.insert name kn, gdecls := s.gdecls.cons (kn, .constantDecl <| ⟨.some t⟩) })
@@ -896,7 +909,8 @@ mutual
           let ci ← getConstInfo n -- here n is directly from the above ci.all, possibly _unsafe_rec
           let e: Expr := ci.value! (allowOpaque := true)
           -- TODO: eta-expand fixpoints? (I think this must be done, unsure how far)
-          let t: LBTerm ← visitExpr (← prepare_erasure e)
+          let t: LBTerm ← withReader (fun env => { env with lparams := ci.levelParams }) do
+            visitExpr (← prepare_erasure e)
           mkDef (remove_unsafe_rec n) fixvarnames t
         )
         for (n, i) in fixvarnames.zipIdx do

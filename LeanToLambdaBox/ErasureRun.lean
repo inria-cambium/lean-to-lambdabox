@@ -147,6 +147,14 @@ lifted `CoreM` actions, i.e. through `run_liftCoreM`. -/
 theorem run_read :
     (read : EraseM ErasureContext) s ctx cctx ref w = .ok (ctx, s) w := rfl
 
+/-- Stepping a `read`-headed bind: `read` is pure (`run_read`), so `read >>= f`
+runs as `f ctx` at the unchanged state/world. (Used where a `do`-block first
+reads the `ErasureContext` — e.g. `visitExpr` reads `ctx.lparams` before
+invoking the relevance oracle.) -/
+theorem run_read_bind {β} (f : ErasureContext → EraseM β) :
+    (read >>= f : EraseM β) s ctx cctx ref w = f ctx s ctx cctx ref w := by
+  rw [run_bind, run_read]
+
 /-- Running `withReader`: same computation under the modified context. -/
 theorem run_withReader (f : ErasureContext → ErasureContext) (x : EraseM α) :
     (withReader f x : EraseM α) s ctx cctx ref w = x s (f ctx) cctx ref w := rfl
@@ -899,6 +907,7 @@ theorem visitExpr_run_shape :
     intro e s ctx cctx ref w r s' w' hrun bn ty bd bi he
     subst he
     simp only [] at hrun
+    rw [run_read_bind] at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨c, s₁, w₁, -, hk⟩ := hrun
     by_cases hc : c = true

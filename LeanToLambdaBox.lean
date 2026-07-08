@@ -36,11 +36,17 @@ import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.ErasesAbstract
 import LeanToLambdaBox.ErasesStrengthen
 import LeanToLambdaBox.ErasureRun
-import LeanToLambdaBox.VisitExprRefines
-import LeanToLambdaBox.ShippingCorrect
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).
 import LeanToLambdaBox.RelevanceCheck
+-- Run-adequacy of the verified relevance check at an ambient local context
+-- (`kernel_isErasable_sound` = `isErasable.WF` + the generalized `M.WF.run'`),
+-- and the oracle discharge (`ResidualHyps ⟹ BridgeHyps`) that plugs it into the
+-- bridge, shrinking the oracle trust to reflection + `Meta` fallback.
+import LeanToLambdaBox.CheckerAdequacy
+import LeanToLambdaBox.VisitExprRefines
+import LeanToLambdaBox.OracleDischarge
+import LeanToLambdaBox.ShippingCorrect
 -- Closing the gap to MetaCoq §7.3/§7.4: first-order determinism + the `optimize` pass.
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.Optimize

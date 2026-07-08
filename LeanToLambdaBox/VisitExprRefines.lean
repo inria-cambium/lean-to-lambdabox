@@ -1,6 +1,7 @@
 import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.EraseCore
+import LeanToLambdaBox.CheckerAdequacy
 import Lean4Lean.Verify.NameGenerator
 
 /-!
@@ -41,6 +42,7 @@ lemmas and `instantiate1_eq`). No `sorry` of our own, no new axioms.
 namespace LeanToLambdaBox
 
 open Lean Lean4Lean Erasure
+open Lean4Lean.TypeChecker (MLCtx kernelNGen)
 
 /-! ## Pure helpers -/
 
@@ -152,13 +154,18 @@ relative to a ghost world-measure `gw` (the name-generator state as a function
 of the world token). These are the bridge's honest assumptions, playing the
 role `OracleSound` played for `eraseCore`:
 
-* `orc_run`: a successful run of the erasability oracle advances the generator
-  monotonically, and a `true` verdict is *sound* — the term is `Erasable` in
-  any typing context corresponding to the local context the oracle ran in.
-  (State-preservation is not assumed: it is derivable via
-  `run_liftMetaM_state`.)
+* `orc_run`: a successful run of the erasability oracle (`isErasable
+  ctx.lparams e`, now threading the declaration's universe parameters) advances
+  the generator monotonically, and a `true` verdict is *sound* — the term is
+  `Erasable` in any ambient `MLCtx` `m` whose `m.lctx` is the local context the
+  oracle ran in (phrased over `MLCtx` rather than a bare `TrLCtx` so the kernel
+  path can be discharged by `kernel_isErasable_sound`, `OracleDischarge.lean`).
+  (State-preservation is not assumed: it is derivable via `run_liftMetaM_state`.)
 * `fresh_run`: `mkFreshFVarId` preserves the `ErasureState`, returns a
-  previously-unreserved id, reserves it, and advances the generator.
+  previously-unreserved id (both in the ghost measure `gw` and in the kernel's
+  fixed `kernelNGen` — the latter because `CoreM`'s `mkFreshFVarId` mints
+  `_uniq`-named ids, never `_kernel_fresh`-prefixed ones), reserves it, and
+  advances the generator.
 * `cases_run`/`ctor_run`: the `CoreM` classifiers agree with the static `Γ`
   on *negative* answers — a name `Γ` does not register as a `casesOn`
   (resp. constructor) is not classified as one — and advance the generator
@@ -171,15 +178,17 @@ structure BridgeHyps (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
   orc_run : ∀ (e : Expr) (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) (b : Bool)
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
-    Erasure.liftMetaM (Erasure.isErasable e) s ctx cctx ref w = .ok (b, s₁) w₁ →
+    Erasure.liftMetaM (Erasure.isErasable ctx.lparams e) s ctx cctx ref w = .ok (b, s₁) w₁ →
     gw w ≤ gw w₁ ∧
-    (b = true → ∀ (Δ : VLCtx) (ve : VExpr), TrLCtx env Us ctx.lctx Δ →
-      TrExprS env Us Δ e ve → Erasable env Us.length Δ.toCtx ve)
+    (b = true → ctx.lparams = Us → ∀ (m : MLCtx) (ve : VExpr), m.WF env Us → m.lctx = ctx.lctx →
+      (∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv) →
+      TrExprS env Us m.vlctx e ve → Erasable env Us.length m.vlctx.toCtx ve)
   fresh_run : ∀ (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) (x : FVarId)
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
     (mkFreshFVarId : EraseM FVarId) s ctx cctx ref w = .ok (x, s₁) w₁ →
-    s₁ = s ∧ ¬ (gw w).Reserves x ∧ (gw w₁).Reserves x ∧ gw w ≤ gw w₁
+    s₁ = s ∧ ¬ (gw w).Reserves x ∧ (gw w₁).Reserves x ∧ gw w ≤ gw w₁ ∧
+    kernelNGen.Reserves x
   cases_run : ∀ (n : Name) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w : Void IO.RealWorld) (r : Option CasesInfo) (w₁ : Void IO.RealWorld),
     getCasesInfo? n cctx ref w = .ok r w₁ →
@@ -189,41 +198,77 @@ structure BridgeHyps (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     Lean.Compiler.LCNF.getCtorArity? n cctx ref w = .ok r w₁ →
     gw w ≤ gw w₁ ∧ (Γ.ctors n = none → r = none)
 
-/-- The bridge invariant carried through the induction. -/
+/-- The bridge invariant carried through the induction.
+
+The old `trlctx : TrLCtx env Us ctx.lctx Δ` field is *replaced* by the stronger
+`mlc` (an ambient `MLCtx` `m` witnessing that correspondence *and* recording
+`m.lctx`/`m.vlctx`), from which `trlctx` is re-derived below (`BridgeInv.trlctx`),
+so the ~20 downstream `hinv.trlctx` use-sites keep working. Two further fields
+carry what the oracle discharge needs (`OracleDischarge.lean`): `lparams` pins
+`ctx.lparams = Us`, and `kfresh` says every `Δ`-fvar is reserved by the kernel's
+fixed `kernelNGen` (so `kernel_isErasable_sound`'s freshness premise holds). -/
 structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
     (Γ : ErasureCtx) (gen : NameGenerator)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
-  trlctx : TrLCtx env Us ctx.lctx Δ
+  mlc : ∃ m : MLCtx, m.WF env Us ∧ m.lctx = ctx.lctx ∧ m.vlctx = Δ
+  lparams : ctx.lparams = Us
+  kfresh : ∀ fv ∈ Δ.fvars, kernelNGen.Reserves fv
   fixvars : ctx.fixvars = none
   reserved : ∀ fv ∈ Δ.fvars, gen.Reserves fv
   consts : ∀ n, known n → s.constants.get? n = some (Γ.constants n)
 
+/-- The `TrLCtx` correspondence, re-derived from the `mlc` witness (the old
+`BridgeInv.trlctx` field). Keeps every downstream `hinv.trlctx` use-site valid. -/
+theorem BridgeInv.trlctx {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {s : ErasureState} {Δ : VLCtx}
+    (h : BridgeInv env Us known Γ gen ctx s Δ) : TrLCtx env Us ctx.lctx Δ := by
+  obtain ⟨m, mwf, hlctx, hvlctx⟩ := h.mlc
+  rw [← hlctx, ← hvlctx]; exact mwf.tr
+
 /-- The invariant is monotone in the generator (fvar reservations survive
-generator advancement). -/
+generator advancement). The `MLCtx`/`lparams`/`kfresh` data is generator-free. -/
 theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx}
     (h : BridgeInv env Us known Γ gen ctx s Δ) (hle : gen ≤ gen') :
     BridgeInv env Us known Γ gen' ctx s Δ where
-  trlctx := h.trlctx
+  mlc := h.mlc
+  lparams := h.lparams
+  kfresh := h.kfresh
   fixvars := h.fixvars
   reserved := fun fv hfv => (h.reserved fv hfv).mono hle
   consts := h.consts
 
 /-- Extend the invariant across `Erasure.withLocalDecl`'s context extension
-(the `visitLambda` case). -/
+(the `visitLambda` case). Needs the fresh fvar `x` reserved both by the target
+generator (`hres`) and by the kernel generator (`hkres`, from `fresh_run`). -/
 theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx} {x : FVarId} {n : Name} {ty : Expr} {ty' : VExpr}
     {bi : BinderInfo}
     (hinv : BridgeInv env Us known Γ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hty' : env.IsType Us.length Δ.toCtx ty')
-    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x) :
+    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x)
+    (hkres : kernelNGen.Reserves x) :
     BridgeInv env Us known Γ gen'
       { ctx with lctx := ctx.lctx.mkLocalDecl x n ty bi } s
       ((some (x, ty.fvarsList), .vlam ty') :: Δ) where
-  trlctx := LeanToLambdaBox.TrLCtx.mkLocalDecl hinv.trlctx
-    (hinv.trlctx.find?_eq_none.mpr hx) hty hty'
+  mlc := by
+    obtain ⟨m, mwf, hlctx, hvlctx⟩ := hinv.mlc
+    refine ⟨m.vlam x n ty ty' bi, ⟨mwf, ?_, ?_, ?_⟩, ?_, ?_⟩
+    · rw [hlctx]; exact hinv.trlctx.find?_eq_none.mpr hx
+    · rw [hvlctx]; exact hty
+    · rw [hvlctx]; exact hty'
+    · show m.lctx.mkLocalDecl x n ty bi = _; rw [hlctx]
+    · show (some (x, ty.fvarsList), VLocalDecl.vlam ty') :: m.vlctx = _; rw [hvlctx]
+  lparams := hinv.lparams
+  kfresh := by
+    intro fv hfv
+    have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
+    rcases this with rfl | hfv'
+    · exact hkres
+    · exact hinv.kfresh fv hfv'
   fixvars := hinv.fixvars
   reserved := by
     intro fv hfv
@@ -234,20 +279,37 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
   consts := hinv.consts
 
 /-- Extend the invariant across `Erasure.withLocalDef`'s context extension
-(the `visitLet` case). -/
+(the `visitLet` case). The shipping `withLocalDef` builds the let-decl with the
+default `nonDep` (`mkLetDecl x n ty v`), matching `MLCtx.vlet`'s `lctx`. -/
 theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx} {x : FVarId} {n : Name} {ty v : Expr}
-    {ty' val' : VExpr} {nd : Bool}
+    {ty' val' : VExpr}
     (hinv : BridgeInv env Us known Γ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hval : TrExprS env Us Δ v val')
     (hvt : env.HasType Us.length Δ.toCtx val' ty')
-    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x) :
+    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x)
+    (hkres : kernelNGen.Reserves x) :
     BridgeInv env Us known Γ gen'
-      { ctx with lctx := ctx.lctx.mkLetDecl x n ty v nd } s
+      { ctx with lctx := ctx.lctx.mkLetDecl x n ty v } s
       ((some (x, ty.fvarsList ++ v.fvarsList), .vlet ty' val') :: Δ) where
-  trlctx := LeanToLambdaBox.TrLCtx.mkLetDecl hinv.trlctx
-    (hinv.trlctx.find?_eq_none.mpr hx) hty hval hvt
+  mlc := by
+    obtain ⟨m, mwf, hlctx, hvlctx⟩ := hinv.mlc
+    refine ⟨m.vlet x n ty v ty' val', ⟨mwf, ?_, ?_, ?_, ?_⟩, ?_, ?_⟩
+    · rw [hlctx]; exact hinv.trlctx.find?_eq_none.mpr hx
+    · rw [hvlctx]; exact hty
+    · rw [hvlctx]; exact hval
+    · rw [hvlctx]; exact hvt
+    · show m.lctx.mkLetDecl x n ty v = _; rw [hlctx]
+    · show (some (x, ty.fvarsList ++ v.fvarsList), VLocalDecl.vlet ty' val') :: m.vlctx = _
+      rw [hvlctx]
+  lparams := hinv.lparams
+  kfresh := by
+    intro fv hfv
+    have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
+    rcases this with rfl | hfv'
+    · exact hkres
+    · exact hinv.kfresh fv hfv'
   fixvars := hinv.fixvars
   reserved := by
     intro fv hfv
@@ -414,6 +476,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   · intro vE vLit vLet vLam vProj vApp _ih1 _ih2 ih8 ih9 _ih10 ih11
     intro e s ctx cctx ref w t s' w' hrun Δ hinv hsupp hex
     simp only [] at hrun
+    -- one extra step: `visitExpr` first `read`s `ctx.lparams` for the oracle.
+    rw [run_read_bind] at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨c, s₁, w₁, horc, hk⟩ := hrun
     have hs₁ : s₁ = s := run_liftMetaM_state _ _ _ _ _ horc
@@ -425,7 +489,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       rw [run_pure] at hk
       cases hk
       obtain ⟨ve, hve⟩ := hex
-      exact ⟨.box hve (hsound hc Δ ve hinv.trlctx hve), rfl, hle₁⟩
+      obtain ⟨m, mwf, hlctx, hvlctx⟩ := hinv.mlc
+      subst hvlctx
+      exact ⟨.box hve (hsound hc hinv.lparams m ve mwf hlctx hinv.kfresh hve), rfl, hle₁⟩
     · rw [if_neg hc] at hk
       cases hsupp with
       | bvar i =>
@@ -553,7 +619,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     unfold Erasure.withLocalDef at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨x, s₁, w₁, hfresh, hk⟩ := hrun
-    obtain ⟨hs₁, hnres, hres, hle₁⟩ := H.fresh_run _ _ _ _ _ _ _ _ hfresh
+    obtain ⟨hs₁, hnres, hres, hle₁, hkres⟩ := H.fresh_run _ _ _ _ _ _ _ _ hfresh
     subst hs₁
     rw [run_withReader] at hk
     rw [run_bind_ok] at hk
@@ -566,9 +632,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     cases hve with
     | letE hvt hty hval hbody =>
     have hx : x ∉ Δ.fvars := fun hmem => hnres (hinv.reserved x hmem)
-    have hΔ' := LeanToLambdaBox.TrLCtx.mkLetDecl (n := n) (nd := nd) hinv.trlctx
+    have hΔ' := LeanToLambdaBox.TrLCtx.mkLetDecl (n := n) (nd := false) hinv.trlctx
       (hinv.trlctx.find?_eq_none.mpr hx) hty hval hvt
-    have hinv' := hinv.mkLetDecl (n := n) (nd := nd) hty hval hvt hx hle₁ hres
+    have hinv' := hinv.mkLetDecl (n := n) hty hval hvt hx hle₁ hres hkres
     -- the value, in the extended context
     have hvext := hval.weakFV henv (.skip_fvar _ _ .refl) hΔ'.wf
     obtain ⟨erv, hs₂, hle₂⟩ := ih1 _ _ _ _ _ _ _ _ _ hvv _ hinv' hv ⟨_, hvext⟩
@@ -585,11 +651,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     obtain ⟨bn, s₄, w₄, hf2n, hp⟩ := hm
     rw [run_pure] at hp
     cases hp
-    have hdn : ((ctx.lctx.mkLetDecl x n ty v nd).fvarIdToDecl.find! x).userName = n := by
+    have hdn : ((ctx.lctx.mkLetDecl x n ty v).fvarIdToDecl.find! x).userName = n := by
       rw [LocalContext.fvarIdToDecl_find!_of_find?
         (LocalContext.find?_mkLetDecl_self hinv.trlctx.1 (hinv.trlctx.find?_eq_none.mpr hx))]
       rfl
-    cases (run_fvar_to_name x n _ { ctx with lctx := ctx.lctx.mkLetDecl x n ty v nd }
+    cases (run_fvar_to_name x n _ { ctx with lctx := ctx.lctx.mkLetDecl x n ty v }
       cctx ref _ hdn).symm.trans hf2n
     refine ⟨?_, rfl, NameGenerator.LE.trans hle₁ (NameGenerator.LE.trans hle₂ hle₃)⟩
     rw [abstract_eq]
@@ -605,7 +671,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     unfold Erasure.withLocalDecl at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨x, s₁, w₁, hfresh, hk⟩ := hrun
-    obtain ⟨hs₁, hnres, hres, hle₁⟩ := H.fresh_run _ _ _ _ _ _ _ _ hfresh
+    obtain ⟨hs₁, hnres, hres, hle₁, hkres⟩ := H.fresh_run _ _ _ _ _ _ _ _ hfresh
     subst hs₁
     rw [run_withReader] at hk
     rw [run_bind_ok] at hk
@@ -618,7 +684,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     have hx : x ∉ Δ.fvars := fun hmem => hnres (hinv.reserved x hmem)
     have hΔ' := LeanToLambdaBox.TrLCtx.mkLocalDecl (n := n) (bi := bi) hinv.trlctx
       (hinv.trlctx.find?_eq_none.mpr hx) hty hty'
-    have hinv' := hinv.mkLocalDecl (n := n) (bi := bi) hty hty' hx hle₁ hres
+    have hinv' := hinv.mkLocalDecl (n := n) (bi := bi) hty hty' hx hle₁ hres hkres
     rw [Lean.Expr.instantiate1_eq] at hvb
     have hbext := TrExprS.inst_fvar henv hΔ'.wf hbody
     obtain ⟨erb, hs₂, hle₂⟩ := ih1 _ _ _ _ _ _ _ _ _ hvb _ hinv'
@@ -745,8 +811,10 @@ section NonVacuity
 `known := fun _ => False`, `fixvars = none`. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
     (cfg : ErasureConfig) :
-    BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, cfg⟩ {} [] where
-  trlctx := Lean4Lean.TrLCtx.nil
+    BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+  mlc := ⟨.nil, trivial, rfl, rfl⟩
+  lparams := rfl
+  kfresh := fun _ hfv => nomatch hfv
   fixvars := rfl
   reserved := fun _ hfv => nomatch hfv
   consts := fun _ h => h.elim
@@ -762,9 +830,9 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     (x : FVarId) (nm : Name) (bi : BinderInfo)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
-    (hres : (gw w).Reserves x)
+    (hres : (gw w).Reserves x) (hkfresh : kernelNGen.Reserves x)
     (hrun : Erasure.visitExpr (.fvar x) {}
-      ⟨({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi, none, cfg⟩ cctx ref w
+      ⟨({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi, none, Us, cfg⟩ cctx ref w
       = .ok (t, s') w') :
     Erases env Us Γ [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))]
       (.fvar x) t ∧ s' = ({} : ErasureState) ∧ gw w ≤ gw w' := by
@@ -773,13 +841,18 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     ⟨_, .sortDF trivial trivial rfl⟩
   have hfind : ({} : LocalContext).find? x = none :=
     (Lean4Lean.TrLCtx.nil (env := env) (Us := Us)).find?_eq_none.mpr (fun h => nomatch h)
-  have htr : TrLCtx env Us (({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi)
-      [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] :=
-    LeanToLambdaBox.TrLCtx.mkLocalDecl Lean4Lean.TrLCtx.nil hfind hty hty'
   have hinv : BridgeInv env Us (fun _ => False) Γ (gw w)
-      ⟨({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi, none, cfg⟩ {}
+      ⟨({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi, none, Us, cfg⟩ {}
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] :=
-    { trlctx := htr
+    { mlc := ⟨(MLCtx.nil).vlam x nm (.sort .zero) (.sort .zero) bi,
+        ⟨trivial, hfind, hty, hty'⟩, rfl, rfl⟩
+      lparams := rfl
+      kfresh := by
+        intro fv hfv
+        have : fv = x ∨ fv ∈ VLCtx.fvars [] := by simpa using hfv
+        rcases this with rfl | h
+        · exact hkfresh
+        · exact nomatch h
       fixvars := rfl
       reserved := by
         intro fv hfv

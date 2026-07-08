@@ -1,4 +1,5 @@
 import LeanToLambdaBox.VisitExprRefines
+import LeanToLambdaBox.OracleDischarge
 import LeanToLambdaBox.ErasesCorrect
 
 /-!
@@ -29,11 +30,13 @@ transpiler: the erased program `Eval`-uates to an erasure of the source value.
 * `H : BridgeHyps`: Hoare-style specs of the four opaque runtime primitives the
   supported fragment exercises (the relevance oracle, `mkFreshFVarId`,
   `getCasesInfo?`, `getCtorArity?`), relative to a ghost name-generator measure
-  `gw`. The oracle field is the run-level form of the old `OracleSound`; its
-  kernel-checker path is morally discharged by `isErasable.WF`
-  (`RelevanceCheck.lean`) — mechanizing that discharge needs lean4lean's
-  `M.WF.run` generalized to non-empty local contexts (upstream work); the
-  `Meta` fallback path remains an assumption, as before.
+  `gw`. **The oracle's kernel path is now discharged, not assumed**
+  (`shipping_visitExpr_correct'` below): its soundness is *proved* from
+  `isErasable.WF` via the generalized run-adequacy `M.WF.run'`
+  (`CheckerAdequacy.lean`, `kernel_isErasable_sound`), leaving as trust only the
+  reflection of impure `CoreM`/`MetaM` plumbing onto the pure `M.run` and the
+  `isErasableMeta` fallback (packaged as `ResidualHyps`, `OracleDischarge.lean`).
+  The `BridgeHyps`-taking `shipping_visitExpr_correct` is retained as the raw form.
 * `hcon`/`hdelta`: source-env ↔ `VEnv` ↔ target-env consistency, as in
   `erases_correct`.
 * `hinv`/`hsup`: the run starts in a state corresponding to `Δ`/`Γ` with all
@@ -84,6 +87,42 @@ theorem shipping_visitExpr_correct
       Δ hinv hsup ⟨ve, htr⟩).1
     hev
 
+/--
+**The shipping term-level eraser is correct, with the relevance oracle's kernel
+path discharged.** Same conclusion as `shipping_visitExpr_correct`, but the oracle
+soundness is no longer a raw assumption: it is supplied via `ResidualHyps` (whose
+kernel branch is *proved* through `kernel_isErasable_sound`) together with the
+lean4lean environment model `ves.WF env₀`. This is the theorem in which the
+previous batch's verified relevance check (`isErasable.WF`) becomes *load-bearing*
+inside the top-level correctness statement, rather than a result sitting beside it.
+
+The residual oracle trust is now exactly: (i) the reflection of the impure
+`CoreM`/`MetaM` oracle run onto the pure `M.run` of the verified checker, and
+(ii) the `isErasableMeta` fallback's soundness — both packaged in `ResidualHyps`
+(`OracleDischarge.lean`); everything else about relevance is proved.
+-/
+theorem shipping_visitExpr_correct'
+    {env₀ : Lean.Kernel.Environment} {ves : Lean4Lean.VEnvs} (wf : ves.WF env₀)
+    {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF (ves.venv .safe) Us.length Δ)
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    (hcon : SEnvConsistent (ves.venv .safe) Us Esrc)
+    (hdelta : ErasesEnvDelta (ves.venv .safe) Us Γ Esrc E)
+    {gw : Void IO.RealWorld → NameGenerator}
+    (R : ResidualHyps env₀ ves Us Γ gw)
+    {e v : Expr} {ve : VExpr} {t : LBTerm}
+    {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
+    (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
+    (hinv : BridgeInv (ves.venv .safe) Us known Γ (gw w) ctx s Δ)
+    (hsup : Supported known Γ e)
+    (htr : TrExprS (ves.venv .safe) Us Δ e ve)
+    (hev : SEvalβδ Esrc e v) :
+    ∃ t' vve, Eval E t t' ∧ TrExprS (ves.venv .safe) Us Δ v vve ∧
+      Erases (ves.venv .safe) Us Γ Δ v t' :=
+  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta (R.toBridgeHyps wf)
+    hrun hinv hsup htr hev
+
 /-! ## Non-vacuity guard
 
 The logical premises are jointly satisfiable and the theorem fires. As in
@@ -101,7 +140,7 @@ example (Γ : ErasureCtx) (cfg : ErasureConfig)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lam `a (.sort .zero) (.bvar 0) .default) {}
-      ⟨{}, none, cfg⟩ cctx ref w = .ok (t, s') w') :
+      ⟨{}, none, [], cfg⟩ cctx ref w = .ok (t, s') w') :
     ∃ t' vve, Eval ([] : GlobalDeclarations) t t' ∧
       TrExprS .empty [] [] (.lam `a (.sort .zero) (.bvar 0) .default) vve ∧
       Erases .empty [] Γ [] (.lam `a (.sort .zero) (.bvar 0) .default) t' := by
@@ -120,7 +159,9 @@ example (Γ : ErasureCtx) (cfg : ErasureConfig)
   exact shipping_visitExpr_correct (Esrc := fun _ => none) henv
     (Lean4Lean.TrLCtx.nil (env := .empty) (Us := [])).wf
     (fun h _ => nomatch h) (fun h => nomatch h) H (known := fun _ => False) hrun
-    { trlctx := Lean4Lean.TrLCtx.nil
+    { mlc := ⟨.nil, trivial, rfl, rfl⟩
+      lparams := rfl
+      kfresh := fun _ h => nomatch h
       fixvars := rfl
       reserved := fun _ h => nomatch h
       consts := fun _ h => h.elim }
