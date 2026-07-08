@@ -31,6 +31,9 @@ import LeanToLambdaBox.SourceEvalData
 import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
 import LeanToLambdaBox.Abstract
+-- P3 foundation: the `n`-way fvar→de-Bruijn abstraction (`closeFix`) modelling the
+-- `mkDef` closing loop of a recursive mutual block (env-level erasure, deferred rule).
+import LeanToLambdaBox.FixMetatheory
 import LeanToLambdaBox.EraseCore
 -- Data-fragment forward simulation at MetaRocq's non-block `appliedFlags`
 -- (β + δ + saturated constructors): `erases_correct_data` (A5–A7).

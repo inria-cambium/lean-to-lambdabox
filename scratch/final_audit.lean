@@ -88,3 +88,14 @@ open LeanToLambdaBox
 #print axioms Lean4Lean.TypeChecker.kernel_isErasable_sound
 #print axioms ResidualHyps.toBridgeHyps
 #print axioms shipping_visitExpr_correct'
+
+-- P3 (env-level erasure foundation): the `n`-way `closeFix` abstraction modelling the
+-- `mkDef` closing loop. Pure LBTerm (imports only `Abstract`) — must be sorryAx-free.
+#print axioms LeanToLambdaBox.closeFixFold_eq_foldl
+#print axioms LeanToLambdaBox.closeFixFold_eq_self_of_not_hasFVar
+#print axioms LeanToLambdaBox.closeFixFold_bvar
+#print axioms LeanToLambdaBox.closeFixFold_fvar_of_not_mem
+#print axioms LeanToLambdaBox.closeFixFold_fvar_head
+#print axioms LeanToLambdaBox.closeFixFold_app
+#print axioms LeanToLambdaBox.closeFix_2block_first
+#print axioms LeanToLambdaBox.closeFix_2block_last
