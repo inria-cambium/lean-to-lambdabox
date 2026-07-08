@@ -1,0 +1,45 @@
+--- a/src/lean.ml
++++ b/src/lean.ml
+@@ -825,7 +825,9 @@
+     | exception _ -> None
+   else None
+ 
+-type predeclared_ind_kind = Eq | Nat | Nat_le | Or | And | Fin | UInt32 | Char
++(* WS-R patch: [UInt32]/[Char] dropped from [predeclared_ind_kind] (see
++   [get_predeclared_ind_any]) — they now import structurally. *)
++type predeclared_ind_kind = Eq | Nat | Nat_le | Or | And | Fin
+ type predeclared_def_kind = UInt32_size | Nat_isValidChar
+ 
+ let get_predeclared_cnames (k : predeclared_ind_kind) n =
+@@ -836,8 +838,6 @@
+   | Or -> [ N.append n "inl"; N.append n "inr" ]
+   | And -> [ N.append n "intro" ]
+   | Fin -> [ N.append n "mk" ]
+-  | UInt32 -> [ N.append n "mk" ]
+-  | Char -> [ N.append n "mk" ]
+ 
+ let get_predeclared_ind_any n i =
+   List.filter_map
+@@ -850,8 +850,11 @@
+       (Or, [ "Or" ]);
+       (And, [ "And" ]);
+       (Fin, [ "Fin" ]);
+-      (UInt32, [ "UInt32" ]);
+-      (Char, [ "Char" ]);
++      (* WS-R patch: UInt32/Char removed from the predeclared set so they import
++         STRUCTURALLY from the export's real Lean v4.29 definitions. The bundled
++         predeclarations model the pre-BitVec UInt32 ([val0 : Fin UInt32_size]),
++         which is incompatible with v4.29's [BitVec 32]-backed UInt32 (breaks
++         [UInt32.toBitVec] and hence [String] and the whole cone). *)
+     ]
+ 
+ let get_predeclared_ind_some n i =
+@@ -1354,7 +1357,7 @@
+       in
+       (mind, [], ind_name, [ cname ], univs, squashy)
+     | Some
+-        ( ((Nat | Nat_le | Or | And | Fin | UInt32 | Char) as k),
++        ( ((Nat | Nat_le | Or | And | Fin) as k),
+           _,
+           (ind_name, mind) ) ->
+       (* Hack to let the user predeclare various types before running Lean Import

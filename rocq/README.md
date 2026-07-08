@@ -247,3 +247,50 @@ includes `tLazy`/`tForce` and `tPrim` — relevant to the value/agreement lemmas
 - **Untagged emitter provenance.** The emitter is a verbatim port of untagged
   commit `c9f8373`; if lean4export upstream ever ships a v1.x-compatible tag or
   rocq-lean-import gains v2.0.0 support, revisit §3.
+
+---
+
+## 5. Import feasibility (WS-R): the semantics cone does NOT import; kernel-transport blocked
+
+The `lean4export` side works perfectly: `export/semantics.out` (41838 lines, 76 IND,
+565 DEF, 1 AX = `propext`, 0 dummies) is the faithful kernel emission of the Lean
+semantics. But **`rocq-lean-import 0.0.1` cannot import it**, in two layers:
+
+1. **Predeclared-core staleness (fixed by `lean-import-patch.diff`).** The plugin
+   hardcodes predeclared core types (`src/lean.ml`: `Eq|Nat|Nat_le|Or|And|Fin|UInt32|
+   Char`) modeling the *pre-BitVec* `UInt32 := {val0 : Fin UInt32_size}`. Lean v4.29's
+   `UInt32` is `BitVec 32`-backed, so `UInt32.toBitVec` (`fun self => self.val0`) fails
+   to typecheck (`Fin UInt32_size` vs `BitVec (2^32)`); since v4.29 `String` is
+   UTF-8/`ByteArray`-backed, `String` — hence every `Kername`/`BinderName`/`LBTerm` —
+   is skipped in cascade. `rocq/lean-import-patch.diff` (~6 functional lines) drops
+   `UInt32`/`Char` from the predeclared set so they import structurally from the real
+   v4.29 definitions; this FIXES `UInt32.toBitVec` (Char cone: 0 skips; full import:
+   146→84 skips; `All2T` imports).
+
+   To build + load the patched plugin **without touching the shared switch**:
+   ```sh
+   D=$(mktemp -d); cp -r ~/.opam/peregrine/.opam-switch/sources/rocq-lean-import.0.0.1 "$D/p"
+   ( cd "$D/p" && patch -p1 < <abs>/rocq/lean-import-patch.diff && eval $(opam env --switch=peregrine) && make )
+   mkdir -p "$D/findlib/coq-lean-import"
+   cp ~/.opam/peregrine/lib/coq-lean-import/META "$D/findlib/coq-lean-import/"
+   cp "$D/p/src/lean_import.cmxs" "$D/findlib/coq-lean-import/"
+   coqc -I "$D/findlib" ...                # -I <PARENT of the package dir>
+   ```
+   NB: Rocq's ML-module loader ignores `OCAMLPATH`/`OCAMLFIND_CONF`; only `-I
+   <parent-of-package-dir>` prepends to its findlib search path. (`opam reinstall`/
+   overwriting the installed `.cmxs` also works but modifies the shared switch.)
+
+2. **Deeper plugin bugs (NOT fixed; balloon + unsoundness risk).** Even patched,
+   **`LBTerm` still does not import**: (a) an **Anomaly** `assert false` at
+   `src/lean.ml:75` (`reorder_outside`, the eliminator-premise reordering) on LBTerm's
+   **nested** recursion (`construct/case/fix` through `List LBTerm`) — the plan's
+   anticipated Top Risk #1; the working `Nat.brecOn` case is non-nested; (b) a
+   **Stack overflow** on the v4.29 `UInt32.isValidChar` match; plus `String.mk`/
+   `Nat.repr`/`panic!` machinery gaps. These need a substantial importer enhancement
+   (nested-inductive recursors + v4.29 String/panic), out of the minimal-patch scope.
+
+**Consequence.** The intended kernel-transport of the Lean semantics is blocked at
+LBTerm. The equivalence uses the committed **fallback** (`Translate.v` restated
+`LBTerm`/`T` + `SubstAgree.v` `shift`/`subst` agreement, admitted-free; roadmap in
+`Wf`/`EnvAgree`/`ValuesAgree`/`Backward`/`Forward`/`Equivalence`), validated against
+`export/semantics.out` — a documented residual gap (transcription, not transport).
