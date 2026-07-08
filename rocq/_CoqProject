@@ -1,0 +1,12 @@
+-R theories LeanLambdaBoxEquiv
+
+theories/Import.v
+theories/Iface.v
+theories/Translate.v
+theories/Wf.v
+theories/SubstAgree.v
+theories/EnvAgree.v
+theories/ValuesAgree.v
+theories/Backward.v
+theories/Forward.v
+theories/Equivalence.v

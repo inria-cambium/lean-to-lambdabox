@@ -1,0 +1,8 @@
+lean4export/.lake/
+**/*.vo
+**/*.vok
+**/*.vos
+**/*.glob
+**/.*.aux
+Makefile.conf
+.Makefile.d
