@@ -30,29 +30,41 @@ ad-hoc relations are recovered as instances:
 | `app_box`  | `eval_box` (evaluates the argument) | — |
 | `zeta`     | `eval_zeta`             | — |
 | `delta`    | `eval_delta`            | — |
-| `construct`| `eval_construct_block`  | (block form) |
-| `construct_app` | `eval_construct` (accumulate an applied arg) | `¬ with_constructor_as_block` |
-| `iota`     | `eval_iota_block`       | discriminant's inductive not `Prop` |
+| `construct`     | `eval_construct_block` | `with_constructor_as_block` |
+| `construct_atom`| `eval_atom` (`tConstruct ind c []`) | `¬ with_constructor_as_block` |
+| `construct_app` | `eval_construct` (accumulate one arg onto a spine) | `¬ with_constructor_as_block` |
+| `iota`     | `eval_iota` (spine discriminant)      | `¬ with_constructor_as_block`, non-`Prop` |
+| `iota_block`| `eval_iota_block` (block discriminant)| `with_constructor_as_block`, non-`Prop` |
 | `iota_sing`| `eval_iota_sing`        | `with_prop_case` |
-| `proj`     | `eval_proj_block`       | projectee's inductive not `Prop` |
+| `proj`     | `eval_proj` (spine discriminant)      | `¬ with_constructor_as_block`, non-`Prop` |
+| `proj_block`| `eval_proj_block` (block discriminant)| `with_constructor_as_block`, non-`Prop` |
 | `proj_prop`| `eval_proj_prop`        | `with_prop_case` |
-| `fix_guarded` | `eval_fix`           | `with_guarded_fix` |
-| `fix_stuck`   | `eval_fix_value`     | `with_guarded_fix` |
-| `fix_unguarded`| `eval_fix'`         | `¬ with_guarded_fix` |
+| `fix_guarded` | `eval_fix` (spine head, unfold at `#argsv = rarg`) | `with_guarded_fix` |
+| `fix_stuck`   | `eval_fix_value` (spine head, `#argsv < rarg`)     | `with_guarded_fix` |
+| `fix_unguarded`| `eval_fix'` (bare-`fix` head)                     | `¬ with_guarded_fix` |
 | `app_cong` | `eval_app_cong`         | head is a stuck application (`isStuckApp`) |
 
 **No `cofix`:** `LBTerm` has no `cofix` node, so MetaCoq's `eval_cofix_case`/
 `eval_cofix_proj` are unrepresentable — nothing to model.
 
-Both constructor representations are supported: the **block form** `.construct iid
-k args` (args inside — what the `Erases` relation produces and `erases_correct`/
-`LBOptimize_correct` use), and the **non-block/applied form** `.construct iid c []`
-applied via `.app` (what the shipping `visitExpr` emits), evaluated by
-`construct_app` under `with_constructor_as_block = false` — it accumulates each
-applied argument onto the constructor value up to its arity, after which the block
-`iota`/`proj` rules scrutinise it directly.
-The `fix` rules dispatch on the *evaluated* function head (MetaCoq's `mkApps
-(tFix ..) argsv` spine), so a `fix` reached through, e.g., a `const` unfolds too.
+The model is **flag-parametric** and the *validated* target is the **non-block**
+flags (`with_constructor_as_block = false`: MetaCoq's `default`/`opt`/`target_wcbv_flags`),
+at which `WcbvEval` matches `EWcbvEval.eval` rule-for-rule. Both constructor
+representations are supported and kept mutually exclusive by the flag guard:
+* **non-block/applied form** (validated): a constructor is `.construct iid c []`
+  applied through `.app` — `WcbvEval` values are the `mkApps`-spines
+  `(…((construct iid c []) a₁)… aₙ)` (`construct_atom` for the nullary head,
+  `construct_app` accumulating one argument at a time up to `cstr_arity`, never
+  over-applying — MetaCoq `eval_construct`); `iota`/`proj` scrutinise the spine.
+* **block form** (`with_constructor_as_block = true`, MetaCoq-internal): `.construct
+  iid k args` carries its arguments inside; `construct`/`iota_block`/`proj_block`
+  handle it. This is what `LBOptimize_correct` currently runs under.
+
+The `fix` rules dispatch on the *evaluated* function head — MetaCoq's `mkApps (tFix ..)
+argsv` spine, accumulated one argument per application (`fix_stuck` while under
+`rarg` args, `fix_guarded` unfolding exactly when the `rarg`-th argument arrives),
+so a `fix` reached through, e.g., a `const` unfolds too. `fix_unguarded` (`eval_fix'`)
+uses a **bare** `fix` head, unfolding on every argument.
 `app_box` follows `eval_box` in evaluating the argument (dropping the value) —
 required for faithfulness and for determinism.
 -/
@@ -91,36 +103,66 @@ inductive WcbvEval (Γ : GlobalDeclarations) (fl : WcbvFlags) : LBTerm → LBTer
   | delta {kn : Kername} {body r : LBTerm} :
       LBTerm.envLookup Γ kn = some (.constantDecl ⟨some body⟩) → WcbvEval Γ fl body r →
       WcbvEval Γ fl (.const kn) r
-  /-- Constructor: evaluate each argument (block form; the head is saturated).
-      (`eval_construct_block`) -/
-  | construct {iid : InductiveId} {k : Nat} {args vs : List LBTerm}
+  /-- Constructor (block form, `eval_construct_block`, enabled when
+      `with_constructor_as_block = true`): evaluate each argument of a saturated
+      block constructor node. -/
+  | construct (hb : fl.with_constructor_as_block = true)
+      {iid : InductiveId} {k : Nat} {args vs : List LBTerm}
       (hl : args.length = vs.length)
       (hargs : ∀ i (h : i < args.length), WcbvEval Γ fl args[i] (vs[i]'(hl ▸ h))) :
       WcbvEval Γ fl (.construct iid k args) (.construct iid k vs)
+  /-- Nullary non-block constructor (`eval_atom` for `tConstruct ind c []`, when
+      `with_constructor_as_block = false` and the constructor is declared): a bare
+      applied-form constructor head is a value. This is the base of a constructor
+      spine built up by `construct_app`. -/
+  | construct_atom (hb : fl.with_constructor_as_block = false)
+      {iid : InductiveId} {c ar : Nat} :
+      constructorArity Γ iid c = some ar →
+      WcbvEval Γ fl (.construct iid c []) (.construct iid c [])
   /-- Non-block constructor application (`eval_construct`, enabled when
-      `with_constructor_as_block = false`): the shipping `visitExpr` emits a
-      constructor `.construct iid c []` **applied** via `.app` to its arguments.
-      This rule evaluates that applied form, accumulating each argument onto the
-      (under-applied) constructor value until it is saturated. A saturated or
-      over-applied constructor head has no rule here (`args.length < arity`), and
-      `app_cong` excludes constructor heads, so it does not fire. -/
+      `with_constructor_as_block = false`): the function evaluates to an
+      **under-applied constructor spine** `mkApps (.construct iid c []) args`; the
+      argument is accumulated onto it, keeping the `mkApps`-spine shape (no block
+      accumulation). Only fires while under the arity (`args.length < ar`); a
+      saturated head has no rule and `app_cong` excludes constructor-headed spines,
+      so over-application is stuck — exactly MetaCoq's "we do not allow
+      over-applications". -/
   | construct_app (hb : fl.with_constructor_as_block = false)
       {f a a' : LBTerm} {iid : InductiveId} {c : Nat} {args : List LBTerm} {ar : Nat} :
-      WcbvEval Γ fl f (.construct iid c args) →
+      WcbvEval Γ fl f (LBTerm.mkApps (.construct iid c []) args) →
       constructorArity Γ iid c = some ar →
       args.length < ar →
       WcbvEval Γ fl a a' →
-      WcbvEval Γ fl (.app f a) (.construct iid c (args ++ [a']))
-  /-- ι: the discriminant evaluates to a constructor of a **non-propositional**
-      inductive; select the matching alternative and evaluate its body with the
-      constructor's args substituted for the field binders. (`eval_iota_block`) -/
-  | iota {iid : InductiveId} {np k : Nat} {discr : LBTerm}
+      WcbvEval Γ fl (.app f a) (.app (LBTerm.mkApps (.construct iid c []) args) a')
+  /-- ι, non-block (`eval_iota`, when `with_constructor_as_block = false`): the
+      discriminant evaluates to a **spine** `mkApps (.construct iid k []) args` of a
+      non-propositional inductive; select alternative `k` and evaluate its body with
+      the constructor's *fields* (`args` after dropping the `np` parameters), in
+      **reverse**, substituted for the field binders — MetaCoq's
+      `iota_red np args br = substl (rev (skipn np args)) br.2`. -/
+  | iota (hb : fl.with_constructor_as_block = false)
+         {iid : InductiveId} {np k : Nat} {discr : LBTerm}
+         {alts : List (List BinderName × LBTerm)} {args : List LBTerm}
+         {names : List BinderName} {body r : LBTerm} :
+      isPropositionalInductive Γ iid = false →
+      WcbvEval Γ fl discr (LBTerm.mkApps (.construct iid k []) args) →
+      alts[k]? = some (names, body) →
+      (args.drop np).length = names.length →
+      WcbvEval Γ fl (LBTerm.substList ((args.drop np).reverse) body) r →
+      WcbvEval Γ fl (.case (iid, np) discr alts) r
+  /-- ι, block (`eval_iota_block`, when `with_constructor_as_block = true`): as
+      `iota`, but the discriminant evaluates to a **block** constructor node
+      `.construct iid k cargs`. Uses the same `iota_red` (drop `np` params, reverse
+      fields). -/
+  | iota_block (hb : fl.with_constructor_as_block = true)
+         {iid : InductiveId} {np k : Nat} {discr : LBTerm}
          {alts : List (List BinderName × LBTerm)} {cargs : List LBTerm}
          {names : List BinderName} {body r : LBTerm} :
       isPropositionalInductive Γ iid = false →
       WcbvEval Γ fl discr (.construct iid k cargs) →
       alts[k]? = some (names, body) →
-      WcbvEval Γ fl (LBTerm.substList cargs body) r →
+      (cargs.drop np).length = names.length →
+      WcbvEval Γ fl (LBTerm.substList ((cargs.drop np).reverse) body) r →
       WcbvEval Γ fl (.case (iid, np) discr alts) r
   /-- ι on an erased proof (`eval_iota_sing`, enabled by `with_prop_case`): a
       single-branch case on a **propositional** inductive whose discriminant
@@ -132,13 +174,24 @@ inductive WcbvEval (Γ : GlobalDeclarations) (fl : WcbvFlags) : LBTerm → LBTer
       WcbvEval Γ fl discr .box →
       WcbvEval Γ fl (LBTerm.substList (List.replicate names.length .box) body) r →
       WcbvEval Γ fl (.case (iid, np) discr [(names, body)]) r
-  /-- Projection: the discriminant evaluates to a constructor of a
-      **non-propositional** inductive; select and evaluate the projected field
-      (offset by the parameter count). (`eval_proj_block`) -/
-  | proj {p : ProjectionInfo} {discr : LBTerm} {iid : InductiveId} {k : Nat}
-         {cargs : List LBTerm} {v r : LBTerm} :
+  /-- Projection, non-block (`eval_proj`, when `with_constructor_as_block = false`):
+      the discriminant evaluates to a **spine** `mkApps (.construct p.indType 0 []) args`
+      of the projection's own inductive (constructor `0`), non-propositional; select
+      and evaluate the projected field `args[p.paramCount + p.fieldIdx]`. -/
+  | proj (hb : fl.with_constructor_as_block = false)
+         {p : ProjectionInfo} {discr : LBTerm} {args : List LBTerm} {v r : LBTerm} :
       isPropositionalInductive Γ p.indType = false →
-      WcbvEval Γ fl discr (.construct iid k cargs) →
+      WcbvEval Γ fl discr (LBTerm.mkApps (.construct p.indType 0 []) args) →
+      args[p.paramCount + p.fieldIdx]? = some v →
+      WcbvEval Γ fl v r →
+      WcbvEval Γ fl (.proj p discr) r
+  /-- Projection, block (`eval_proj_block`, when `with_constructor_as_block = true`):
+      as `proj`, but the discriminant evaluates to a **block** constructor node
+      `.construct p.indType 0 cargs` (constructor `0`). -/
+  | proj_block (hb : fl.with_constructor_as_block = true)
+         {p : ProjectionInfo} {discr : LBTerm} {cargs : List LBTerm} {v r : LBTerm} :
+      isPropositionalInductive Γ p.indType = false →
+      WcbvEval Γ fl discr (.construct p.indType 0 cargs) →
       cargs[p.paramCount + p.fieldIdx]? = some v →
       WcbvEval Γ fl v r →
       WcbvEval Γ fl (.proj p discr) r
@@ -149,36 +202,46 @@ inductive WcbvEval (Γ : GlobalDeclarations) (fl : WcbvFlags) : LBTerm → LBTer
       WcbvEval Γ fl discr .box →
       WcbvEval Γ fl (.proj p discr) .box
   /-- Guarded `fix` unfolding (`eval_fix`, enabled by `with_guarded_fix`): the
-      function evaluates to a `fix`, and its principal argument evaluates to a
-      **constructor value**; unfold the recursive occurrences and apply. -/
-  | fix_guarded (hg : fl.with_guarded_fix = true) {f arg : LBTerm}
-                {defs : List (@FixDef LBTerm)} {i : Nat} {def_i : @FixDef LBTerm} {argv r : LBTerm} :
-      WcbvEval Γ fl f (.fix defs i) →
-      defs[i]? = some def_i →
-      WcbvEval Γ fl arg argv →
-      isConstructorValue argv = true →
-      WcbvEval Γ fl (.app (LBTerm.substList ((List.range defs.length).map (fun j => LBTerm.fix defs j)) def_i.body) argv) r →
-      WcbvEval Γ fl (.app f arg) r
+      function evaluates to a `fix` **spine** `mkApps (.fix defs idx) argsv`, and the
+      accumulated argument count `#argsv` equals the recursive-argument index `rarg`
+      of the selected definition (`cunfold_fix = Some (#argsv, fn)`), so this
+      application supplies the principal argument; unfold the fix (via `fixSubst`) and
+      apply the unfolded body to `argsv` and then to the argument. -/
+  | fix_guarded (hg : fl.with_guarded_fix = true) {f a av : LBTerm}
+                {defs : List (@FixDef LBTerm)} {idx : Nat} {def_i : @FixDef LBTerm}
+                {argsv : List LBTerm} {r : LBTerm} :
+      WcbvEval Γ fl f (LBTerm.mkApps (.fix defs idx) argsv) →
+      WcbvEval Γ fl a av →
+      defs[idx]? = some def_i →
+      def_i.principalArgIdx = argsv.length →
+      WcbvEval Γ fl
+        (.app (LBTerm.mkApps (LBTerm.substList (LBTerm.fixSubst defs) def_i.body) argsv) av) r →
+      WcbvEval Γ fl (.app f a) r
   /-- Stuck guarded `fix` (`eval_fix_value`, enabled by `with_guarded_fix`): the
-      function evaluates to a `fix` but its principal argument is **not** a
-      constructor value, so the application is a value. -/
-  | fix_stuck (hg : fl.with_guarded_fix = true) {f arg : LBTerm}
-              {defs : List (@FixDef LBTerm)} {i : Nat} {argv : LBTerm} :
-      WcbvEval Γ fl f (.fix defs i) →
-      WcbvEval Γ fl arg argv →
-      isConstructorValue argv = false →
-      WcbvEval Γ fl (.app f arg) (.app (.fix defs i) argv)
+      function evaluates to a `fix` spine `mkApps (.fix defs idx) argsv` that is still
+      **under** its recursive-argument count (`#argsv < rarg`), so the application
+      accumulates the argument onto the spine and is a value. -/
+  | fix_stuck (hg : fl.with_guarded_fix = true) {f a av : LBTerm}
+              {defs : List (@FixDef LBTerm)} {idx : Nat} {def_i : @FixDef LBTerm}
+              {argsv : List LBTerm} :
+      WcbvEval Γ fl f (LBTerm.mkApps (.fix defs idx) argsv) →
+      WcbvEval Γ fl a av →
+      defs[idx]? = some def_i →
+      argsv.length < def_i.principalArgIdx →
+      WcbvEval Γ fl (.app f a) (.app (LBTerm.mkApps (.fix defs idx) argsv) av)
   /-- Unguarded `fix` unfolding (`eval_fix'`, when `with_guarded_fix` is off): the
-      function evaluates to a `fix`; unfold on any value argument. -/
-  | fix_unguarded (hg : fl.with_guarded_fix = false) {f arg : LBTerm}
-                  {defs : List (@FixDef LBTerm)} {i : Nat} {def_i : @FixDef LBTerm} {argv r : LBTerm} :
-      WcbvEval Γ fl f (.fix defs i) →
-      defs[i]? = some def_i →
-      WcbvEval Γ fl arg argv →
-      WcbvEval Γ fl (.app (LBTerm.substList ((List.range defs.length).map (fun j => LBTerm.fix defs j)) def_i.body) argv) r →
-      WcbvEval Γ fl (.app f arg) r
+      function evaluates to a **bare** `fix` (no spine — every application unfolds
+      immediately); unfold (via `fixSubst`) and apply to the argument. -/
+  | fix_unguarded (hg : fl.with_guarded_fix = false) {f a av : LBTerm}
+                  {defs : List (@FixDef LBTerm)} {idx : Nat} {def_i : @FixDef LBTerm} {r : LBTerm} :
+      WcbvEval Γ fl f (.fix defs idx) →
+      defs[idx]? = some def_i →
+      WcbvEval Γ fl a av →
+      WcbvEval Γ fl (.app (LBTerm.substList (LBTerm.fixSubst defs) def_i.body) av) r →
+      WcbvEval Γ fl (.app f a) r
   /-- Stuck application congruence (`eval_app_cong`): the function evaluates to a
-      stuck value head (not a λ/`box`/`fix`), and the argument to a value. -/
+      stuck value head (`isStuckApp`: not a λ/`box`/`fix`(-app)/constructor(-app)/
+      prim(-app) head), and the argument to a value. -/
   | app_cong {f a f' a' : LBTerm} :
       WcbvEval Γ fl f f' → isStuckApp fl f' = true → WcbvEval Γ fl a a' →
       WcbvEval Γ fl (.app f a) (.app f' a')

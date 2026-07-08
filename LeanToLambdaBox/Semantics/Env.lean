@@ -33,17 +33,19 @@ def wouldCollapse (Γ : GlobalDeclarations) (iid : InductiveId)
   isPropositionalInductive Γ iid &&
     (match alts with | [_] => true | _ => false)
 
-/-- Arity (number of arguments) of constructor `c` of inductive `iid`. Lookup chain:
+/-- Arity of constructor `c` of inductive `iid`. Lookup chain:
     `envLookup Γ iid.mutualBlockName` → `some (.inductiveDecl body)` →
-    `body.bodies[iid.idx]?` → `oib.ctors[c]?` → `ConstructorBody.nargs`.
+    `body.bodies[iid.idx]?` → `oib.ctors[c]?` → `body.npars + ConstructorBody.nargs`.
 
-    Used to bound the accumulation of a non-block (applied) constructor
-    (MetaCoq's `cstr_arity`). -/
+    Matches MetaRocq `cstr_arity mdecl cdecl = mdecl.(ind_npars) + cdecl.(cstr_nargs)`:
+    the arity is the number of **parameters** (`npars`, on the mutual block) plus the
+    number of the constructor's own fields (`nargs`). Used to bound the accumulation
+    of a non-block (applied) constructor value and its saturation. -/
 def constructorArity (Γ : GlobalDeclarations) (iid : InductiveId) (c : Nat) : Option Nat :=
   match LBTerm.envLookup Γ iid.mutualBlockName with
   | some (.inductiveDecl body) =>
     match body.bodies[iid.idx]? with
-    | some oib => (oib.ctors[c]?).map (·.nargs)
+    | some oib => (oib.ctors[c]?).map (fun cb => body.npars + cb.nargs)
     | none => none
   | _ => none
 

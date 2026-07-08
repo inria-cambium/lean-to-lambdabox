@@ -711,7 +711,7 @@ theorem envLookup_map_opt (Δ : GlobalDeclarations) :
     obtain ⟨k, d⟩ := hd
     simp only [List.map_cons]
     unfold LBTerm.envLookup at h ⊢
-    by_cases hk : k.id == kn.id
+    by_cases hk : Kername.beq k kn
     · rw [if_pos hk] at h
       cases d with
       | constantDecl cb =>
@@ -784,35 +784,55 @@ theorem LBOptimize_proj_collapse (Γ p e)
 
 /-! ### `LBOptimize` preserves head-shape predicates and inductive metadata. -/
 
-/-- `LBOptimize` preserves being a constructor value (a `construct` stays a
-    `construct`). -/
-theorem isConstructorValue_LBOptimize_true (Γ : GlobalDeclarations) {t : LBTerm}
-    (h : isConstructorValue t = true) : isConstructorValue (LBOptimize Γ t) = true := by
-  cases t <;> simp_all [isConstructorValue]
+/-- `LBOptimize` commutes with the spine builder `mkApps`. -/
+theorem LBOptimize_mkApps (Γ : GlobalDeclarations) (f : LBTerm) (args : List LBTerm) :
+    LBOptimize Γ (LBTerm.mkApps f args)
+      = LBTerm.mkApps (LBOptimize Γ f) (args.map (LBOptimize Γ)) := by
+  induction args generalizing f with
+  | nil => rfl
+  | cons a rest ih =>
+    show LBOptimize Γ (LBTerm.mkApps (.app f a) rest) = _
+    rw [ih (.app f a), LBOptimize_app]; rfl
 
-/-- On a *value*, `LBOptimize` preserves the constructor-value test (a value is
-    never a `.case`, so no collapse can turn a non-constructor into one). -/
-theorem isConstructorValue_LBOptimize_of_value (Γ : GlobalDeclarations) {fl : WcbvFlags}
-    {v : LBTerm} (hv : Value fl v) :
-    isConstructorValue (LBOptimize Γ v) = isConstructorValue v := by
-  cases v with
-  | construct iid k args => simp [isConstructorValue, LBOptimize_construct]
-  | app f a => simp [isConstructorValue, LBOptimize_app]
-  | fix defs i => simp [isConstructorValue, LBOptimize_fix]
-  | case info d alts => cases hv with | atom h => simp [atomValue] at h  -- never a value
-  | proj p e => cases hv with | atom h => simp [atomValue] at h          -- never a value
-  | box => rfl
-  | bvar i => rfl
-  | fvar x => rfl
-  | prim p => rfl
-  | lambda n b => rfl
-  | letIn n a b => rfl
-  | const kn => rfl
+/-- Being a stuck-application head propagates through one more application: the
+    spine head is unchanged, so `isFixApp`/`isConstructApp`/`isPrimApp` are the same
+    (and `isLambda`/`isBox`/`isFix` are false for an `.app`). -/
+theorem isStuckApp_app_of_head (fl : WcbvFlags) {f a : LBTerm} (h : isStuckApp fl f = true) :
+    isStuckApp fl (.app f a) = true := by
+  simp only [isStuckApp, isLambda, isBox, isFix, isFixApp, isConstructApp, isPrimApp,
+    LBTerm.spineHead, Bool.not_eq_true', Bool.or_eq_false_iff] at h ⊢
+  cases hg : fl.with_guarded_fix <;> simp only [hg] at h ⊢ <;> simp_all
 
-/-- `LBOptimize` preserves being a stuck application head. -/
-theorem isStuckApp_LBOptimize (Γ : GlobalDeclarations) (fl : WcbvFlags) {t : LBTerm}
-    (h : isStuckApp fl t = true) : isStuckApp fl (LBOptimize Γ t) = true := by
-  cases t <;> simp_all [isStuckApp]
+/-- On a **value**, `LBOptimize` preserves being a stuck application head. (A value's
+    spine head can only be a `fvar` when it is stuck — never a `case`/`proj` that
+    `LBOptimize` might collapse — so the head shape is preserved.) `isStuckApp` reads
+    only `with_guarded_fix`, so the flag on the `Value` need not match the query. -/
+theorem isStuckApp_LBOptimize_of_value {Γopt Γv : GlobalDeclarations} {fl : WcbvFlags}
+    {v : LBTerm} (hv : Value Γv fl v) (hs : isStuckApp fl v = true) :
+    isStuckApp fl (LBOptimize Γopt v) = true := by
+  induction hv with
+  | @atom t h =>
+      -- `box`/`lambda`/`fvar`/`prim`/`fix` heads are preserved by `LBOptimize` (so
+      -- `isStuckApp` is unchanged, `exact hs`); the rest have `atomValue = False`.
+      cases t <;> first | exact hs | simp [atomValue] at h
+  | @construct_block hb iid k args hargs ih =>
+      rw [isStuckApp_construct] at hs; exact absurd hs (by simp)
+  | @construct_nil hb iid c ar harity =>
+      rw [isStuckApp_construct] at hs; exact absurd hs (by simp)
+  | @construct_app_val hb hd a iid c ar args hval hd_eq harity hlt ha ihhd iha =>
+      subst hd_eq
+      rw [← LBTerm.mkApps_concat, isStuckApp_construct_spine] at hs; simp at hs
+  | @app_stuck f a hf hstuck ha ihf iha =>
+      rw [LBOptimize_app]
+      exact isStuckApp_app_of_head fl (ihf hstuck)
+  | @fix_app_val hg hd a defs i rarg argsv hval hd_eq hrarg hlt ha ihhd iha =>
+      subst hd_eq
+      rw [← LBTerm.mkApps_concat, isStuckApp_fix_spine hg] at hs; simp at hs
+
+/-- `LBOptimize` preserves being a stuck application head, for a stuck value. -/
+theorem isStuckApp_LBOptimize {Γ Γv : GlobalDeclarations} {fl : WcbvFlags} {v : LBTerm}
+    (hv : Value Γv fl v) (h : isStuckApp fl v = true) : isStuckApp fl (LBOptimize Γ v) = true :=
+  isStuckApp_LBOptimize_of_value hv h
 
 /-! ### `LBOptimize_env` preserves inductive metadata. -/
 
@@ -843,7 +863,7 @@ theorem envLookup_map_optDecl (Γ : GlobalDeclarations) :
     intro kn; obtain ⟨k, d⟩ := hd
     simp only [List.map_cons]
     unfold LBTerm.envLookup
-    by_cases hk : k.id == kn.id
+    by_cases hk : Kername.beq k kn
     · rw [if_pos hk, if_pos hk]; rfl
     · rw [if_neg hk, if_neg hk]; exact ih kn
 
@@ -865,22 +885,34 @@ theorem LBOptimizeDefs_length (Γ : GlobalDeclarations) (defs : List (@FixDef LB
     (LBOptimizeDefs Γ defs).length = defs.length := by
   rw [LBOptimizeDefs_eq_map, List.length_map]
 
+/-- `LBOptimize` commutes with the `fix`-unfolding substitution list `fixSubst`. -/
+theorem LBOptimize_fixSubst (Γ : GlobalDeclarations) (defs : List (@FixDef LBTerm)) :
+    (LBTerm.fixSubst defs).map (LBOptimize Γ) = LBTerm.fixSubst (LBOptimizeDefs Γ defs) := by
+  unfold LBTerm.fixSubst
+  rw [List.map_map, LBOptimizeDefs_length]
+  apply List.map_congr_left
+  intro j _
+  simp only [Function.comp]
+  exact LBOptimize_fix Γ defs j
+
 /-- `LBOptimize` distributes over the `fix`-unfolding substitution: optimising the
-    unfolded body equals unfolding the optimised `fix`. -/
+    unfolded body equals unfolding the optimised `fix` (using the corrected
+    `fixSubst` order). -/
 theorem LBOptimize_fixUnfold_body (Γ : GlobalDeclarations) (defs : List (@FixDef LBTerm))
     (def_i : @FixDef LBTerm) :
-    LBOptimize Γ (LBTerm.substList ((List.range defs.length).map (fun j => LBTerm.fix defs j)) def_i.body)
-      = LBTerm.substList ((List.range (LBOptimizeDefs Γ defs).length).map
-          (fun j => LBTerm.fix (LBOptimizeDefs Γ defs) j)) (LBOptimize Γ def_i.body) := by
-  have hmap : ((List.range defs.length).map (fun j => LBTerm.fix defs j)).map (LBOptimize Γ)
-      = (List.range (LBOptimizeDefs Γ defs).length).map
-          (fun j => LBTerm.fix (LBOptimizeDefs Γ defs) j) := by
-    rw [List.map_map, LBOptimizeDefs_length]
-    apply List.map_congr_left
-    intro j _
-    simp only [Function.comp]
-    exact LBOptimize_fix Γ defs j
-  rw [LBOptimize_substList, hmap]
+    LBOptimize Γ (LBTerm.substList (LBTerm.fixSubst defs) def_i.body)
+      = LBTerm.substList (LBTerm.fixSubst (LBOptimizeDefs Γ defs)) (LBOptimize Γ def_i.body) := by
+  rw [LBOptimize_substList, LBOptimize_fixSubst]
+
+/-- `LBOptimize` distributes over `iota_red`'s substitution: dropping the `np`
+    parameters and reversing the fields commutes with optimising each. -/
+theorem LBOptimize_iota_red (Γ : GlobalDeclarations) (np : Nat) (cargs : List LBTerm)
+    (body : LBTerm) :
+    LBOptimize Γ (LBTerm.substList ((cargs.drop np).reverse) body)
+      = LBTerm.substList (((LBOptimizeArgs Γ cargs).drop np).reverse) (LBOptimize Γ body) := by
+  rw [LBOptimize_substList, LBOptimizeArgs_eq_map]
+  congr 1
+  rw [List.map_reverse, List.map_drop]
 
 /-! ## B3 — `LBOptimize_correct`.
 
@@ -917,61 +949,71 @@ theorem LBOptimize_correct {Γ : GlobalDeclarations} {t v : LBTerm} :
     -- `EvalProp = WcbvEval defaultFlags` has `with_constructor_as_block = true`,
     -- so the non-block accumulation rule is unreachable here.
     simp [defaultFlags] at hb
-  | @construct iid k args vs hl hargs ihargs =>
+  | @construct_atom hb _ _ _ _ =>
+    simp [defaultFlags] at hb   -- non-block nullary constructor: unreachable
+  | @construct hb iid k args vs hl hargs ihargs =>
     simp only [LBOptimize_construct, LBOptimizeArgs_eq_map]
-    refine .construct (by simp [hl]) (fun i hi => ?_)
+    refine .construct rfl (by simp [hl]) (fun i hi => ?_)
     simp only [List.getElem_map]
     have hi' : i < args.length := by simpa using hi
     have := ihargs i hi'
     simpa using this
-  | @iota iid np k discr alts cargs names body r hnp hdiscr hsel _ ihd ihbody =>
+  | @iota hb _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ =>
+    simp [defaultFlags] at hb   -- non-block ι: unreachable (block form used here)
+  | @iota_block hb iid np k discr alts cargs names body r hnp hdiscr hsel hlen hbody ihd ihbodyev =>
     have hwc : wouldCollapse Γ iid alts = false := by simp [wouldCollapse, hnp]
     rw [LBOptimize_case_noncollapse Γ iid np discr alts hwc]
-    refine .iota (k := k) (cargs := LBOptimizeArgs Γ cargs)
-      (names := names) (body := LBOptimize Γ body) ?_ ?_ ?_ ?_
+    refine .iota_block rfl (k := k) (cargs := LBOptimizeArgs Γ cargs)
+      (names := names) (body := LBOptimize Γ body) ?_ ?_ ?_ ?_ ?_
     · rw [isPropositionalInductive_LBOptimize_env]; exact hnp
     · simpa using ihd
     · rw [LBOptimizeAlts_eq_map, List.getElem?_map, hsel]; rfl
-    · rw [LBOptimizeArgs_eq_map, ← LBOptimize_substList Γ cargs body]
-      exact ihbody
-  | @iota_sing hpc iid np discr names body r hp _ _ ihd ihbody =>
+    · rw [LBOptimizeArgs_eq_map, ← List.map_drop, List.length_map]; exact hlen
+    · rw [← LBOptimize_iota_red]; exact ihbodyev
+  | @iota_sing hpc iid np discr names body r hp hdiscr hbody ihd ihbody =>
     rw [LBOptimize_case_collapse Γ iid np discr names body hp]
     rw [← LBOptimize_substList_box Γ names.length body]
     exact ihbody
-  | @proj p discr iid k cargs v r hnp hdiscr hsel _ ihd ihv =>
+  | @proj hb _ _ _ _ _ _ _ _ _ _ _ =>
+    simp [defaultFlags] at hb   -- non-block projection: unreachable (block form used here)
+  | @proj_block hb p discr cargs v r hnp hdiscr hsel hvev ihd ihv =>
     rw [LBOptimize_proj_noncollapse Γ p discr hnp]
-    refine .proj (iid := iid) (k := k) (cargs := LBOptimizeArgs Γ cargs)
-      (v := LBOptimize Γ v) ?_ ?_ ?_ ?_
+    refine .proj_block rfl (cargs := LBOptimizeArgs Γ cargs) (v := LBOptimize Γ v) ?_ ?_ ?_ ?_
     · rw [isPropositionalInductive_LBOptimize_env]; exact hnp
     · simpa using ihd
     · rw [LBOptimizeArgs_eq_map, List.getElem?_map, hsel]; rfl
     · exact ihv
-  | @proj_prop hpc p discr hp _ ihd =>
+  | @proj_prop hpc p discr hp hdiscr ihd =>
     rw [LBOptimize_proj_collapse Γ p discr hp]
     exact .box
-  | @fix_guarded hg f arg defs i def_i argv r hf hsel harg hctor _ ihf iharg ihunf =>
+  | @fix_guarded hg f a av defs idx def_i argsv r hf ha hsel hrarg hunf ihf iha ihunf =>
     simp only [LBOptimize_app]
-    refine .fix_guarded (hg := rfl) (defs := LBOptimizeDefs Γ defs) (i := i)
-      (def_i := { def_i with body := LBOptimize Γ def_i.body }) (argv := LBOptimize Γ argv) ?_ ?_ ?_ ?_ ?_
-    · simpa using ihf
+    refine .fix_guarded rfl (defs := LBOptimizeDefs Γ defs) (idx := idx)
+      (def_i := { def_i with body := LBOptimize Γ def_i.body })
+      (av := LBOptimize Γ av) (argsv := argsv.map (LBOptimize Γ)) ?_ ?_ ?_ ?_ ?_
+    · rw [← LBOptimize_fix, ← LBOptimize_mkApps]; exact ihf
+    · exact iha
     · rw [LBOptimizeDefs_eq_map, List.getElem?_map, hsel]; rfl
-    · exact iharg
-    · exact isConstructorValue_LBOptimize_true Γ hctor
+    · simp only [List.length_map]; exact hrarg
     · have hu := ihunf
-      rw [LBOptimize_app, LBOptimize_fixUnfold_body] at hu
+      rw [LBOptimize_app, LBOptimize_mkApps, LBOptimize_fixUnfold_body] at hu
       exact hu
-  | @fix_stuck hg f arg defs i argv hf harg hnc ihf iharg =>
-    simp only [LBOptimize_app, LBOptimize_fix]
-    refine .fix_stuck (hg := rfl) (defs := LBOptimizeDefs Γ defs) (i := i)
-      (argv := LBOptimize Γ argv) ?_ ?_ ?_
-    · simpa using ihf
-    · exact iharg
-    · rw [isConstructorValue_LBOptimize_of_value Γ (eval_to_value harg)]; exact hnc
+  | @fix_stuck hg f a av defs idx def_i argsv hf ha hsel hlt ihf iha =>
+    simp only [LBOptimize_app]
+    rw [LBOptimize_mkApps, LBOptimize_fix]
+    refine .fix_stuck rfl (defs := LBOptimizeDefs Γ defs) (idx := idx)
+      (def_i := { def_i with body := LBOptimize Γ def_i.body })
+      (av := LBOptimize Γ av) (argsv := argsv.map (LBOptimize Γ)) ?_ ?_ ?_ ?_
+    · rw [← LBOptimize_fix, ← LBOptimize_mkApps]; exact ihf
+    · exact iha
+    · rw [LBOptimizeDefs_eq_map, List.getElem?_map, hsel]; rfl
+    · simp only [List.length_map]; exact hlt
   | @fix_unguarded hg _ _ _ _ _ _ _ _ _ _ _ _ _ _ =>
-    exact absurd hg (by decide)
+    simp [defaultFlags] at hg   -- unguarded fix: unreachable (guarded under `defaultFlags`)
   | @app_cong f a f' a' hf hstuck ha ihf iha =>
     simp only [LBOptimize_app]
-    exact .app_cong ihf (isStuckApp_LBOptimize Γ optFlags hstuck) iha
+    refine .app_cong ihf ?_ iha
+    exact isStuckApp_LBOptimize (fl := defaultFlags) (eval_to_value hf) hstuck
 
 /-! ## Vacuity guard for `LBOptimize_correct`.
 
