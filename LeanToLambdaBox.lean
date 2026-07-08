@@ -14,6 +14,10 @@ import LeanToLambdaBox.Semantics.Values
 import LeanToLambdaBox.Semantics.Eval
 import LeanToLambdaBox.Semantics.Metatheory
 import LeanToLambdaBox.Semantics
+-- `Type`-valued twin `WcbvEvalT` of `WcbvEval` (+ `All2T` and the axiom-free
+-- `wcbvEvalT_iff`), exported to Rocq via lean4export/rocq-lean-import to validate the
+-- λ□ semantics translation against MetaRocq's `EWcbvEval.eval` (workstream WS-R).
+import LeanToLambdaBox.Export.EvalT
 -- Grounding on lean4lean (Half A): the erasure context, the typed `Erases` relation
 -- over real `Lean.Expr`, the irrelevance predicate, substitution lemmas, source-side
 -- evaluation, subject reduction, and forward-simulation correctness.

@@ -1,0 +1,27 @@
+# Roots for the WS-R export (`export.sh` passes these after `--` to lean4export).
+# lean4export emits each named constant together with its full definitional
+# dependency closure, so naming these roots pulls in LBTerm, the whole Semantics/
+# layer (WcbvFlags/Values/Env/Eval helpers), the Type-valued twin WcbvEvalT +
+# All2T + the axiom-free wcbvEvalT_iff, and the transitive Nat/List/Prod/Option/
+# Bool/String/BitVec/Fin/Char/Name/FVarId cone.
+#
+# NOTE on names: LBTerm and the LBTerm.*/Kername.* helpers live at the *root*
+# namespace (Basic.lean / Substitution.lean have no `namespace` wrapper); the
+# operational-semantics layer lives under `LeanToLambdaBox.`.
+LBTerm
+Kername.beq
+LBTerm.envLookup
+LBTerm.shift
+LBTerm.subst
+LBTerm.subst1
+LBTerm.substList
+LBTerm.mkApps
+LBTerm.fixSubst
+LeanToLambdaBox.constructorArity
+LeanToLambdaBox.isPropositionalInductive
+LeanToLambdaBox.isStuckApp
+LeanToLambdaBox.WcbvFlags
+LeanToLambdaBox.WcbvEval
+LeanToLambdaBox.All2T
+LeanToLambdaBox.WcbvEvalT
+LeanToLambdaBox.wcbvEvalT_iff
