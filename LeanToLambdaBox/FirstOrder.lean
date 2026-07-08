@@ -11,6 +11,7 @@ import LeanToLambdaBox.Erases
 import LeanToLambdaBox.Erasability
 import LeanToLambdaBox.EraseCore
 import LeanToLambdaBox.ErasesCorrect
+import LeanToLambdaBox.ErasesCorrectData
 
 namespace LeanToLambdaBox
 
@@ -630,3 +631,131 @@ theorem firstOrderValue_erases_eq_eraseCore_fires
       Erases envFO [] ΓFO [] (.const `c []) t :=
   firstOrderValue_erases_eq_eraseCore envFO_wf (oracleSound_false envFO [])
     (Δ := []) trivial (envFO_foC harity) envFO_trC
+
+/-! ## D0–D2 — uniqueness of the value-shaped (applied) erasure on first-order values
+
+On a first-order value the erasure relation `Erases` retains *slack* only through the
+`box` rule and the abstract block `ctor` rule. The A6 classification (`ctor_spine_inv`)
+plus the first-order value's `InformativeType` (not erasable, A2) and the applied-form
+(`NoBlock`) side condition kill both: the box-headed cuts require the value to be
+`Erasable` (excluded), and the block cut is not `NoBlock`. What remains is the single
+headcut (`mkApps (.construct iid cidx []) args'`), and its arguments are themselves
+first-order values whose applied erasures are unique by induction. So the applied
+erasure of a first-order value is **unique** — the relation collapses to a function
+on the value-shaped (`NoBlock`) erasures.
+
+`NoBlock` (applied form) is the operative "value-shaped" condition here: it is exactly
+what the shipping / `eraseCore` produce, and — unlike the target `Value` predicate,
+which admits λ-values whose bodies may hide a block — it is preserved down the
+constructor spine (`noBlock_mkApps_inv`), which is what powers the induction. -/
+
+/-- **D1 — uniqueness of the applied (`NoBlock`) erasure of a first-order value.** Any
+two `NoBlock` erasures of a first-order value are equal: `Erases` has no slack on
+value-shaped erasures. Uses A2 (`informativeType_not_erasable`) to kill the box cuts
+and A6 (`ctor_spine_inv`) to force the headcut, recursing on the constructor
+arguments. -/
+theorem firstOrder_value_erases_unique {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Γ : ErasureCtx} {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {v : Expr} (hfo : FirstOrderValue env Us Γ Δ v) :
+    ∀ {t1 t2 : LBTerm}, Erases env Us Γ Δ v t1 → NoBlock t1 →
+      Erases env Us Γ Δ v t2 → NoBlock t2 → t1 = t2 := by
+  induction hfo with
+  | @ctor cn us iid cidx args hc hcas info hargs ih =>
+    intro t1 t2 her1 hnb1 her2 hnb2
+    obtain ⟨ve0, A0, htr0, hTA, hnp, hna⟩ := info
+    have hinfo : InformativeType env Us Δ (args.foldl Expr.app (.const cn us)) :=
+      ⟨ve0, A0, htr0, hTA, hnp, hna⟩
+    have hne : ¬ Erasable env Us.length Δ.toCtx ve0 :=
+      informativeType_not_erasable henv hΔ hinfo htr0
+    have hcls1 := Erases.ctor_spine_inv henv hΔ hc hcas args.length args rfl htr0 her1
+    have hcls2 := Erases.ctor_spine_inv henv hΔ hc hcas args.length args rfl htr0 her2
+    rcases hcls1 with ⟨her, _⟩ | ⟨args'1, hlen1, rfl, hcorr1⟩ | hnbt1
+    · exact absurd her hne
+    · rcases hcls2 with ⟨her, _⟩ | ⟨args'2, hlen2, rfl, hcorr2⟩ | hnbt2
+      · exact absurd her hne
+      · have hlaws : args'1.length = args'2.length := by omega
+        have hargeq : args'1 = args'2 := by
+          apply List.ext_getElem hlaws
+          intro i h1 _
+          have hiA : i < args.length := hlen1 ▸ h1
+          exact ih i hiA (hcorr1 i h1) (noBlock_mkApps_inv hnb1 _ (List.getElem_mem _))
+            (hcorr2 i (by omega)) (noBlock_mkApps_inv hnb2 _ (List.getElem_mem _))
+        rw [hargeq]
+      · exact absurd hnb2 hnbt2
+    · exact absurd hnb1 hnbt1
+
+/-! ### Non-vacuity guards (D1 + A7) — a concrete nullary first-order constructor.
+
+Reuses `envFO` (`I : Sort 1`, `c : I`) with the target env `EFOd` declaring `I` as a
+data inductive with a nullary constructor `c` (arity `npars + nargs = 0`). All the
+`erases_correct_data` env hypotheses hold concretely (the source-env ones vacuously,
+`ErasesEnvCtor` by the arity computation), and both `firstOrder_value_erases_unique`
+and `erases_correct_data` *fire* on `c`. -/
+
+/-- `Γ` for the guard: registers `c` as the nullary constructor of `I`, arity `0`. -/
+def ΓFOd : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  ctors := fun n => if n = `c then some (⟨toKername `I, 0⟩, 0) else none
+  ctorArities := fun n => if n = `c then some 0 else none
+  casesOns := fun _ => none
+
+/-- Target env: `I` a data inductive with a single nullary constructor `c`. -/
+def oibFOd : OneInductiveBody :=
+  { name := "I", ctors := [{ name := "c", nargs := 0 }], projs := [] }
+def mibFOd : MutualInductiveBody := { npars := 0, bodies := [oibFOd] }
+def EFOd : GlobalDeclarations := [(toKername `I, .inductiveDecl mibFOd)]
+
+theorem ΓFOd_ctorsC : ΓFOd.ctors `c = some (⟨toKername `I, 0⟩, 0) := by unfold ΓFOd; simp
+theorem ΓFOd_ctorAritiesC : ΓFOd.ctorArities `c = some 0 := by unfold ΓFOd; simp
+theorem ΓFOd_casesC : ΓFOd.casesOns `c = none := rfl
+theorem EFOd_arity : constructorArity EFOd (⟨toKername `I, 0⟩) 0 = some 0 := by decide
+
+/-- `ErasesEnvCtor` holds for the guard env. -/
+theorem ΓFOd_envctor : ErasesEnvCtor ΓFOd EFOd := by
+  intro cn iid cidx ar hc har
+  by_cases h : cn = `c
+  · subst h
+    rw [ΓFOd_ctorsC] at hc; rw [ΓFOd_ctorAritiesC] at har
+    simp only [Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨rfl, rfl⟩ := hc
+    rw [EFOd_arity]; exact har
+  · simp [ΓFOd, if_neg h] at hc
+
+/-- `c`'s type `I` is a first-order value in `ΓFOd` (modulo the one lean4lean-blocked
+arity side condition, as in `envFO_foC`). -/
+theorem envFO_foC_d (harity : ¬ IsArityUpTo envFO 0 [] (.const `I [])) :
+    FirstOrderValue envFO [] ΓFOd [] (.const `c []) := by
+  have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  rw [heq]
+  exact .ctor `c [] ⟨toKername `I, 0⟩ 0 ΓFOd_ctorsC ΓFOd_casesC
+    (by simpa using envFO_informativeC harity) (fun i h => absurd h (by simp))
+
+/-- **D1 fires**: the two `NoBlock` erasures of the nullary first-order value `c`
+coincide (both are the applied nullary constructor). -/
+theorem firstOrder_value_erases_unique_fires
+    (harity : ¬ IsArityUpTo envFO 0 [] (.const `I [])) :
+    (LBTerm.construct ⟨toKername `I, 0⟩ 0 []) = LBTerm.construct ⟨toKername `I, 0⟩ 0 [] :=
+  firstOrder_value_erases_unique (Us := []) (Δ := []) envFO_wf trivial (envFO_foC_d harity)
+    (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial
+
+/-- **A7 (`erases_correct_data`) is non-vacuous and fires**: the nullary constructor `c`
+`SEvalDataC`-evaluates to itself, its applied erasure `.construct … []` evaluates
+(`WcbvEval EFOd appliedFlags`) to a value erasing `c`. The source-env consistency
+hypotheses hold vacuously (empty `Esrc`); `ErasesEnvCtor` holds by `ΓFOd_envctor`. -/
+theorem erases_correct_data_fires :
+    ∃ t' vve, WcbvEval EFOd appliedFlags (.construct ⟨toKername `I, 0⟩ 0 []) t' ∧
+      TrExprS envFO [] [] (.const `c []) vve ∧
+      Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' := by
+  refine erases_correct_data (env := envFO) envFO_wf (Us := []) (Δ := []) trivial
+    (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_
+    (v := .const `c []) ?_ envFO_trC (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial
+  · intro Δ n us body cve h; exact absurd h (by simp)
+  · intro Δ n body h; exact absurd h (by simp)
+  · intro cn iid cidx hc
+    by_cases h : cn = `c
+    · subst h; rfl
+    · simp [ΓFOd, if_neg h] at hc
+  · have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+    rw [heq]
+    exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))

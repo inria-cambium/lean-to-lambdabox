@@ -65,6 +65,10 @@ open LeanToLambdaBox
 #print axioms construct_app_spine
 #print axioms Erases.ctor_spine_inv
 #print axioms erases_correct_data
+-- D0–D2: uniqueness of the applied erasure on first-order values.
+#print axioms firstOrder_value_erases_unique
+#print axioms firstOrderValue_erases_eq_eraseCore
+#print axioms erases_correct_data_fires
 
 -- WS-O: oracle-discharge stack (run-adequacy at ambient MLCtx + the discharge).
 #print axioms Lean4Lean.TypeChecker.VContext.ofMLCtx
