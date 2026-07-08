@@ -177,6 +177,16 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (hargs : ∀ i (h : i < args.length),
                  Erases env Us Γ Δ args[i] (args'[i]'(hlen ▸ h))) :
       Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) (.construct iid cidx args')
+  /-- A **bare** constructor head, in *applied* form: a registered constructor name
+      `.const cn us` erases to the empty-argument constructor node
+      `.construct iid cidx []`, which the semantics' `construct_atom` treats as the
+      base of a non-block (`appliedFlags`) constructor spine. This is what the
+      shipping `visitConstApp` literally emits for a constructor head; the arguments
+      are then wrapped by `Erases.app` (spine form), matching MetaRocq's non-block
+      `eval_construct`. Kept alongside the abstract block `ctor` rule above. -/
+  | ctor_head {Δ} (cn : Name) (us : List Level) (iid : InductiveId) (cidx : Nat)
+      (hc : Γ.ctors cn = some (iid, cidx)) :
+      Erases env Us Γ Δ (.const cn us) (.construct iid cidx [])
   /-- A `casesOn` application. The implementation (`visitCases`) erases only the
       discriminant and the minor functions, dropping params/motive/indices, and
       turns each minor into an alternative `(field-names, body)` via
@@ -230,6 +240,9 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
       refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
       rw [List.getElem_map, List.getElem_map]
       exact ihargs i (by simpa using hi) W
+  | ctor_head cn us iid cidx hc =>
+      simp only [Expr.liftLooseBVars', LBTerm.shift, LBTerm.shiftArgs]
+      exact .ctor_head cn us iid cidx hc
   | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
       simp only [liftLooseBVars'_foldl_app, List.map_cons,
                  Expr.liftLooseBVars', LBTerm.shift, LBTerm.shiftAlts_eq_map]
@@ -287,6 +300,9 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
       refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
       rw [List.getElem_map, List.getElem_map]
       exact ihargs i (by simpa using hi) W
+  | ctor_head cn us iid cidx hc =>
+      simp only [Expr.instantiate1', LBTerm.subst, LBTerm.substArgs]
+      exact .ctor_head cn us iid cidx hc
   | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
       simp only [instantiate1'_foldl_app, List.map_cons,
                  Expr.instantiate1', LBTerm.subst, LBTerm.substAlts_eq_map]

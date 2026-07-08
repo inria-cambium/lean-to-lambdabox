@@ -27,10 +27,14 @@ import LeanToLambdaBox.Erases
 import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
+import LeanToLambdaBox.SourceEvalData
 import LeanToLambdaBox.ErasesCorrect
 -- Implementation refinement bridge (Half B): pure `eraseCore` + refinement of `Erases`.
 import LeanToLambdaBox.Abstract
 import LeanToLambdaBox.EraseCore
+-- Data-fragment forward simulation at MetaRocq's non-block `appliedFlags`
+-- (β + δ + saturated constructors): `erases_correct_data` (A5–A7).
+import LeanToLambdaBox.ErasesCorrectData
 -- The shipping bridge (Half B, plan of record): `visitExpr` → `Erases` directly.
 -- `Bridge` holds the supported-fragment predicate; the fvar↔de-Bruijn transport
 -- (`ErasesAbstract`), the vlet strengthening (`ErasesStrengthen`), and the

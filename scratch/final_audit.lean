@@ -55,6 +55,17 @@ open LeanToLambdaBox
 #print axioms visitExpr_refines_erases
 #print axioms shipping_visitExpr_correct
 
+-- WS-F(theory): data-fragment widening (A3–A7). Expected: lean4lean boundary
+-- (`[propext, sorryAx, Classical.choice, Quot.sound]`); A5 (`construct_app_spine`)
+-- is sorryAx-free; `SEvalData`/`SEvalDataC` axiom-free.
+#print axioms SEvalData
+#print axioms SEvalDataC
+#print axioms Erases.ctor_head
+#print axioms SEvalData_const_spine_lam_elim
+#print axioms construct_app_spine
+#print axioms Erases.ctor_spine_inv
+#print axioms erases_correct_data
+
 -- WS-O: oracle-discharge stack (run-adequacy at ambient MLCtx + the discharge).
 #print axioms Lean4Lean.TypeChecker.VContext.ofMLCtx
 #print axioms Lean4Lean.TypeChecker.VState.WF.initial

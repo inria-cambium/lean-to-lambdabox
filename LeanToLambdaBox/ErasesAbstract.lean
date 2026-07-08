@@ -142,6 +142,9 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   | lam hty _ ihb => exact .lam (hty.abstract W) (ihb W.succ hc.2)
   | letE hty hval _ _ ihv ihb =>
     exact .letE (hty.abstract W) (hval.abstract W) (ihv W hc.2.1) (ihb W.succ hc.2.2)
+  | ctor_head cn us iid cidx hctor =>
+    simp only [Expr.abstract1, toBvar, toBvarArgs]
+    exact .ctor_head cn us iid cidx hctor
   | @ctor _ cn us iid cidx args args' hctor hlen _ ihargs =>
     obtain ⟨-, hargs_cl⟩ := closed_foldl_app hc
     simp only [abstract1_foldl_app, Expr.abstract1, toBvar, toBvarArgs_eq_map]

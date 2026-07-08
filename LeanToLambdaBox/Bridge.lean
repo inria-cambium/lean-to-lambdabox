@@ -94,7 +94,7 @@ theorem Supported.instantiate1 {known : Name → Prop} {Γ : ErasureCtx} {e : Ex
 excludes the unsupported constructs. -/
 
 example : Supported (fun _ => True)
-    ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none⟩
+    ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none, fun _ => none⟩
     (.lam `x (.const `Nat []) (.bvar 0) .default) :=
   .lam _ _ _ (.bvar 0)
 
@@ -108,7 +108,7 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
 example (iid : InductiveId) :
     ¬ Supported (fun _ => True)
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩,
-        fun _ => some (iid, 0), fun _ => none⟩
+        fun _ => some (iid, 0), fun _ => none, fun _ => none⟩
       (.const `c []) := by
   rintro ⟨_, _, _, hctor, _⟩; simp_all
 

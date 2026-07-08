@@ -223,6 +223,9 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
       refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
       rw [List.getElem_map, List.getElem_map]
       exact ihargs i (by simpa using hi) W
+  | ctor_head cn us iid cidx hc =>
+      simp only [Expr.instantiate1', LBTerm.subst, LBTerm.substArgs]
+      exact .ctor_head cn us iid cidx hc
   | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
       simp only [instantiate1'_foldl_app, List.map_cons,
                  Expr.instantiate1', LBTerm.subst, LBTerm.substAlts_eq_map]

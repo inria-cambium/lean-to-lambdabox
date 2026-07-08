@@ -26,6 +26,12 @@ structure ErasureCtx where
       as `register_inductive` assigns it. Used by `Erases` to recognise
       constructor applications. -/
   ctors : Name → Option (InductiveId × Nat) := fun _ => none
+  /-- For each source *constructor* name, its arity `cstr_arity = npars + nargs`
+      (matching `Semantics/Env.constructorArity`). Used by the saturated-constructor
+      source evaluation `SEvalData` to bound the number of accumulated arguments, and
+      linked to the target-side `constructorArity` via `ErasesEnvCtor`. Defaulted to
+      `none` so existing `ErasureCtx` literals need not mention it. -/
+  ctorArities : Name → Option Nat := fun _ => none
   /-- For each source `casesOn`-like name, its `(InductiveId, #params)`. Used by
       `Erases` to recognise `casesOn` applications. -/
   casesOns : Name → Option (InductiveId × Nat) := fun _ => none

@@ -174,6 +174,7 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   | letE hty hval _ _ ihv ihb =>
     exact .letE (TrExprS.thin_vlet W hty sc.1) (TrExprS.thin_vlet W hval sc.2.1)
       (ihv W sc.2.1) (ihb W.succ sc.2.2)
+  | ctor_head cn us iid cidx hc => exact .ctor_head cn us iid cidx hc
   | ctor cn us iid cidx hc hlen _ ihargs =>
     have ⟨_, hall⟩ := fvarsIn_foldl_app sc
     exact .ctor cn us iid cidx hc hlen fun i hi =>
