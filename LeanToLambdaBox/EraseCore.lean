@@ -441,14 +441,18 @@ theorem eraseCore_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
     {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
+    (hnfenv : NoFixEnv E)
     {orc : Expr → Bool} (hos : OracleSound env Us orc)
     {fuel : Nat} {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (herase : eraseCore orc Γ fuel e = .ok t)
+    (hnfx : NoFix t)
     (hev : SEvalβδ Esrc e v) :
-    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' :=
-  erases_correct henv hΔ hcon hdelta htr
-    (eraseCore_refines hos htr herase) hev
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
+  obtain ⟨t', vve, h1, h2, h3, _⟩ :=
+    erases_correct henv hΔ hcon hdelta hnfenv htr
+      (eraseCore_refines hos htr herase) hnfx hev
+  exact ⟨t', vve, h1, h2, h3⟩
 
 /-! ## Non-vacuity guard
 

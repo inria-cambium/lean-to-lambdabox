@@ -71,6 +71,7 @@ theorem shipping_visitExpr_correct
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
+    (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -80,12 +81,15 @@ theorem shipping_visitExpr_correct
     (hinv : BridgeInv env Us known Γ (gw w) ctx s Δ)
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us Δ e ve)
+    (hnfx : NoFix t)
     (hev : SEvalβδ Esrc e v) :
-    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' :=
-  erases_correct henv hΔ hcon hdelta htr
-    (visitExpr_refines_erases H HD henv.ordered e s ctx cctx ref w t s' w' hrun
-      Δ hinv hsup ⟨ve, htr⟩).1
-    hev
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
+  obtain ⟨t', vve, h1, h2, h3, _⟩ :=
+    erases_correct henv hΔ hcon hdelta hnfenv htr
+      (visitExpr_refines_erases H HD henv.ordered e s ctx cctx ref w t s' w' hrun
+        Δ hinv hsup ⟨ve, htr⟩).1
+      hnfx hev
+  exact ⟨t', vve, h1, h2, h3⟩
 
 /--
 **The shipping term-level eraser is correct, with the relevance oracle's kernel
@@ -108,6 +112,7 @@ theorem shipping_visitExpr_correct'
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent (ves.venv .safe) Us Esrc)
     (hdelta : ErasesEnvDelta (ves.venv .safe) Us Γ Esrc E)
+    (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -117,11 +122,12 @@ theorem shipping_visitExpr_correct'
     (hinv : BridgeInv (ves.venv .safe) Us known Γ (gw w) ctx s Δ)
     (hsup : Supported known Γ e)
     (htr : TrExprS (ves.venv .safe) Us Δ e ve)
+    (hnfx : NoFix t)
     (hev : SEvalβδ Esrc e v) :
     ∃ t' vve, Eval E t t' ∧ TrExprS (ves.venv .safe) Us Δ v vve ∧
       Erases (ves.venv .safe) Us Γ Δ v t' :=
-  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta (R.toBridgeHyps wf) HD
-    hrun hinv hsup htr hev
+  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta hnfenv (R.toBridgeHyps wf) HD
+    hrun hinv hsup htr hnfx hev
 
 /-! ## Non-vacuity guard
 
@@ -140,7 +146,8 @@ example (Γ : ErasureCtx) (cfg : ErasureConfig)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lam `a (.sort .zero) (.bvar 0) .default) {}
-      ⟨{}, none, [], cfg⟩ cctx ref w = .ok (t, s') w') :
+      ⟨{}, none, [], cfg⟩ cctx ref w = .ok (t, s') w')
+    (hnfx : NoFix t) :
     ∃ t' vve, Eval ([] : GlobalDeclarations) t t' ∧
       TrExprS .empty [] [] (.lam `a (.sort .zero) (.bvar 0) .default) vve ∧
       Erases .empty [] Γ [] (.lam `a (.sort .zero) (.bvar 0) .default) t' := by
@@ -158,13 +165,14 @@ example (Γ : ErasureCtx) (cfg : ErasureConfig)
     .lam ⟨_, .sortDF trivial trivial rfl⟩ hty hbody
   exact shipping_visitExpr_correct (Esrc := fun _ => none) henv
     (Lean4Lean.TrLCtx.nil (env := .empty) (Us := [])).wf
-    (fun h _ => nomatch h) (fun h => nomatch h) H HD (known := fun _ => False) hrun
+    (fun h _ => nomatch h) (fun h => nomatch h) (fun {_ _} h => by simp [LBTerm.envLookup] at h)
+    H HD (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
       kfresh := fun _ h => nomatch h
       fixvars := rfl
       reserved := fun _ h => nomatch h
       consts := fun _ h => h.elim }
-    (.lam _ _ _ (.bvar 0)) htr (.lam `a (.sort .zero) (.bvar 0) .default)
+    (.lam _ _ _ (.bvar 0)) htr hnfx (.lam `a (.sort .zero) (.bvar 0) .default)
 
 end LeanToLambdaBox

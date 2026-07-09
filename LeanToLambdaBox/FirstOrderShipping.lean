@@ -57,6 +57,7 @@ theorem shipping_erase_correct_firstorder
     (hctorenv : ErasesEnvCtor Γ E)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
+    (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -67,6 +68,7 @@ theorem shipping_erase_correct_firstorder
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
+    (hnfx : NoFix t)
     (hev : SEvalDataC Γ Esrc e v)
     (hfo : FirstOrderValue env Us Γ [] v) :
     ∃ t', WcbvEval E appliedFlags t t' ∧
@@ -74,8 +76,8 @@ theorem shipping_erase_correct_firstorder
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv⟩ :=
-    shipping_visitExpr_correct_data henv (Δ := []) trivial hcon hdelta hctorenv hcc
-      H HD hrun hinv hsup htr hnb hev
+    shipping_visitExpr_correct_data henv (Δ := []) trivial hcon hdelta hctorenv hcc hnfenv
+      H HD hrun hinv hsup htr hnb hnfx hev
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv,
     fun tu hertu hnbtu =>
       firstOrder_value_erases_unique henv (Δ := []) trivial hfo hertu hnbtu herv hnbv⟩
@@ -95,20 +97,23 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
     (hinv : BridgeInv envFO [] (fun _ => True) ΓFOd (gw w) ctx s [])
     (hsup : Supported (fun _ => True) ΓFOd (.const `c []))
-    (hnb : NoBlock t) :
+    (hnb : NoBlock t) (hnfx : NoFix t) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorder envFO_wf (Us := []) (Esrc := fun _ => none)
-    (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ H HD hrun hinv hsup envFO_trC hnb ?_ (envFO_foC_d harity)
+    (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ ?_ H HD hrun hinv hsup envFO_trC hnb hnfx ?_ (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
   · intro cn iid cidx hc
     by_cases h : cn = `c
     · subst h; rfl
     · simp [ΓFOd, if_neg h] at hc
+  · intro kn body' h
+    simp only [EFOd, LBTerm.envLookup] at h
+    split at h <;> simp only [Option.some.injEq, reduceCtorEq] at h
   · rw [heq]
     exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))
 

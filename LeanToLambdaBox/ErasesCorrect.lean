@@ -25,6 +25,17 @@ namespace LeanToLambdaBox
 
 open Lean Lean4Lean
 
+/-- A target global environment with **no `.fix` constant bodies**: every stored
+constant body is `NoFix`. This holds of any environment `erase` builds for a program
+whose dependency closure has no *value* recursion (`visitMutual`'s recursive branch is
+the sole source of `.fix`). It is threaded through the δ case of the forward-sims so the
+recursive IH stays in the fix-free fragment (the unfolded body erasure must be `NoFix`
+for `Erases.lam_inv`'s fix disjunct to be discharged on it). Trivially true for the
+empty env `E = []`. -/
+def NoFixEnv (E : GlobalDeclarations) : Prop :=
+  ∀ {kn : Kername} {body' : LBTerm},
+    LBTerm.envLookup E kn = some (.constantDecl ⟨some body'⟩) → NoFix body'
+
 /-- **β-correctness (substitution form).** Erasure commutes with the body
 substitution of a β-redex: if the argument `a` (of the binder type, witnessed by
 `hTa`) erases to `a'` and the body `b` erases to `b'` under the binder, then the
@@ -74,18 +85,21 @@ theorem erases_correct_beta {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
     {E : GlobalDeclarations} {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (her : Erases env Us Γ Δ e t)
+    (hnfx : NoFix t)
     (hev : SEvalβ Esrc e v) :
-    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' ∧ NoFix t' := by
   induction hev generalizing ve t with
   | lam n ty b bi =>
       -- e = v = .lam …; both languages already have it as a value.
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.lam_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, _, hty, hb, rfl⟩
+        | ⟨defs, idx, rfl, _⟩
       · -- box: align the box's own translation with `ve` and reuse the witness.
         exact ⟨.box, ve, .box, htr, .box htr
           (herbox.defeq henv hΓ
-            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr))⟩
-      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb⟩
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial⟩
+      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnfx⟩
+      · exact hnfx.elim  -- `NoFix (.fix …)` is `False`: no fix source in this fragment
   | @beta f a n ty b bi av r hf ha hbody ihf iha ihbody =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.app_inv her with
@@ -94,14 +108,14 @@ theorem erases_correct_beta {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
         obtain ⟨vve, htrr, hdef⟩ := SEvalβ_defeq henv hΔ htr (.beta hf ha hbody)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef)⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
       · -- Structural application. Invert the redex translation.
         cases htr with
         | @app f' A B a'' _Δ _f _a hTf hTa htrf htra =>
           -- IH on the function: f't evaluates to a value erasing the λ value of f.
-          obtain ⟨ftv, fvv, hEf, htrlam, herlam⟩ := ihf htrf hf'
+          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnfftv⟩ := ihf htrf hf' hnfx.1
           rcases Erases.lam_inv herlam with ⟨velam, htrvelam, herlamE, rfl⟩
-            | ⟨tyE, b', htrtyE, hb', rfl⟩
+            | ⟨tyE, b', htrtyE, hb', rfl⟩ | ⟨defs, idx, rfl, _⟩
           · -- Head erased to `box` (MetaCoq's `eval_box`): the function is
             -- irrelevant, so the application is too (box propagation,
             -- `Erasable.app`), and the value `r` inherits the irrelevance.
@@ -117,15 +131,15 @@ theorem erases_correct_beta {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
             -- `eval_box` evaluates the argument too: run the argument IH.
-            obtain ⟨_, _, hEa, _, _⟩ := iha htra ha'
+            obtain ⟨_, _, hEa, _, _, _⟩ := iha htra ha' hnfx.2
             exact ⟨.box, vve, .app_box hEf hEa, htrr,
-              .box htrr (herapp.defeq henv hΓ hdef)⟩
+              .box htrr (herapp.defeq henv hΓ hdef), trivial⟩
           · -- Head erased to a λ. Subject reduction gives `f' ≡ λ`-translation;
             -- invert *that* translation to expose the λ body.
             obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβ_defeq henv hΔ htrf hf
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
-              obtain ⟨atv, avv, hEa, htrav, herav⟩ := iha htra ha'
+              obtain ⟨atv, avv, hEa, htrav, herav, hnfatv⟩ := iha htra ha' hnfx.2
               obtain ⟨B'', hbodyT⟩ :=
                 TrExprS.wf (Us := Us) (Δ := (none, .vlam ty') :: Δ) henv.ordered
                   ⟨hΔ, nofun, hty'⟩ htrb
@@ -157,10 +171,13 @@ theorem erases_correct_beta {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
                 exact havT.defeqU_r henv hΓ (VEnv.IsDefEqU.symm this)
               -- β square: the substituted body translates (TrExprS.inst) and erases
               -- the source reduct (erases_beta_struct); the IH on the body closes it.
-              obtain ⟨t', vve, hEr, htrr, herr⟩ := ihbody
+              obtain ⟨t', vve, hEr, htrr, herr, hnft'⟩ := ihbody
                 (TrExprS.inst henv.ordered havT htrb htrav)
                 (erases_beta_struct henv.ordered htrav havTE hb' herav)
-              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr⟩
+                (noFix_subst1 hnfftv hnfatv)
+              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnft'⟩
+          · -- Head erased via the env-level fix rule: excluded by `NoFix ftv`.
+            exact hnfftv.elim
       · -- The redex erased via a `.const`-headed spine (`ctor`/`cases`): impossible
         -- under `SEvalβ`, since a const-headed spine has no β-evaluation.
         exact absurd hspine (SEvalβ_const_spine_elim (.beta hf ha hbody))
@@ -235,6 +252,10 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (by simpa using hlen) (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
+  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
+      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+      rw [hinst e₀ dk, hsubst s' dk]
+      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
 
 /-- **Target-side δ consistency.** When the source constant `n` unfolds to `body`
 (`Esrc n = some body`) and `n` is bound to the kername `Γ.constants n`, the target
@@ -312,19 +333,23 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
     {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
+    (hnfenv : NoFixEnv E)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (her : Erases env Us Γ Δ e t)
+    (hnfx : NoFix t)
     (hev : SEvalβδ Esrc e v) :
-    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' ∧ NoFix t' := by
   induction hev generalizing ve t with
   | lam n ty b bi =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.lam_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, _, hty, hb, rfl⟩
+        | ⟨defs, idx, rfl, _⟩
       · exact ⟨.box, ve, .box, htr, .box htr
           (herbox.defeq henv hΓ
-            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr))⟩
-      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb⟩
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial⟩
+      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnfx⟩
+      · exact hnfx.elim
   | @beta f a n ty b bi av r hf ha hbody ihf iha ihbody =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.app_inv her with
@@ -334,13 +359,13 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
           SEvalβζδ_defeq henv hΔ hcon htr (.beta hf.toβζδ ha.toβζδ hbody.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef)⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
       · -- Structural application.
         cases htr with
         | @app f' A B a'' _Δ _f _a hTf hTa htrf htra =>
-          obtain ⟨ftv, fvv, hEf, htrlam, herlam⟩ := ihf htrf hf'
+          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnfftv⟩ := ihf htrf hf' hnfx.1
           rcases Erases.lam_inv herlam with ⟨velam, htrvelam, herlamE, rfl⟩
-            | ⟨tyE, b', htrtyE, hb', rfl⟩
+            | ⟨tyE, b', htrtyE, hb', rfl⟩ | ⟨defs, idx, rfl, _⟩
           · -- Head erased to `box` (MetaCoq's `eval_box`).
             obtain ⟨vve, htrr, hdef⟩ :=
               SEvalβζδ_defeq henv hΔ hcon (.app hTf hTa htrf htra)
@@ -353,14 +378,14 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
             -- `eval_box` evaluates the argument too: run the argument IH.
-            obtain ⟨_, _, hEa, _, _⟩ := iha htra ha'
+            obtain ⟨_, _, hEa, _, _, _⟩ := iha htra ha' hnfx.2
             exact ⟨.box, vve, .app_box hEf hEa, htrr,
-              .box htrr (herapp.defeq henv hΓ hdef)⟩
+              .box htrr (herapp.defeq henv hΓ hdef), trivial⟩
           · -- Head erased to a λ.
             obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβζδ_defeq henv hΔ hcon htrf hf.toβζδ
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
-              obtain ⟨atv, avv, hEa, htrav, herav⟩ := iha htra ha'
+              obtain ⟨atv, avv, hEa, htrav, herav, hnfatv⟩ := iha htra ha' hnfx.2
               obtain ⟨B'', hbodyT⟩ :=
                 TrExprS.wf (Us := Us) (Δ := (none, .vlam ty') :: Δ) henv.ordered
                   ⟨hΔ, nofun, hty'⟩ htrb
@@ -386,10 +411,13 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
                 have : env.IsDefEqU Us.length Δ.toCtx tyE ty' :=
                   TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrtyE htrty
                 exact havT.defeqU_r henv hΓ (VEnv.IsDefEqU.symm this)
-              obtain ⟨t', vve, hEr, htrr, herr⟩ := ihbody
+              obtain ⟨t', vve, hEr, htrr, herr, hnft'⟩ := ihbody
                 (TrExprS.inst henv.ordered havT htrb htrav)
                 (erases_beta_struct henv.ordered htrav havTE hb' herav)
-              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr⟩
+                (noFix_subst1 hnfftv hnfatv)
+              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnft'⟩
+          · -- Head erased via the env-level fix rule: excluded by `NoFix ftv`.
+            exact hnfftv.elim
       · -- Const-headed spine erasure (`ctor`/`cases`): the head `cn` is a
         -- registered constructor/`casesOn` (`hmem`).  But a `β`/`δ`-evaluating
         -- const-spine is headed by a *non*-ctor/non-casesOn (`SEvalβδ` keeps the
@@ -410,10 +438,10 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef)⟩
-      · obtain ⟨t', vve, hEbody, htrr, herr⟩ := ihbody htrbody herbody
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial⟩
+      · obtain ⟨t', vve, hEbody, htrr, herr, hnft'⟩ := ihbody htrbody herbody (hnfenv hlook)
         subst hkn
-        exact ⟨t', vve, .delta hlook hEbody, htrr, herr⟩
+        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnft'⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
 
 end LeanToLambdaBox

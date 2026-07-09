@@ -163,6 +163,12 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have hj' : j < minors.length := by simpa using hj
     rw [List.getElem_map, List.getElem_map, ← toBvar_mkLambdas]
     exact ihalts j hj' W (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj')))
+  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
+      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+      -- The fix source/target are closed & fvar-free: `abstract1`/`toBvar` are the
+      -- identity (the inertness premises), so the fix fields transport verbatim.
+      rw [habsl v₀ dk, htobv v₀ dk]
+      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
 
 /-! ### The un-instantiation corollaries
 

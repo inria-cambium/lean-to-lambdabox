@@ -147,8 +147,13 @@ theorem foldl_app_cons_ne_lam {pre : Expr} {discr : Expr} {minors : List Expr}
   · rw [heq] at h; simp at h
   · rw [heq] at h; simp [Expr.isApp] at h
 
-/-- **Inversion of `Erases` on a `.lam` source.** Only the `box` and `lam` rules
-apply. -/
+/-- **Inversion of `Erases` on a `.lam` source.** The `box` and `lam` rules apply, and
+— since `Erases.fix`'s source is a syntactic `.lam` (P3) — the environment-level `fix`
+rule too, giving a third disjunct `t = .fix defs idx`. This is the **only** inversion
+that widens for `Erases.fix`: every other inversion's catch-all refutes a `.lam`-headed
+source by head mismatch (`.app`/`.letE`/`.const`/spine ≠ `.lam`). Forward-simulation
+callers in the fix-free fragment discharge the new disjunct via a `NoFix t` premise
+(`NoFix (.fix …)` is `False`). -/
 theorem Erases.lam_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {ty b : Expr} {bi : BinderInfo} {t : LBTerm}
     (h : Erases env Us Γ Δ (.lam n ty b bi) t) :
@@ -156,13 +161,20 @@ theorem Erases.lam_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
         Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
     (∃ ty' b', TrExprS env Us Δ ty ty' ∧
         Erases env Us Γ ((none, .vlam ty') :: Δ) b b' ∧
-        t = .lambda (nameToBinder n) b') := by
+        t = .lambda (nameToBinder n) b') ∨
+    (∃ (defs : List (@FixDef LBTerm)) (idx : Nat), t = .fix defs idx ∧
+        Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx)) := by
   generalize he : (Expr.lam n ty b bi) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
-  | lam hty hb => cases he; exact .inr ⟨_, _, hty, hb, rfl⟩
+  | lam hty hb => cases he; exact .inr (.inl ⟨_, _, hty, hb, rfl⟩)
   | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_lam
   | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_lam
+  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
+      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+      cases he
+      exact .inr (.inr ⟨defs, idx, rfl,
+        .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies⟩)
   | _ => exact absurd he (by simp)
 
 /-- A `.const`-headed spine never reduces to a `.lam` under `SEvalβ`

@@ -38,56 +38,6 @@ namespace LeanToLambdaBox
 
 open Lean Lean4Lean
 
-/-! ### Structural induction principle for the nested inductive `LBTerm`.
-
-`LBTerm` carries `List LBTerm` (in `construct`/`case`/`fix`), so `induction t` is
-rejected; this eliminator hands the list-carrying constructors a per-element IH
-`∀ x ∈ l, P x` (same shape as `Optimize.LBTerm.rec'`, replicated here to avoid a
-dependency on the optimize pass). -/
-@[elab_as_elim]
-def LBTerm.recData
-    {P : LBTerm → Prop}
-    (hbox : P .box)
-    (hbvar : ∀ i, P (.bvar i))
-    (hfvar : ∀ x, P (.fvar x))
-    (hlam : ∀ n b, P b → P (.lambda n b))
-    (hletIn : ∀ n v b, P v → P b → P (.letIn n v b))
-    (happ : ∀ f a, P f → P a → P (.app f a))
-    (hconst : ∀ kn, P (.const kn))
-    (hconstruct : ∀ iid k args, (∀ x ∈ args, P x) → P (.construct iid k args))
-    (hcase : ∀ info discr alts, P discr → (∀ a ∈ alts, P a.2) → P (.case info discr alts))
-    (hproj : ∀ p e, P e → P (.proj p e))
-    (hfix : ∀ defs i, (∀ d ∈ defs, P d.body) → P (.fix defs i))
-    (hprim : ∀ p, P (.prim p)) :
-    ∀ t, P t := by
-  refine fun t => LBTerm.rec
-    (motive_1 := P)
-    (motive_2 := fun l => ∀ x ∈ l, P x)
-    (motive_3 := fun l => ∀ a ∈ l, P a.2)
-    (motive_4 := fun l => ∀ d ∈ l, P d.body)
-    (motive_5 := fun (a : List BinderName × LBTerm) => P a.2)
-    (motive_6 := fun (d : @FixDef LBTerm) => P d.body)
-    ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ t
-  case _ => exact hbox
-  case _ => exact hbvar
-  case _ => exact hfvar
-  case _ => exact fun n b ih => hlam n b ih
-  case _ => exact fun n v b ihv ihb => hletIn n v b ihv ihb
-  case _ => exact fun f a ihf iha => happ f a ihf iha
-  case _ => exact hconst
-  case _ => exact fun iid k args ih => hconstruct iid k args ih
-  case _ => exact fun info discr alts ihd iha => hcase info discr alts ihd iha
-  case _ => exact fun p e ih => hproj p e ih
-  case _ => exact fun defs i ih => hfix defs i ih
-  case _ => exact hprim
-  case _ => exact List.forall_mem_nil _
-  case _ => exact fun t l iht ihl => List.forall_mem_cons.mpr ⟨iht, ihl⟩
-  case _ => exact List.forall_mem_nil _
-  case _ => exact fun a l iha ihl => List.forall_mem_cons.mpr ⟨iha, ihl⟩
-  case _ => exact List.forall_mem_nil _
-  case _ => exact fun d l ihd ihl => List.forall_mem_cons.mpr ⟨ihd, ihl⟩
-  case _ => exact fun _ snd ih => ih
-  case _ => exact fun _ _ _ ih => ih
 
 /-! ## `NoBlock`: applied-form erasures only
 
@@ -597,25 +547,28 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
     (hctorenv : ErasesEnvCtor Γ E)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
+    (hnfenv : NoFixEnv E)
     {e v : Expr} (hev : SEvalDataC Γ Esrc e v) :
     ∀ {ve : VExpr} {t : LBTerm},
-      TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t →
+      TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t → NoFix t →
       ∃ t' vve, WcbvEval E appliedFlags t t' ∧ TrExprS env Us Δ v vve ∧
-        Erases env Us Γ Δ v t' ∧ NoBlock t' := by
+        Erases env Us Γ Δ v t' ∧ NoBlock t' ∧ NoFix t' := by
   have hnf : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       Γ.ctors n = none ∧ Γ.casesOns n = none :=
     fun h => ⟨(hdelta (Δ := Δ) h).1, (hdelta (Δ := Δ) h).2.1⟩
   induction hev with
   | lam n ty b bi =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.lam_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, _, hty, hb, rfl⟩
+        | ⟨defs, idx, rfl, _⟩
       · exact ⟨.box, ve, .box, htr, .box htr
           (herbox.defeq henv hΓ
-            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial⟩
-      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnb⟩
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial, trivial⟩
+      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnb, hnfx⟩
+      · exact hnfx.elim
   | @beta f a n ty b bi av r hf ha hbody ihf iha ihbody =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.app_inv her with
         ⟨veb, htrb, herbox, rfl⟩ | ⟨f't, a't, hf', ha', rfl⟩ | ⟨cn, us, args, hspine, hmem⟩
@@ -623,12 +576,12 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
           SEvalβζδ_defeq henv hΔ hcon htr (.beta hf.toSEvalData.toβζδ ha.toSEvalData.toβζδ hbody.toSEvalData.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
       · cases htr with
         | @app f' A B a'' _Δ _f _a hTf hTa htrf htra =>
-          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnbftv⟩ := ihf htrf hf' hnb.1
+          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnbftv, hnfftv⟩ := ihf htrf hf' hnb.1 hnfx.1
           rcases Erases.lam_inv herlam with ⟨velam, htrvelam, herlamE, rfl⟩
-            | ⟨tyE, b', htrtyE, hb', rfl⟩
+            | ⟨tyE, b', htrtyE, hb', rfl⟩ | ⟨defs, idx, rfl, _⟩
           · obtain ⟨vve, htrr, hdef⟩ :=
               SEvalβζδ_defeq henv hΔ hcon (.app hTf hTa htrf htra)
                 (.beta hf.toSEvalData.toβζδ ha.toSEvalData.toβζδ hbody.toSEvalData.toβζδ)
@@ -639,13 +592,13 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
                 henv hΓ (VEnv.IsDefEqU.symm hfdef)
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
-            obtain ⟨_, _, hEa, _, _, _⟩ := iha htra ha' hnb.2
+            obtain ⟨_, _, hEa, _, _, _, _⟩ := iha htra ha' hnb.2 hnfx.2
             exact ⟨.box, vve, .app_box hEf hEa, htrr,
-              .box htrr (herapp.defeq henv hΓ hdef), trivial⟩
+              .box htrr (herapp.defeq henv hΓ hdef), trivial, trivial⟩
           · obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβζδ_defeq henv hΔ hcon htrf hf.toSEvalData.toβζδ
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
-              obtain ⟨atv, avv, hEa, htrav, herav, hnbatv⟩ := iha htra ha' hnb.2
+              obtain ⟨atv, avv, hEa, htrav, herav, hnbatv, hnfatv⟩ := iha htra ha' hnb.2 hnfx.2
               obtain ⟨B'', hbodyT⟩ :=
                 TrExprS.wf (Us := Us) (Δ := (none, .vlam ty') :: Δ) henv.ordered
                   ⟨hΔ, nofun, hty'⟩ htrb
@@ -673,10 +626,13 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
                 exact havT.defeqU_r henv hΓ (VEnv.IsDefEqU.symm this)
               have hnbsub : NoBlock (LBTerm.subst1 atv b') :=
                 noBlock_subst1 (by simpa [NoBlock] using hnbftv) hnbatv
-              obtain ⟨t', vve, hEr, htrr, herr, hnbt'⟩ := ihbody
+              have hnfsub : NoFix (LBTerm.subst1 atv b') :=
+                noFix_subst1 (by simpa [NoFix] using hnfftv) hnfatv
+              obtain ⟨t', vve, hEr, htrr, herr, hnbt', hnft'⟩ := ihbody
                 (TrExprS.inst henv.ordered havT htrb htrav)
-                (erases_beta_struct henv.ordered htrav havTE hb' herav) hnbsub
-              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnbt'⟩
+                (erases_beta_struct henv.ordered htrav havTE hb' herav) hnbsub hnfsub
+              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnbt', hnft'⟩
+          · exact hnfftv.elim
       · -- const-headed spine: `.app f a` is a registered ctor/casesOn spine, so its
         -- prefix `f` is a shorter registered spine that cannot evaluate to a λ (by
         -- `SEvalData_const_spine_lam_elim`), contradicting `hf`.
@@ -688,7 +644,7 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
           exact absurd ⟨n, ty, b, bi, rfl⟩
             (SEvalData_const_spine_lam_elim hnf hf.toSEvalData hf_eq hmem)
   | @delta n us body r hunf hbodyev ihbody =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
@@ -698,13 +654,14 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toSEvalData.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial⟩
-      · obtain ⟨t', vve, hEbody, htrr, herr, hnbt'⟩ := ihbody htrbody herbody hnbbody
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial, trivial⟩
+      · obtain ⟨t', vve, hEbody, htrr, herr, hnbt', hnft'⟩ :=
+          ihbody htrbody herbody hnbbody (hnfenv hlook)
         subst hkn
-        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnbt'⟩
+        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnbt', hnft'⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       have harE : constructorArity E iid cidx = some ar := hctorenv hcctors har
       rcases Erases.ctor_spine_inv henv hΔ hcctors (hcc hcctors) args.length args rfl htr her with
@@ -717,24 +674,27 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
           obtain ⟨sa, hsa, hera⟩ := hmem a' ha'
           obtain ⟨j, hj, hsaj⟩ := List.mem_iff_getElem.mp hsa
           obtain ⟨sve, htrsa⟩ := (trExprS_appSpine_inv args (.const cn us) ve htr).2 j hj
-          obtain ⟨w, _, hEa, _, _, _⟩ :=
+          obtain ⟨w, _, hEa, _, _, _, _⟩ :=
             ihargs j hj htrsa (hsaj ▸ hera) (noBlock_mkApps_inv hnb a' ha')
+              (noFix_mkApps_inv hnfx a' ha')
           exact ⟨w, hEa⟩
         refine ⟨.box, vve, mkApps_headBox_eval WcbvEval.box heval, htrr,
-          .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+          .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
       · -- headcut: t = mkApps (.construct iid cidx []) args'; A5 accumulates the args
         -- each source arg evaluates via its IH; collect (value, erasure, NoBlock).
         have hpt : ∀ i, i < args.length →
             ∃ w, ∃ (hiA : i < args'.length) (hiV : i < vs.length),
               WcbvEval E appliedFlags (args'[i]'hiA) w ∧
-              Erases env Us Γ Δ (vs[i]'hiV) w ∧ NoBlock w := by
+              Erases env Us Γ Δ (vs[i]'hiV) w ∧ NoBlock w ∧ NoFix w := by
           intro i h
           have hiA : i < args'.length := hlen' ▸ h
           have hiV : i < vs.length := hl ▸ h
           obtain ⟨sve, htrsa⟩ := (trExprS_appSpine_inv args (.const cn us) ve htr).2 i h
           have hnba' : NoBlock (args'[i]'hiA) := noBlock_mkApps_inv hnb _ (List.getElem_mem _)
-          obtain ⟨w, vve, hEa, htrvi, hervi, hnbw⟩ := ihargs i h htrsa (hcorr i hiA) hnba'
-          exact ⟨w, hiA, hiV, hEa, hervi, hnbw⟩
+          have hnfa' : NoFix (args'[i]'hiA) := noFix_mkApps_inv hnfx _ (List.getElem_mem _)
+          obtain ⟨w, vve, hEa, htrvi, hervi, hnbw, hnfw⟩ :=
+            ihargs i h htrsa (hcorr i hiA) hnba' hnfa'
+          exact ⟨w, hiA, hiV, hEa, hervi, hnbw, hnfw⟩
         obtain ⟨ws, hwslen, hws⟩ := choose_list args.length hpt
         have hbase : WcbvEval E appliedFlags (.construct iid cidx [])
             (LBTerm.mkApps (.construct iid cidx []) []) := by
@@ -745,7 +705,7 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
         have hpe : ∀ i (hi : i < args'.length),
             WcbvEval E appliedFlags (args'[i]'hi) (ws[i]'(hlaw ▸ hi)) := by
           intro i hi
-          obtain ⟨_, _, hE, _, _⟩ := hws i (hlaw ▸ hi)
+          obtain ⟨_, _, hE, _, _, _⟩ := hws i (hlaw ▸ hi)
           exact hE
         have hTeval := construct_app_spine harE args' ws (.construct iid cidx []) [] hbase hle hlaw hpe
         rw [← mkApps_eq_foldl, List.nil_append] at hTeval
@@ -755,14 +715,19 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
             (LBTerm.mkApps (.construct iid cidx []) ws) := by
           refine erases_app_spine (.ctor_head cn us iid cidx hcctors) vs ws (by omega) ?_
           intro i hi
-          obtain ⟨_, _, _, hEr, _⟩ := hws i (by omega)
+          obtain ⟨_, _, _, hEr, _, _⟩ := hws i (by omega)
           exact hEr
         have hVnb : NoBlock (LBTerm.mkApps (.construct iid cidx []) ws) := by
           refine noBlock_mkApps_construct (fun w hw => ?_)
           obtain ⟨j, hj, rfl⟩ := List.mem_iff_getElem.mp hw
-          obtain ⟨_, _, _, _, hnbw⟩ := hws j hj
+          obtain ⟨_, _, _, _, hnbw, _⟩ := hws j hj
           exact hnbw
-        exact ⟨_, vve, hTeval, htrr, hVerase, hVnb⟩
+        have hVnf : NoFix (LBTerm.mkApps (.construct iid cidx []) ws) := by
+          refine noFix_mkApps (NoFix_construct iid cidx []) (fun w hw => ?_)
+          obtain ⟨j, hj, rfl⟩ := List.mem_iff_getElem.mp hw
+          obtain ⟨_, _, _, _, _, hnfw⟩ := hws j hj
+          exact hnfw
+        exact ⟨_, vve, hTeval, htrr, hVerase, hVnb, hVnf⟩
       · exact absurd hnb hnbt
 
 /-! ## B (ζ case): the vlet-value defeq context transport, and the ζ-including simulation
@@ -869,6 +834,11 @@ theorem Erases.defeqDFC {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : Eras
       refine .cases con us iid numParams pre hc (ihd hΔ (by simpa using htr_d)) hlen (fun j hj => ?_)
       obtain ⟨mve, htr_m⟩ := hspine (j + 1) (by simp; omega)
       exact ihalts j hj hΔ (by simpa using htr_m)
+  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
+      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+      -- Source/target unchanged by the context defeq; the fix bodies live at the fixed
+      -- context `Δf`, so the rule re-applies at the new conclusion context `Δ₂`.
+      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
 
 /-- **Erasure correctness — forward simulation, β + ζ + δ + saturated constructors,
 at MetaRocq's non-block `appliedFlags`.** The ζ-including data-fragment simulation:
@@ -891,25 +861,28 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
     (hctorenv : ErasesEnvCtor Γ E)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
+    (hnfenv : NoFixEnv E)
     {e v : Expr} (hev : SEvalData Γ Esrc e v) :
     ∀ {ve : VExpr} {t : LBTerm},
-      TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t →
+      TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t → NoFix t →
       ∃ t' vve, WcbvEval E appliedFlags t t' ∧ TrExprS env Us Δ v vve ∧
-        Erases env Us Γ Δ v t' ∧ NoBlock t' := by
+        Erases env Us Γ Δ v t' ∧ NoBlock t' ∧ NoFix t' := by
   have hnf : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       Γ.ctors n = none ∧ Γ.casesOns n = none :=
     fun h => ⟨(hdelta (Δ := Δ) h).1, (hdelta (Δ := Δ) h).2.1⟩
   induction hev with
   | lam n ty b bi =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.lam_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, _, hty, hb, rfl⟩
+        | ⟨defs, idx, rfl, _⟩
       · exact ⟨.box, ve, .box, htr, .box htr
           (herbox.defeq henv hΓ
-            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial⟩
-      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnb⟩
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial, trivial⟩
+      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnb, hnfx⟩
+      · exact hnfx.elim
   | @beta f a n ty b bi av r hf ha hbody ihf iha ihbody =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.app_inv her with
         ⟨veb, htrb, herbox, rfl⟩ | ⟨f't, a't, hf', ha', rfl⟩ | ⟨cn, us, args, hspine, hmem⟩
@@ -917,12 +890,12 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           SEvalβζδ_defeq henv hΔ hcon htr (.beta hf.toβζδ ha.toβζδ hbody.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
       · cases htr with
         | @app f' A B a'' _Δ _f _a hTf hTa htrf htra =>
-          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnbftv⟩ := ihf htrf hf' hnb.1
+          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnbftv, hnfftv⟩ := ihf htrf hf' hnb.1 hnfx.1
           rcases Erases.lam_inv herlam with ⟨velam, htrvelam, herlamE, rfl⟩
-            | ⟨tyE, b', htrtyE, hb', rfl⟩
+            | ⟨tyE, b', htrtyE, hb', rfl⟩ | ⟨defs, idx, rfl, _⟩
           · obtain ⟨vve, htrr, hdef⟩ :=
               SEvalβζδ_defeq henv hΔ hcon (.app hTf hTa htrf htra)
                 (.beta hf.toβζδ ha.toβζδ hbody.toβζδ)
@@ -933,13 +906,13 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
                 henv hΓ (VEnv.IsDefEqU.symm hfdef)
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
-            obtain ⟨_, _, hEa, _, _, _⟩ := iha htra ha' hnb.2
+            obtain ⟨_, _, hEa, _, _, _, _⟩ := iha htra ha' hnb.2 hnfx.2
             exact ⟨.box, vve, .app_box hEf hEa, htrr,
-              .box htrr (herapp.defeq henv hΓ hdef), trivial⟩
+              .box htrr (herapp.defeq henv hΓ hdef), trivial, trivial⟩
           · obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβζδ_defeq henv hΔ hcon htrf hf.toβζδ
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
-              obtain ⟨atv, avv, hEa, htrav, herav, hnbatv⟩ := iha htra ha' hnb.2
+              obtain ⟨atv, avv, hEa, htrav, herav, hnbatv, hnfatv⟩ := iha htra ha' hnb.2 hnfx.2
               obtain ⟨B'', hbodyT⟩ :=
                 TrExprS.wf (Us := Us) (Δ := (none, .vlam ty') :: Δ) henv.ordered
                   ⟨hΔ, nofun, hty'⟩ htrb
@@ -967,10 +940,13 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
                 exact havT.defeqU_r henv hΓ (VEnv.IsDefEqU.symm this)
               have hnbsub : NoBlock (LBTerm.subst1 atv b') :=
                 noBlock_subst1 (by simpa [NoBlock] using hnbftv) hnbatv
-              obtain ⟨t', vve, hEr, htrr, herr, hnbt'⟩ := ihbody
+              have hnfsub : NoFix (LBTerm.subst1 atv b') :=
+                noFix_subst1 (by simpa [NoFix] using hnfftv) hnfatv
+              obtain ⟨t', vve, hEr, htrr, herr, hnbt', hnft'⟩ := ihbody
                 (TrExprS.inst henv.ordered havT htrb htrav)
-                (erases_beta_struct henv.ordered htrav havTE hb' herav) hnbsub
-              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnbt'⟩
+                (erases_beta_struct henv.ordered htrav havTE hb' herav) hnbsub hnfsub
+              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnbt', hnft'⟩
+          · exact hnfftv.elim
       · rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
         · exact absurd hspine (by simp)
         · rw [List.concat_eq_append, List.foldl_append, List.foldl_cons,
@@ -979,7 +955,7 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           exact absurd ⟨n, ty, b, bi, rfl⟩
             (SEvalData_const_spine_lam_elim hnf hf hf_eq hmem)
   | @zeta n ty v b nd vv r hval_ev hbody_ev ihval ihbody =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.letE_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨ty'ₑ, val'ₑ, v', b', hty_e, hval_e, hv_er, hb_er, rfl⟩
@@ -987,10 +963,11 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           SEvalβζδ_defeq henv hΔ hcon htr (.zeta hval_ev.toβζδ hbody_ev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
       · cases htr with
         | @letE val'_T ty'_T _ _ _ _ _ _ _ hValT htrty_T htrval_T htrb_T =>
-          obtain ⟨vtv, vvve, hEv, htr_vv, her_vv, hnb_vtv⟩ := ihval hval_e hv_er hnb.1
+          obtain ⟨vtv, vvve, hEv, htr_vv, her_vv, hnb_vtv, hnf_vtv⟩ :=
+            ihval hval_e hv_er hnb.1 hnfx.1
           obtain ⟨vvve', htr_vv', hval_defeq⟩ :=
             SEvalβζδ_defeq henv hΔ hcon hval_e hval_ev.toβζδ
           have hval_eq_vvve : env.IsDefEqU Us.length Δ.toCtx val'ₑ vvve :=
@@ -1033,11 +1010,13 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
             TrExpr.inst_let henv hΔ hValT hbodyTrExpr hvvTrExpr
           have hnb_reduct : NoBlock (LBTerm.subst1 vtv b') :=
             noBlock_subst1 hnb.2 hnb_vtv
-          obtain ⟨t', vve, hEr', htrr, herr, hnbt'⟩ :=
-            ihbody htr_sub hb_reduct_er hnb_reduct
-          exact ⟨t', vve, .zeta hEv hEr', htrr, herr, hnbt'⟩
+          have hnf_reduct : NoFix (LBTerm.subst1 vtv b') :=
+            noFix_subst1 hnfx.2 hnf_vtv
+          obtain ⟨t', vve, hEr', htrr, herr, hnbt', hnft'⟩ :=
+            ihbody htr_sub hb_reduct_er hnb_reduct hnf_reduct
+          exact ⟨t', vve, .zeta hEv hEr', htrr, herr, hnbt', hnft'⟩
   | @delta n us body r hunf hbodyev ihbody =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
@@ -1047,13 +1026,14 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial⟩
-      · obtain ⟨t', vve, hEbody, htrr, herr, hnbt'⟩ := ihbody htrbody herbody hnbbody
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial, trivial⟩
+      · obtain ⟨t', vve, hEbody, htrr, herr, hnbt', hnft'⟩ :=
+          ihbody htrbody herbody hnbbody (hnfenv hlook)
         subst hkn
-        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnbt'⟩
+        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnbt', hnft'⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
-      intro ve t htr her hnb
+      intro ve t htr her hnb hnfx
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       have harE : constructorArity E iid cidx = some ar := hctorenv hcctors har
       rcases Erases.ctor_spine_inv henv hΔ hcctors (hcc hcctors) args.length args rfl htr her with
@@ -1065,22 +1045,25 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           obtain ⟨sa, hsa, hera⟩ := hmem a' ha'
           obtain ⟨j, hj, hsaj⟩ := List.mem_iff_getElem.mp hsa
           obtain ⟨sve, htrsa⟩ := (trExprS_appSpine_inv args (.const cn us) ve htr).2 j hj
-          obtain ⟨w, _, hEa, _, _, _⟩ :=
+          obtain ⟨w, _, hEa, _, _, _, _⟩ :=
             ihargs j hj htrsa (hsaj ▸ hera) (noBlock_mkApps_inv hnb a' ha')
+              (noFix_mkApps_inv hnfx a' ha')
           exact ⟨w, hEa⟩
         refine ⟨.box, vve, mkApps_headBox_eval WcbvEval.box heval, htrr,
-          .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+          .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
       · have hpt : ∀ i, i < args.length →
             ∃ w, ∃ (hiA : i < args'.length) (hiV : i < vs.length),
               WcbvEval E appliedFlags (args'[i]'hiA) w ∧
-              Erases env Us Γ Δ (vs[i]'hiV) w ∧ NoBlock w := by
+              Erases env Us Γ Δ (vs[i]'hiV) w ∧ NoBlock w ∧ NoFix w := by
           intro i h
           have hiA : i < args'.length := hlen' ▸ h
           have hiV : i < vs.length := hl ▸ h
           obtain ⟨sve, htrsa⟩ := (trExprS_appSpine_inv args (.const cn us) ve htr).2 i h
           have hnba' : NoBlock (args'[i]'hiA) := noBlock_mkApps_inv hnb _ (List.getElem_mem _)
-          obtain ⟨w, vve, hEa, htrvi, hervi, hnbw⟩ := ihargs i h htrsa (hcorr i hiA) hnba'
-          exact ⟨w, hiA, hiV, hEa, hervi, hnbw⟩
+          have hnfa' : NoFix (args'[i]'hiA) := noFix_mkApps_inv hnfx _ (List.getElem_mem _)
+          obtain ⟨w, vve, hEa, htrvi, hervi, hnbw, hnfw⟩ :=
+            ihargs i h htrsa (hcorr i hiA) hnba' hnfa'
+          exact ⟨w, hiA, hiV, hEa, hervi, hnbw, hnfw⟩
         obtain ⟨ws, hwslen, hws⟩ := choose_list args.length hpt
         have hbase : WcbvEval E appliedFlags (.construct iid cidx [])
             (LBTerm.mkApps (.construct iid cidx []) []) := by
@@ -1091,7 +1074,7 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
         have hpe : ∀ i (hi : i < args'.length),
             WcbvEval E appliedFlags (args'[i]'hi) (ws[i]'(hlaw ▸ hi)) := by
           intro i hi
-          obtain ⟨_, _, hE, _, _⟩ := hws i (hlaw ▸ hi)
+          obtain ⟨_, _, hE, _, _, _⟩ := hws i (hlaw ▸ hi)
           exact hE
         have hTeval := construct_app_spine harE args' ws (.construct iid cidx []) [] hbase hle hlaw hpe
         rw [← mkApps_eq_foldl, List.nil_append] at hTeval
@@ -1101,14 +1084,19 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
             (LBTerm.mkApps (.construct iid cidx []) ws) := by
           refine erases_app_spine (.ctor_head cn us iid cidx hcctors) vs ws (by omega) ?_
           intro i hi
-          obtain ⟨_, _, _, hEr, _⟩ := hws i (by omega)
+          obtain ⟨_, _, _, hEr, _, _⟩ := hws i (by omega)
           exact hEr
         have hVnb : NoBlock (LBTerm.mkApps (.construct iid cidx []) ws) := by
           refine noBlock_mkApps_construct (fun w hw => ?_)
           obtain ⟨j, hj, rfl⟩ := List.mem_iff_getElem.mp hw
-          obtain ⟨_, _, _, _, hnbw⟩ := hws j hj
+          obtain ⟨_, _, _, _, hnbw, _⟩ := hws j hj
           exact hnbw
-        exact ⟨_, vve, hTeval, htrr, hVerase, hVnb⟩
+        have hVnf : NoFix (LBTerm.mkApps (.construct iid cidx []) ws) := by
+          refine noFix_mkApps (NoFix_construct iid cidx []) (fun w hw => ?_)
+          obtain ⟨j, hj, rfl⟩ := List.mem_iff_getElem.mp hw
+          obtain ⟨_, _, _, _, _, hnfw⟩ := hws j hj
+          exact hnfw
+        exact ⟨_, vve, hTeval, htrr, hVerase, hVnb, hVnf⟩
       · exact absurd hnb hnbt
 
 end LeanToLambdaBox
