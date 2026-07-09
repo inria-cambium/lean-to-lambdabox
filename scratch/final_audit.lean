@@ -99,3 +99,25 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.closeFixFold_app
 #print axioms LeanToLambdaBox.closeFix_2block_first
 #print axioms LeanToLambdaBox.closeFix_2block_last
+
+-- ============================================================================
+-- P3-v2a: the `Erases.fix` rule bundle + its transport metatheory + the ripple.
+-- The D3 capstone + the two data forward-sims must be UNCHANGED (4 standard +
+-- lean4lean modeling set). The new transport/ripple theorems inherit `sorryAx`
+-- from lean4lean's `TrExprS` lemmas (documented), no new axioms of ours.
+-- ============================================================================
+#print axioms shipping_erase_correct_firstorder
+#print axioms shipping_visitExpr_correct_data
+#print axioms erases_correct_data
+#print axioms erases_correct_data_zeta
+#print axioms erases_correct
+#print axioms erases_correct_beta
+-- new transport fix cases + ripple + rule guard:
+#print axioms erases_shift
+#print axioms erases_subst
+#print axioms Erases.abstract
+#print axioms Erases.thin_vlet
+#print axioms Erases.lam_inv
+#print axioms Erases.defeqDFC
+#print axioms noFix_subst1
+#print axioms noFix_mkApps
