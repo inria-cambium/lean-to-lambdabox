@@ -155,3 +155,9 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gErases_fix
 #print axioms LeanToLambdaBox.gRegisteredClosureRec
 #print axioms LeanToLambdaBox.gErasesEnvDeltaRec
+
+-- P3-v2b Part 4 + composition: recursion subsumed by v1's RegisteredClosure, and the
+-- D3 capstone with env-δ-consistency sourced from registration. No axiom of ours.
+#print axioms LeanToLambdaBox.registeredClosure_of_registeredClosureRec
+#print axioms LeanToLambdaBox.erasesEnvDelta_of_registeredClosureRec'
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_registered

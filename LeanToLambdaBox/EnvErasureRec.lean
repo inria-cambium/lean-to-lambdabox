@@ -356,4 +356,33 @@ theorem gErasesEnvDeltaRec (env : VEnv) (Us : List Name) :
     ErasesEnvDelta env Us gΓR gEsrcR gER :=
   erasesEnvDelta_of_registeredClosureRec (gRegisteredClosureRec env Us)
 
+/-! ## Part 4 — recursion is subsumed by v1's general `RegisteredClosure`
+
+`EnvErasureNonrec.RegisteredClosure.erase` leaves the stored body `body'` *arbitrary*
+(any `LBTerm`, `∀ Δ`-uniform `Erases`), so a recursive constant — whose stored body is
+`.fix defs idx` with the witness from `erases_fix_of_closed` — is just a special case.
+`registeredClosure_of_registeredClosureRec` makes that explicit: the recursive
+registration collapses into v1's `RegisteredClosure`, so **v1's env-level discharge
+machinery (`erasesEnvDelta_of_registeredClosure`) already covers recursive constants**
+once this reconciliation supplies the `.fix` witness. A cold-start `RegisteredClosure`
+built by a full DAG walk (P3.13, deferred) may therefore mix plain and `.fix` bodies
+freely, and its `ErasesEnvDelta` follows uniformly. -/
+
+/-- The recursive closure registration is subsumed by the general (v1) one: store the
+`.fix defs idx` body as the arbitrary `body'` that `RegisteredClosure` allows. -/
+theorem registeredClosure_of_registeredClosureRec {env : VEnv} {Us : List Name}
+    {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    (h : RegisteredClosureRec env Us Γ Esrc E) : RegisteredClosure env Us Γ Esrc E where
+  disj := h.disj
+  erase := fun hunf => by
+    obtain ⟨defs, idx, hlook, her⟩ := h.erase hunf
+    exact ⟨.fix defs idx, hlook, her⟩
+
+/-- Sanity: the recursive `ErasesEnvDelta` discharge factors through v1's discharge via
+the subsumption — the two discharge paths agree. -/
+theorem erasesEnvDelta_of_registeredClosureRec' {env : VEnv} {Us : List Name}
+    {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    (h : RegisteredClosureRec env Us Γ Esrc E) : ErasesEnvDelta env Us Γ Esrc E :=
+  erasesEnvDelta_of_registeredClosure (registeredClosure_of_registeredClosureRec h)
+
 end LeanToLambdaBox

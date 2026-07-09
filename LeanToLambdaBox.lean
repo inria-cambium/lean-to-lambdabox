@@ -61,6 +61,10 @@ import LeanToLambdaBox.DataBridgeHyps
 -- P3-v2b: recursive (value-`fix`) cold-start env-consistency — the `Erases.fix`
 -- reconciliation (`erases_fix_of_closed`) + `LBClosed` de-Bruijn-closedness metatheory.
 import LeanToLambdaBox.EnvErasureRec
+-- P3-v2b composition: the D3 capstone with its env-δ-consistency premise sourced from
+-- the registration record (`erasesEnvDeltaData_of_registeredClosureData`), plus the
+-- honest trust bundle for full cold-start (DAG + `NoFixEnv` relaxation deferred).
+import LeanToLambdaBox.EnvErasure
 import LeanToLambdaBox.VisitExprRefines
 import LeanToLambdaBox.OracleDischarge
 import LeanToLambdaBox.ShippingCorrect
