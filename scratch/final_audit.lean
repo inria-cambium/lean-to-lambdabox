@@ -121,3 +121,23 @@ open LeanToLambdaBox
 #print axioms Erases.defeqDFC
 #print axioms noFix_subst1
 #print axioms noFix_mkApps
+-- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
+-- Prop hypotheses (`PrepareHyps`, `Registered*`), NEVER axioms. Expected axiom set:
+-- 4 standard [propext, Classical.choice, Quot.sound] (+ sorryAx via the lean4lean Expr
+-- typing model where `Erases`/`TrExprS`/`BridgeInv` are involved). No axiom of ours.
+#print axioms LeanToLambdaBox.PrepareHyps
+#print axioms LeanToLambdaBox.prepareHyps_conclusion_at_identity
+#print axioms LeanToLambdaBox.prepareHyps_inhabited_point
+#print axioms LeanToLambdaBox.prepareHyps_csimp_off_satisfiable
+#print axioms LeanToLambdaBox.ErasesEnvCases
+#print axioms LeanToLambdaBox.erasesEnvCtor_of_registeredCtors
+#print axioms LeanToLambdaBox.erasesEnvCases_of_registeredCases
+#print axioms LeanToLambdaBox.gΓctor_registeredCtors
+#print axioms LeanToLambdaBox.gΓctor_erasesEnvCtor
+#print axioms LeanToLambdaBox.gΓcases_erasesEnvCases
+#print axioms LeanToLambdaBox.erases_nonrec_const_body
+#print axioms LeanToLambdaBox.erasesEnvDelta_of_registeredClosure
+#print axioms LeanToLambdaBox.erasesEnvDeltaData_of_registeredClosureData
+#print axioms LeanToLambdaBox.gRegisteredClosure
+#print axioms LeanToLambdaBox.gErasesEnvDelta
+#print axioms LeanToLambdaBox.gBridgeInv_nil

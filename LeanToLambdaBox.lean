@@ -76,3 +76,11 @@ import LeanToLambdaBox.SubjectReductionIota
 -- applied-form erasure of that value.
 import LeanToLambdaBox.ShippingCorrectData
 import LeanToLambdaBox.FirstOrderShipping
+-- P3-v1 (env-level cold-start erasure, non-recursive + inductive fragment): the
+-- elaborator-transformation trust class `PrepareHyps` (csimp-off gate), and the
+-- discharge of the env-consistency hypotheses `ErasesEnvCtor`/`ErasesEnvCases` (from
+-- `register_inductive`'s local arity) and non-recursive `ErasesEnvDelta`/
+-- `ErasesEnvDeltaData` (via the `visitExpr → Erases` bridge), isolating the cold-start
+-- DAG registration behind clean `Prop` hypotheses for P3-v2b.
+import LeanToLambdaBox.PrepareHyps
+import LeanToLambdaBox.EnvErasureNonrec
