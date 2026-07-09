@@ -141,3 +141,17 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gRegisteredClosure
 #print axioms LeanToLambdaBox.gErasesEnvDelta
 #print axioms LeanToLambdaBox.gBridgeInv_nil
+
+-- ============================================================================
+-- P3-v2b: recursive (value-`fix`) cold-start env-consistency discharge.
+-- New trust is Prop hypotheses (`RegisteredClosureRec`), NEVER axioms. The pure
+-- `LBClosed` metatheory must be sorryAx-free; the `Erases.fix` reconciliation
+-- inherits `sorryAx` only via the lean4lean Expr typing model (`Closed`/`FVarsIn`).
+-- ============================================================================
+#print axioms LeanToLambdaBox.LBClosed.shift_eq
+#print axioms LeanToLambdaBox.LBClosed.subst_eq
+#print axioms LeanToLambdaBox.erases_fix_of_closed
+#print axioms LeanToLambdaBox.erasesEnvDelta_of_registeredClosureRec
+#print axioms LeanToLambdaBox.gErases_fix
+#print axioms LeanToLambdaBox.gRegisteredClosureRec
+#print axioms LeanToLambdaBox.gErasesEnvDeltaRec

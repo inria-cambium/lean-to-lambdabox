@@ -58,6 +58,9 @@ import LeanToLambdaBox.CheckerAdequacy
 -- The data-fragment trust bundle (constructor data-path primitive specs), beside
 -- `BridgeHyps`; consumed by the widened bridge.
 import LeanToLambdaBox.DataBridgeHyps
+-- P3-v2b: recursive (value-`fix`) cold-start env-consistency — the `Erases.fix`
+-- reconciliation (`erases_fix_of_closed`) + `LBClosed` de-Bruijn-closedness metatheory.
+import LeanToLambdaBox.EnvErasureRec
 import LeanToLambdaBox.VisitExprRefines
 import LeanToLambdaBox.OracleDischarge
 import LeanToLambdaBox.ShippingCorrect
