@@ -224,7 +224,7 @@ def register_inductive (indinfo: InductiveVal): EraseM (InductiveId × Inductive
       )
       -- If the type is a structure, add definitions for projections.
       let is_struct := names.length == 1 && inf.ctors.length == 1 && !inf.isRec
-      let projs: List projection_body ←
+      let projs: List ProjectionBody ←
         if is_struct then
           -- only generate projections for relevant fields
           let _ := Expr
