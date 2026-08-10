@@ -247,6 +247,27 @@ def IotaConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (ia : IotaAri
     ∃ bve, TrExprS env Us Δ ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx)) bve ∧
       env.IsDefEqU Us.length Δ.toCtx ve bve
 
+/-- **`IotaArities` ↔ `ErasureCtx` coherence.** `SEvalDataι.iota` pins its redex
+*arithmetically*, through `ia` (`pre.length = np + nmot + nidx`, `minors.length = nmin`);
+`Erases.cases` pins the same spine *through `Γ`* (`Γ.casesDiscrPos con = some pre.length`,
+`Γ.ctorFields iid = some nfs` with one alternative per constructor). These are two
+independent parses of one spine, and without a link the source relation and the erasure
+relation may split the same `Expr` at two different places — the hazard the T1 arity pins
+were introduced to close, in a new guise.
+
+The link: the recursor's `numParams + numMotives + numIndices` **is** the `casesOn`'s
+`CasesInfo.discrPos`, and its `numMinors` **is** the inductive's constructor count. Both
+hold by construction for every real `casesOn` (`nmot = 1`, and
+`discrPos = numParams + 1 + numIndices` — `Lean/Meta/CasesInfo.lean`); they are stated as
+a predicate rather than proved because `ErasureCtx` and `IotaArities` are independent
+parameters of the development. Discharged at registration alongside the inductive's field
+data, and by `rfl` in the non-vacuity guards. -/
+def IotaArityCoherent (Γ : ErasureCtx) (ia : IotaArities) : Prop :=
+  ∀ {con : Name} {iid : InductiveId} {np nmot nidx nmin : Nat},
+    Γ.casesOns con = some (iid, np) → ia con = some (nmot, nidx, nmin) →
+    Γ.casesDiscrPos con = some (np + nmot + nidx) ∧
+    ∃ nfs, Γ.ctorFields iid = some nfs ∧ nfs.length = nmin
+
 /-! ### C2/C3 — subject reduction and the ι-simulation (remaining, documented).
 
 `SEvalDataι_defeq` (subject reduction over `SEvalDataι`) and the ι case of the
