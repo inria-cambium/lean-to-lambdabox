@@ -234,3 +234,9 @@ open LeanToLambdaBox
 #print axioms Lean4Lean.TrExprS.mkApps_inv
 #print axioms LeanToLambdaBox.iota_defeq_spine
 #print axioms LeanToLambdaBox.envι_iota_fires
+-- The β-normalisation engine for steps (2)/(4)/(5). A β step builds its reduct's
+-- `TrExprS` by `TrExprS.inst`, so it needs no application node — hence none of the
+-- `HasType` premises that block the ι reduct. Inherits `sorryAx` from `TrExprS`
+-- (`TrProj`) only.
+#print axioms LeanToLambdaBox.trExprS_beta_step
+#print axioms LeanToLambdaBox.trExprS_betaN

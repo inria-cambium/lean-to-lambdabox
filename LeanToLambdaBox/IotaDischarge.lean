@@ -1,5 +1,6 @@
 import LeanToLambdaBox.IotaPattern
 import LeanToLambdaBox.SourceEvalData
+import LeanToLambdaBox.SubjectReductionFull
 
 /-!
 # Discharging `IotaConsistent` — how far the pinned ι interface reaches
@@ -87,6 +88,114 @@ premise — and `bvar 4` — the constructor's **parameter** — keeping
 namespace LeanToLambdaBox
 
 open Lean Lean4Lean
+
+/-! ## Steps (2)/(4)/(5): the β-normalisation engine
+
+Steps (2), (4) and (5) of the chain are all the same operation — apply a source
+λ-telescope to a list of arguments and β-reduce — so they share one engine.
+
+The key point is that a β step produces the reduct's `TrExprS` **for free**, via
+`TrExprS.inst`: no application node has to be built, so none of the `HasType`
+premises that block the ι *reduct* (see the module docstring) are needed here. The
+engine is therefore fully proved. What is still missing to compose it into
+`iotaConsistent_of_shape` is the per-inductive shape certificate (which `Expr` the
+`casesOn` δ-unfolds to, and what the recursor rule's template is) and the ι-reduct
+`TrExprS`. -/
+
+/-- One head β step on a source `Expr`: contract if the head is a λ, otherwise just
+apply. Splitting this out of `betaN` keeps `betaN e (a :: as) = betaN (betaHead e a) as`
+an unconditional `rfl`. -/
+def betaHead : Expr → Expr → Expr
+  | .lam _ _ b _, a => b.instantiate1' a 0
+  | e, a => .app e a
+
+/-- Iterated head β: apply `f` to `args`, contracting each redex as it appears. This
+is the *source-level* normal form the shape certificate's `casesOn`-value and
+rule-template equations are stated against. -/
+def betaN : Expr → List Expr → Expr
+  | e, [] => e
+  | e, a :: as => betaN (betaHead e a) as
+
+@[simp] theorem betaN_nil (e : Expr) : betaN e [] = e := rfl
+
+@[simp] theorem betaN_cons (e a : Expr) (as : List Expr) :
+    betaN e (a :: as) = betaN (betaHead e a) as := rfl
+
+/-- **One β step, as a definitional equality.** A translated redex
+`(fun x => b) a` is defeq to the translation of `b[a]` — and the reduct's `TrExprS`
+comes from `TrExprS.inst`, so no application node has to be constructed. This is the
+`SEvalβζδ_defeq` `beta` case with the "evaluate `f` and `a` first" detour removed. -/
+theorem trExprS_beta_step {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ)
+    {n : Name} {ty b : Expr} {bi : BinderInfo} {a : Expr} {ve : VExpr}
+    (htr : TrExprS env Us Δ (.app (.lam n ty b bi) a) ve) :
+    ∃ ve', TrExprS env Us Δ (b.instantiate1' a 0) ve' ∧
+      env.IsDefEqU Us.length Δ.toCtx ve ve' := by
+  cases htr with
+  | @app f' A B a' _ _ _ hTf hTa htrf htra =>
+    cases htrf with
+    | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
+      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+      have hΔ' : VLCtx.WF env Us.length ((none, .vlam ty') :: Δ) := ⟨hΔ, nofun, hty'⟩
+      obtain ⟨B'', hbodyT⟩ := htrb.wf henv.ordered hΔ'
+      obtain ⟨u, hty'sort⟩ := hty'
+      have lamT1 : env.HasType Us.length Δ.toCtx (.lam ty' body') (.forallE ty' B'') :=
+        VEnv.HasType.lam hty'sort hbodyT
+      have huForall : env.IsDefEqU Us.length Δ.toCtx (.forallE A B) (.forallE ty' B'') :=
+        VEnv.IsDefEq.uniqU henv hΓ hTf lamT1
+      obtain ⟨⟨w, hAty'⟩, _⟩ := VEnv.IsDefEqU.forallE_inv henv hΓ huForall
+      have havT : env.HasType Us.length Δ.toCtx a' ty' :=
+        hTa.defeqU_r henv hΓ ⟨_, hAty'⟩
+      exact ⟨body'.inst a', TrExprS.inst henv.ordered havT htrb htra,
+        ⟨_, .beta hbodyT havT⟩⟩
+
+/-- `betaHead` is a defeq step (a β contraction when the head is a λ, the
+identity otherwise). -/
+theorem trExprS_betaHead {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ) {f a : Expr} {ve : VExpr}
+    (htr : TrExprS env Us Δ (.app f a) ve) :
+    ∃ ve', TrExprS env Us Δ (betaHead f a) ve' ∧
+      env.IsDefEqU Us.length Δ.toCtx ve ve' := by
+  cases f <;>
+    first
+      | exact trExprS_beta_step henv hΔ htr
+      | exact ⟨ve, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩
+
+/-- **The β-normalisation chain.** A translated application spine is defeq to the
+translation of its iterated head-β normal form. Each step replaces the spine's head
+in place (`SEvalβζδ_defeq_spine`, used as pure head congruence) and then contracts
+it (`trExprS_betaHead`).
+
+This is the engine for steps (2), (4) and (5): with a shape certificate stating
+`betaN (casesOn-value) (pre ++ discr :: minors) = recSpine` and
+`betaN (rule-template) (params ++ motives ++ minors ++ fields)
+  = (fields).foldl Expr.app minors[cidx]` — both `rfl`-checkable `Expr` equations for
+any concrete inductive — it delivers exactly the defeqs those steps need. -/
+theorem trExprS_betaN {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ) :
+    ∀ (args : List Expr) {f : Expr} {ve : VExpr},
+      TrExprS env Us Δ (args.foldl Expr.app f) ve →
+      ∃ ve', TrExprS env Us Δ (betaN f args) ve' ∧
+        env.IsDefEqU Us.length Δ.toCtx ve ve'
+  | [], _, ve, htr => ⟨ve, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩
+  | a :: as, f, ve, htr => by
+    have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+    -- The spine is `as.foldl app (.app f a)`; contract the head `.app f a`.
+    have htr' : TrExprS env Us Δ (as.foldl Expr.app (.app f a)) ve := htr
+    obtain ⟨hve, htrHead⟩ := TrExprS_spine_head as htr'
+    obtain ⟨hve₂, htrHead₂, hdhead⟩ := trExprS_betaHead henv hΔ htrHead
+    -- Head congruence: replace `.app f a` by its contraction inside the spine.
+    obtain ⟨mid, htrmid, hdmid⟩ :=
+      SEvalβζδ_defeq_spine henv hΔ
+        (fun e v => ∀ {ev}, TrExprS env Us Δ e ev →
+          ∃ vv, TrExprS env Us Δ v vv ∧ env.IsDefEqU Us.length Δ.toCtx ev vv)
+        (fun htr p => p htr)
+        as.length as as (.app f a) (betaHead f a) hve hve₂ rfl rfl
+        htrHead htrHead₂ hdhead
+        (fun i h _ => fun htr => ⟨_, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩)
+        htr'
+    obtain ⟨ve', htrve', hd'⟩ := trExprS_betaN henv hΔ as htrmid
+    exact ⟨ve', htrve', VEnv.IsDefEqU.trans henv hΓ hdmid hd'⟩
 
 /-! ### The guard environment
 
