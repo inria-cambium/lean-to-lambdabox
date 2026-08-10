@@ -79,6 +79,13 @@ import LeanToLambdaBox.Optimize
 -- for the ζ-fragment theorems, and the documented C3 forward-simulation finding
 -- (`Erases.cases` under-constrains minor arities — an upstream `Erases.lean` gap).
 import LeanToLambdaBox.SubjectReductionIota
+-- ι Task 2: the pattern-side core of the pinned fork's ι interface — `Pattern.Matches`
+-- introduction for spines, the `SimplePattern.iotaRHS` reduct calculation (`take`/`drop`
+-- conventions), `TrExprS` spine inversion, the named upstream spec `PatsIotaSpec`, and
+-- `iota_defeq_spine` (the ι rule fires on a translated exact-arity redex); plus the
+-- constructed non-vacuity guard and the accounting of the remaining chain.
+import LeanToLambdaBox.IotaPattern
+import LeanToLambdaBox.IotaDischarge
 -- The shipping eraser is correct on the data fragment (β+δ+saturated constructors)
 -- at MetaRocq's non-block `appliedFlags` (`shipping_visitExpr_correct_data`, A9), and
 -- the first-order capstone (`shipping_erase_correct_firstorder`, D3): the shipping

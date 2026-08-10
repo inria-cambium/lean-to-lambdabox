@@ -38,13 +38,25 @@ It is nevertheless **unblocked, not discharged**. On the upstream side:
   `TrEnv.iota_defeq`'s `Realizes` premise cannot be instantiated and the reduct
   `r.1.apply m1 m2` cannot be matched against our branch body;
 * `AddInduct.rec_find` never relates the model-side `ru.rhs` to the kernel recursor rule's
-  `rhs`, so a firing rule is not known to compute the expected branch;
+  `rhs`, so a firing rule is not known to compute the expected branch (and it pins only
+  the *sum* `getMajorIdx`, not the motives/minors/indices split `iotaRHS` slices at);
 * registration is still trusted: `addInduct_WF` (`Ordered` has no `addPat` constructor),
   `Aligned.addInduct`, and `addDecl.WF`'s `inductDecl` case are `sorry`;
-* the ι model covers only the exact-arity, syntactic-constructor case.
+* the ι model covers only the exact-arity, syntactic-constructor case — which is why
+  `IotaConsistent` and `SEvalDataι.iota` now carry explicit arity premises
+  (`IotaArities`, `SourceEvalData.lean`).
 
-On our side, an instance additionally needs the `casesOn`-spine translation inversion and
-the β-chain ↔ reversing-`iota_red` bridge that this file's C3 work identifies.
+The first two bullets are exactly what `LeanToLambdaBox.PatsIotaSpec`
+(`IotaPattern.lean`) names: the strengthened rule lookup as it landed on the fork's
+`iota-consume` branch, dischargeable by `exact TrEnv.pats_iota' …` after a re-pin.
+Given it, `iota_defeq_spine` **fires the ι rule** on a translated exact-arity redex,
+with a constructed `sorryAx`-free guard (`IotaDischarge.lean`).
+
+On our side, an instance additionally needs the `casesOn` δ+β normalisation to the
+recursor spine, the rule-template β chain back to the branch, and — the blocker that
+work identified — a `HasType` application-generation lemma to build the `TrExprS` of
+the ι *reduct* spine, which the pinned lean4lean does not prove outside
+`Experimental/`. See `IotaDischarge.lean`'s module docstring for the full accounting.
 `IotaConsistent` therefore stays a documented **upstream dependency** — now on
 *completing* lean4lean's ι interface rather than on its existence. Every *other*
 hypothesis-bearing theorem in this file (and in `ErasesCorrectData.lean`) ships a
@@ -66,11 +78,11 @@ discharged **only** via the `IotaConsistent` hypothesis `hiota` — the pinned f
 (`IsDefEq.pat`) exists but is not yet chainable into a concrete instance (see the module
 docstring). `IotaConsistent` stays a hypothesis, never an axiom. -/
 theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
-    (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {Esrc : SEnv}
-    (hcon : SEnvConsistent env Us Esrc) (hiota : IotaConsistent env Us Γ)
+    (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
+    (hcon : SEnvConsistent env Us Esrc) (hiota : IotaConsistent env Us Γ ia)
     {e v : Expr} {ve : VExpr}
     (htr : TrExprS env Us Δ e ve)
-    (hev : SEvalDataι Γ Esrc e v) :
+    (hev : SEvalDataι Γ ia Esrc e v) :
     ∃ vve, TrExprS env Us Δ v vve ∧ env.IsDefEqU Us.length Δ.toCtx ve vve := by
   induction hev generalizing ve Δ with
   | lam n ty b bi =>
@@ -125,8 +137,8 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
         args.length args vs (Expr.const cn us) (Expr.const cn us) hve hve rfl hl.symm
         htrhead htrhead (VEnv.IsDefEqU.refl (htrhead.wf henv.ordered hΔ))
         (fun i h h2 => ihargs i h hΔ) htr
-  | @iota con us cus pre minors cargs discr ctor iid np cidx r
-        hcases hctor hdiscr hidx hbranch ihdiscr ihbranch =>
+  | @iota con us cus pre minors cargs discr ctor iid np cidx nmot nidx nmin ar r
+        hcases hctor hia har hpre hmin hcargs hdiscr hidx hbranch ihdiscr ihbranch =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       obtain ⟨hveHEAD, htrHEAD⟩ := TrExprS_spine_head (discr :: minors) htr
       -- congruence: replace `discr` by its constructor-spine value inside the outer spine
@@ -146,7 +158,8 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
             | succ j => exact fun htr => ⟨_, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩)
           htr
       -- IotaConsistent: the replaced casesOn spine is defeq to the branch reduct
-      obtain ⟨bve, htr_branch, hdef2⟩ := hiota hcases hctor hidx htr_replaced
+      obtain ⟨bve, htr_branch, hdef2⟩ :=
+        hiota hcases hctor hia har hpre hmin hcargs hidx htr_replaced
       obtain ⟨rvv, htr_r, hdef3⟩ := ihbranch hΔ htr_branch
       exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΓ hdef1
         (VEnv.IsDefEqU.trans henv hΓ hdef2 hdef3)⟩

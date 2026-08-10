@@ -209,3 +209,28 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.registeredClosure_of_registeredClosureRec
 #print axioms LeanToLambdaBox.erasesEnvDelta_of_registeredClosureRec'
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_registered
+
+-- ============================================================================
+-- ι Task 2: the pattern-side ι interface (`IotaPattern.lean`) + its guard
+-- (`IotaDischarge.lean`).
+--
+-- The pure pattern plumbing (`Matches` introduction for spines, the
+-- `SimplePattern.iotaRHS` reduct calculation) must be **sorryAx-free**: it touches
+-- only `Pattern`/`VExpr`, never `TrExprS`. `TrExprS.mkApps_inv` and
+-- `iota_defeq_spine` inherit `sorryAx` from lean4lean's `TrProj` placeholder carried
+-- in `TrExprS` — the pre-existing boundary, no new gap. `PatsIotaSpec` is a
+-- HYPOTHESIS structure (discharged by `TrEnv.pats_iota'` after the fork re-pin),
+-- never an axiom, so it adds nothing to any axiom set.
+--
+-- The constructed guard `envι_iota_fires` must be **sorryAx-free**: it builds its
+-- `VEnv` with `VEnv.addPat` directly and applies `VEnv.IsDefEq.pat`, neither of which
+-- routes through `Aligned.addInduct`/`addInduct_WF`/`TrProj`. (The δ-unfold step of
+-- the remaining chain WOULD route through `Aligned.addInduct` via `TrEnv.of_value` —
+-- documented in `IotaDischarge.lean`, not exercised here.)
+-- ============================================================================
+#print axioms Lean4Lean.Pattern.matches_varN_const
+#print axioms Lean4Lean.Pattern.matches_iota
+#print axioms Lean4Lean.SimplePattern.iotaRHS_apply
+#print axioms Lean4Lean.TrExprS.mkApps_inv
+#print axioms LeanToLambdaBox.iota_defeq_spine
+#print axioms LeanToLambdaBox.envι_iota_fires
