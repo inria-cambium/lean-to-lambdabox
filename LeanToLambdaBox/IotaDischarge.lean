@@ -97,10 +97,10 @@ Steps (2), (4) and (5) of the chain are all the same operation — apply a sourc
 The key point is that a β step produces the reduct's `TrExprS` **for free**, via
 `TrExprS.inst`: no application node has to be built, so none of the `HasType`
 premises that block the ι *reduct* (see the module docstring) are needed here. The
-engine is therefore fully proved. What is still missing to compose it into
-`iotaConsistent_of_shape` is the per-inductive shape certificate (which `Expr` the
-`casesOn` δ-unfolds to, and what the recursor rule's template is) and the ι-reduct
-`TrExprS`. -/
+engine is therefore fully proved. What is still missing, to compose it into a
+derivation of `IotaConsistent`, is the per-inductive shape certificate (which `Expr`
+the `casesOn` δ-unfolds to, and what the recursor rule's template is) and the
+ι-reduct `TrExprS` discussed in the module docstring. -/
 
 /-- One head β step on a source `Expr`: contract if the head is a λ, otherwise just
 apply. Splitting this out of `betaN` keeps `betaN e (a :: as) = betaN (betaHead e a) as`

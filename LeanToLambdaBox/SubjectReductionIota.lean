@@ -38,29 +38,23 @@ It is nevertheless **unblocked, not discharged**. On the upstream side:
   `TrEnv.iota_defeq`'s `Realizes` premise cannot be instantiated and the reduct
   `r.1.apply m1 m2` cannot be matched against our branch body;
 * `AddInduct.rec_find` never relates the model-side `ru.rhs` to the kernel recursor rule's
-  `rhs`, so a firing rule is not known to compute the expected branch (and it pins only
-  the *sum* `getMajorIdx`, not the motives/minors/indices split `iotaRHS` slices at);
+  `rhs`, so a firing rule is not known to compute the expected branch;
 * registration is still trusted: `addInduct_WF` (`Ordered` has no `addPat` constructor),
   `Aligned.addInduct`, and `addDecl.WF`'s `inductDecl` case are `sorry`;
-* the ι model covers only the exact-arity, syntactic-constructor case — which is why
-  `IotaConsistent` and `SEvalDataι.iota` now carry explicit arity premises
-  (`IotaArities`, `SourceEvalData.lean`).
+* the ι model covers only the exact-arity, syntactic-constructor case.
 
-The first two bullets are exactly what `LeanToLambdaBox.PatsIotaSpec`
-(`IotaPattern.lean`) names: the strengthened rule lookup as it landed on the fork's
-`iota-consume` branch, dischargeable by `exact TrEnv.pats_iota' …` after a re-pin.
-Given it, `iota_defeq_spine` **fires the ι rule** on a translated exact-arity redex,
-with a constructed `sorryAx`-free guard (`IotaDischarge.lean`).
-
-On our side, an instance additionally needs the `casesOn` δ+β normalisation to the
-recursor spine, the rule-template β chain back to the branch, and — the blocker that
-work identified — a `HasType` application-generation lemma to build the `TrExprS` of
-the ι *reduct* spine, which the pinned lean4lean does not prove outside
-`Experimental/`. See `IotaDischarge.lean`'s module docstring for the full accounting.
+On our side, an instance additionally needs the `casesOn`-spine translation inversion and
+the β-chain ↔ reversing-`iota_red` bridge that this file's C3 work identifies.
 `IotaConsistent` therefore stays a documented **upstream dependency** — now on
 *completing* lean4lean's ι interface rather than on its existence. Every *other*
 hypothesis-bearing theorem in this file (and in `ErasesCorrectData.lean`) ships a
 constructed non-vacuity guard (below); the ι theorems are the sole exception.
+
+(ι Task 2 update: the first two bullets are now named by `LeanToLambdaBox.PatsIotaSpec`
+and consumed by `iota_defeq_spine`; `IotaConsistent`/`SEvalDataι.iota` carry the
+exact-arity premises the fourth bullet calls for. See `IotaPattern.lean` and
+`IotaDischarge.lean` — the latter's module docstring supersedes this paragraph's
+accounting of what remains.)
 -/
 
 namespace LeanToLambdaBox
