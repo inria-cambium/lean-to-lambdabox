@@ -251,16 +251,27 @@ relation permits, and under which the target `.case` is stuck. In the first-orde
 composition both clauses are supplied by `FirstOrderValue`'s `info` field.
 
 This is a *model-over-approximation guard*, the ι analogue of the `NoBlock` premise — not
-a typing assumption. It belongs in the trust ledger beside `IotaShape`/`PatsIotaSpec`. -/
+a typing assumption. It belongs in the trust ledger beside `IotaShape`/`PatsIotaSpec`.
+
+**Both clauses are guarded by a translation premise, and that is not cosmetic.** Without
+it the structure quantifies over *arbitrary* `args : List Expr`, including terms with no
+`TrExprS` derivation at all (`.bvar 999` at `Δ = []`); `InformativeType` exhibits a
+translation, so it is false for those, so the whole structure would be **unsatisfiable at
+every `Γ` that registers a `casesOn`** — which would make `erases_correct_dataι`
+vacuously true exactly on the environments it is about. The simulation only ever needs
+these facts for spines it already has a `TrExprS` for (the redex's own prefixes, and the
+scrutinee's evaluated value), so the premise costs nothing at the use sites. -/
 structure IotaRelevant (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop where
   partialCases : ∀ {Δ : VLCtx} {con : Name} {us : List Level} {iid : InductiveId}
-      {np dp : Nat} {nfs : List Nat} {args : List Expr},
+      {np dp : Nat} {nfs : List Nat} {args : List Expr} {vk : VExpr},
     Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
     Γ.ctorFields iid = some nfs → args.length < dp + 1 + nfs.length →
+    TrExprS env Us Δ (args.foldl Expr.app (.const con us)) vk →
     InformativeType env Us Δ (args.foldl Expr.app (.const con us))
   ctorValue : ∀ {Δ : VLCtx} {cn : Name} {us : List Level} {iid : InductiveId}
-      {cidx : Nat} {args : List Expr},
+      {cidx : Nat} {args : List Expr} {vk : VExpr},
     Γ.ctors cn = some (iid, cidx) → (∃ con np, Γ.casesOns con = some (iid, np)) →
+    TrExprS env Us Δ (args.foldl Expr.app (.const cn us)) vk →
     InformativeType env Us Δ (args.foldl Expr.app (.const cn us))
 
 /-! ## C3 — the ι forward simulation: a raised implementation finding

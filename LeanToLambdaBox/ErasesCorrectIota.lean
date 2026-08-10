@@ -75,7 +75,15 @@ inductive (`isPropositionalInductive E iid = false`); a propositional one reduce
 `iota_sing` instead, which needs `with_prop_case`. `ErasesEnvCases`
 (`EnvErasureNonrec.lean`) delivers the `.inductiveDecl`/`npars` half of the `casesOn` env
 consistency but says nothing about `oib.propositional`, so the ι simulation asks for this
-separately. -/
+separately.
+
+It is *derived*, not assumed, wherever the registration record is in scope:
+`ErasesEnvCases.nonProp` (`EnvErasureNonrec.lean`, whose `ErasesEnvCases`/`RegisteredCases`
+now carry the `oib.propositional = false` conjunct) has exactly this conclusion, so
+`fun hc => ErasesEnvCases.nonProp h hc` discharges it. The two are kept as separate
+predicates only because importing `EnvErasureNonrec` here would drag the whole shipping
+bridge into the forward simulation's dependency cone; the composition happens at the
+capstone, where both are already in scope. -/
 def ErasesEnvCasesι (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
   ∀ {con : Name} {iid : InductiveId} {numParams : Nat},
     Γ.casesOns con = some (iid, numParams) → isPropositionalInductive E iid = false
@@ -428,7 +436,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           TrExprS env Us Δ (((pre ++ discr :: minors).take k).foldl Expr.app (.const con us)) vk →
           ¬ Erasable env Us.length Δ.toCtx vk := by
         intro k hk vk htrk
-        refine informativeType_not_erasable henv hΔ (hrel.partialCases hcases hdp hnfs ?_) htrk
+        refine informativeType_not_erasable henv hΔ (hrel.partialCases hcases hdp hnfs ?_ htrk) htrk
         have hlk : ((pre ++ discr :: minors).take k).length = k := by
           rw [List.length_take]
           simp only [List.length_append, List.length_cons]
@@ -456,7 +464,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
             htrdv herdv with
           ⟨hercv, cargs', rfl, _⟩ | ⟨cargs', hclen, rfl, hccorr⟩ | hnbt
         · exact absurd hercv (informativeType_not_erasable henv hΔ
-            (hrel.ctorValue hctor ⟨con, np, hcases⟩) htrdv)
+            (hrel.ctorValue hctor ⟨con, np, hcases⟩ htrdv) htrdv)
         · -- (5) arity arithmetic: flatness collapses the field list
           obtain ⟨hcidx, harc⟩ := hcoh hcases hnfs hctor
           have hzero : nfs[cidx]'hcidx = 0 := hflat hcases hnfs cidx hcidx
@@ -504,5 +512,106 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           · rw [hdropc']
             simpa [LBTerm.substList] using hEbranch
         · exact absurd hnbd hnbt
+
+/-! ## Non-vacuity guards for the ι side conditions
+
+Constructed witnesses for the four side conditions this file introduces, at a genuinely
+*registered* flat inductive `Flat` (one nullary constructor `c`, no parameters, not
+propositional) with a `casesOn` head `con` at `discrPos = 1` — so none of the `Γ` maps is
+the all-`none` function and none of the guards is vacuous.
+
+`IotaRelevant` is **not** guarded here: exhibiting it needs a `VEnv` in which every
+translatable partial `casesOn` spine and every constructor value is informatively typed,
+which at this pin runs into the same obstruction that already blocks an end-to-end guard
+for `SEvalDataι_defeq` — `VEnv.WF` is unconstructible for a `pats`-carrying environment
+upstream (`VEnv.Ordered` has no `addPat` clause; `addInduct_WF` is `sorry`). It is
+recorded in the ι trust ledger (`SubjectReductionIota.lean`) instead. Note that its
+statement *is* satisfiable: the translation premise on both clauses is exactly what makes
+it so (see its docstring). -/
+
+private def flatKn : Kername := rootKername "Flat"
+private def flatIid : InductiveId := { mutualBlockName := flatKn, idx := 0 }
+private def flatOIB : OneInductiveBody :=
+  { name := "Flat", propositional := false, kelim := .IntoAny,
+    ctors := [{ name := "c", nargs := 0 }], projs := [] }
+private def flatE : GlobalDeclarations :=
+  [(flatKn, .inductiveDecl { finite := .finite, npars := 0, bodies := [flatOIB] })]
+
+/-- A `Γ` registering the nullary constructor `c` of `Flat` **and** a `casesOn` head
+`con` for it, with the field-count list `[0]` and `discrPos = 1` (motive only). -/
+private def gΓflat : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => default
+  ctors := fun n => if n = `c then some (flatIid, 0) else none
+  ctorArities := fun n => if n = `c then some 0 else none
+  casesOns := fun n => if n = `con then some (flatIid, 0) else none
+  ctorFields := fun _ => some [0]
+  casesDiscrPos := fun n => if n = `con then some 1 else none
+
+/-- The matching `IotaArities`: `numMotives = 1`, `numIndices = 0`, `numMinors = 1`. -/
+private def gIAflat : IotaArities := fun n => if n = `con then some (1, 0, 1) else none
+
+/-- Non-vacuity: `FlatCaseFields` holds at a `Γ` that really does register a `casesOn`. -/
+theorem gΓflat_flat : FlatCaseFields gΓflat := by
+  intro con iid np nfs hcases hnfs j hj
+  simp only [gΓflat] at hnfs
+  obtain rfl : nfs = [0] := by simpa using hnfs.symm
+  match j, hj with
+  | 0, _ => rfl
+
+/-- Non-vacuity: `ErasesEnvCasesι` fires — `Flat` is registered non-propositional, so the
+target ι rule's guard is satisfied at the registered head. -/
+theorem gΓflat_erasesEnvCasesι : ErasesEnvCasesι gΓflat flatE := by
+  intro con iid numParams hcases
+  by_cases h : con = `con
+  · subst h; simp [gΓflat] at hcases
+    obtain ⟨rfl, _⟩ := hcases
+    rfl
+  · simp [gΓflat, if_neg h] at hcases
+
+/-- Non-vacuity: `CtorFieldsCoherent` holds at the flat `Γ` — `ctorArities c = 0`
+decomposes as `npars 0 + nfs[0] 0`. -/
+theorem gΓflat_ctorFieldsCoherent : CtorFieldsCoherent gΓflat := by
+  intro con cn iid np cidx nfs hcases hnfs hctors
+  by_cases h : cn = `c
+  · subst h
+    simp [gΓflat] at hctors
+    obtain ⟨_, rfl⟩ := hctors
+    by_cases hc2 : con = `con
+    · subst hc2
+      simp [gΓflat] at hcases
+      obtain ⟨_, rfl⟩ := hcases
+      simp only [gΓflat] at hnfs
+      obtain rfl : nfs = [0] := by simpa using hnfs.symm
+      exact ⟨by simp, by simp [gΓflat]⟩
+    · simp [gΓflat, if_neg hc2] at hcases
+  · simp [gΓflat, if_neg h] at hctors
+
+/-- Non-vacuity: `IotaArityCoherent` holds at the flat `(Γ, ia)` pair —
+`discrPos = 1 = np + nmot + nidx` and the constructor count `|[0]| = 1 = numMinors`. -/
+theorem gΓflat_iotaArityCoherent : IotaArityCoherent gΓflat gIAflat := by
+  intro con iid np nmot nidx nmin hcases hia
+  by_cases h : con = `con
+  · subst h
+    simp [gΓflat, gIAflat] at hcases hia
+    obtain ⟨rfl, rfl⟩ := hcases
+    obtain ⟨rfl, rfl, rfl⟩ := hia
+    exact ⟨rfl, [0], rfl, rfl⟩
+  · simp [gΓflat, if_neg h] at hcases
+
+/-- A concrete `E` binding one constant to the closed body `.box`. (`EnvErasureNonrec`'s
+`gED` binds `.bvar 0`, which is *not* `LBClosed … 0` — the loose index is the whole point
+of that guard — so `ClosedEnv` needs its own witness.) -/
+private def gEcl : GlobalDeclarations := [(rootKername "c", .constantDecl ⟨some .box⟩)]
+
+/-- Non-vacuity: `ClosedEnv` holds at a genuinely non-empty target environment. -/
+theorem gEcl_closedEnv : ClosedEnv gEcl := by
+  intro kn body h
+  simp only [gEcl, LBTerm.envLookup] at h
+  split at h
+  · injection h with h; injection h with h; injection h with h
+    obtain rfl : body = .box := (Option.some.inj h).symm
+    trivial
+  · exact absurd h (by simp)
 
 end LeanToLambdaBox

@@ -70,14 +70,18 @@ def RegisteredCtors (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
 numParams)`), the target env `E` has the inductive `iid` registered as an
 `.inductiveDecl` whose parameter count matches `numParams` (so the `.case (iid,
 numParams)` node the `Erases.cases` rule emits agrees with `E`, and the target `iota`
-rule's `isPropositionalInductive`/`iota_red` lookups are well-defined). -/
+rule's `isPropositionalInductive`/`iota_red` lookups are well-defined) and which is
+**not propositional** — the ι rule `WcbvEval.iota` fires only on a non-propositional
+inductive (a propositional one reduces by `iota_sing`, which needs `with_prop_case`).
+The last conjunct is exposed as `ErasesEnvCases.nonProp`. -/
 def ErasesEnvCases (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
   ∀ {con : Name} {iid : InductiveId} {numParams : Nat},
     Γ.casesOns con = some (iid, numParams) →
     ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
       LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
       body.bodies[iid.idx]? = some oib ∧
-      body.npars = numParams
+      body.npars = numParams ∧
+      oib.propositional = false
 
 /-- **Closure-level `casesOn` registration** (a clean `Prop` hypothesis; P3-v2b
 discharges it). Same shape as `ErasesEnvCases`, tagged as the *registration* record so
@@ -88,7 +92,24 @@ def RegisteredCases (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
     ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
       LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
       body.bodies[iid.idx]? = some oib ∧
-      body.npars = numParams
+      body.npars = numParams ∧
+      oib.propositional = false
+
+/-- **Per-inductive field-count registration record.** `Γ.ctorFields` is exactly the
+`nargs` column of the `.inductiveDecl` entry `register_inductive` conses onto `gdecls`
+(`Erasure.lean`: `nargs := Array.count .keep argmask`) — the *retained* field counts. -/
+def RegisteredCtorFields (Γ : ErasureCtx) (E : GlobalDeclarations) (iid : InductiveId) :
+    Prop :=
+  ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+    LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
+    body.bodies[iid.idx]? = some oib ∧
+    Γ.ctorFields iid = some (oib.ctors.map (·.nargs))
+
+/-- Closure-level version (a clean `Prop`; P3-v2b's DAG registration discharges it):
+every inductive some registered `casesOn` eliminates has its field-count list recorded. -/
+def RegisteredCtorFieldsAll (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
+  ∀ {con : Name} {iid : InductiveId} {np : Nat},
+    Γ.casesOns con = some (iid, np) → RegisteredCtorFields Γ E iid
 
 /-- **`ErasesEnvCtor` discharge.** The abstract `Γ.ctorArities` agrees with the concrete
 `constructorArity E` because both are `register_inductive`'s `body.npars + cb.nargs`
@@ -102,10 +123,54 @@ theorem erasesEnvCtor_of_registeredCtors {Γ : ErasureCtx} {E : GlobalDeclaratio
   simp only [constructorArity, henv, hbod, hctor, Option.map_some, hare]
 
 /-- **`ErasesEnvCases` discharge.** Immediate from the registration record: the same
-`.inductiveDecl` entry and `npars = numParams` fact. -/
+`.inductiveDecl` entry, `npars = numParams` and non-propositionality. -/
 theorem erasesEnvCases_of_registeredCases {Γ : ErasureCtx} {E : GlobalDeclarations}
     (h : RegisteredCases Γ E) : ErasesEnvCases Γ E :=
   fun hcon => h hcon
+
+/-- **The target-side ι precondition, read off `ErasesEnvCases`.** `WcbvEval.iota`'s
+`isPropositionalInductive E iid = false` premise, by unfolding the lookup chain against
+the registration record. -/
+theorem ErasesEnvCases.nonProp {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (h : ErasesEnvCases Γ E) {con : Name} {iid : InductiveId} {np : Nat}
+    (hc : Γ.casesOns con = some (iid, np)) : isPropositionalInductive E iid = false := by
+  obtain ⟨body, oib, henv, hbod, _, hprop⟩ := h hc
+  simp only [isPropositionalInductive, henv, hbod, hprop]
+
+/-- **`CtorFieldsCoherent` discharge.** The same arithmetic `erasesEnvCtor_of_registeredCtors`
+does: `RegisteredCtor` gives `Γ.ctorArities cn = some (body.npars + cb.nargs)`,
+`RegisteredCases` gives `body.npars = np`, and `RegisteredCtorFields` gives
+`nfs = oib.ctors.map (·.nargs)`, hence `nfs[cidx] = cb.nargs` from `oib.ctors[cidx]? = some
+cb`. The three `envLookup`/`bodies[…]?` witnesses are pinned to the same `body`/`oib` by
+`Option.some.inj`. -/
+theorem ctorFieldsCoherent_of_registered {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (hc : RegisteredCtors Γ E) (hcs : RegisteredCases Γ E)
+    (hcf : RegisteredCtorFieldsAll Γ E) : CtorFieldsCoherent Γ := by
+  intro con cn iid np cidx nfs hcases hnfs hctors
+  obtain ⟨body, oib, cb, henv, hbod, hcb, harity⟩ := hc hctors
+  obtain ⟨body2, oib2, henv2, hbod2, hnpars, _⟩ := hcs hcases
+  obtain ⟨body3, oib3, henv3, hbod3, hfields⟩ := hcf hcases
+  have hb2 : body2 = body := by
+    have h := Option.some.inj (henv2.symm.trans henv); injection h
+  have hb3 : body3 = body := by
+    have h := Option.some.inj (henv3.symm.trans henv); injection h
+  rw [hb2] at hbod2 hnpars
+  rw [hb3] at hbod3
+  have ho3 : oib3 = oib := Option.some.inj (hbod3.symm.trans hbod)
+  rw [ho3] at hfields
+  obtain rfl : nfs = oib.ctors.map (·.nargs) := Option.some.inj (hnfs.symm.trans hfields)
+  have hlt0 : cidx < oib.ctors.length := by
+    by_contra hge
+    rw [List.getElem?_eq_none (by omega)] at hcb
+    exact absurd hcb (by simp)
+  have hlt : cidx < (oib.ctors.map (·.nargs)).length := by rw [List.length_map]; exact hlt0
+  refine ⟨hlt, ?_⟩
+  have hcbn : (oib.ctors.map (·.nargs))[cidx]'hlt = cb.nargs := by
+    rw [List.getElem_map]
+    have h := List.getElem?_eq_getElem hlt0
+    rw [hcb] at h
+    rw [(Option.some.inj h).symm]
+  rw [harity, hcbn, hnpars]
 
 /-! ### Non-vacuity guards for Part 1
 
@@ -149,11 +214,85 @@ theorem gΓcases_registeredCases : RegisteredCases gΓcases acΓ := by
   intro con iid numParams hcon
   simp only [gΓcases, Option.some.injEq, Prod.mk.injEq] at hcon
   obtain ⟨rfl, rfl⟩ := hcon
-  exact ⟨_, acOIB, rfl, rfl, rfl⟩
+  exact ⟨_, acOIB, rfl, rfl, rfl, rfl⟩
 
 /-- Non-vacuity: `ErasesEnvCases gΓcases acΓ` is derived. -/
 theorem gΓcases_erasesEnvCases : ErasesEnvCases gΓcases acΓ :=
   erasesEnvCases_of_registeredCases gΓcases_registeredCases
+
+/-! ### Non-vacuity for the ι coherence predicates (ι Task 3)
+
+`CtorFieldsCoherent`/`IotaArityCoherent` relate the constructor side and the `casesOn`
+side of `Γ`, so their guard needs a `Γ` registering **both** — `gΓcases` registers only a
+`casesOn` and `gΓctor` only a constructor. `gΓι` registers both against the same `AC`
+(one parameter, one field, so `ctorArities = 1 + 1` decomposes non-degenerately), with a
+`casesOn` head `con` at `discrPos = np + nmot + nidx = 1 + 1 + 0 = 2`. -/
+
+/-- A concrete `Γ` registering `AC.mk` as `(acIid, 0)` **and** an `AC.casesOn` head
+`con` at `(acIid, 1)`, with the field-count list and the discriminant position that
+`register_inductive` + `CasesInfo` would record. -/
+private def gΓι : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => default
+  ctors := fun n => if n = `mk then some (acIid, 0) else none
+  ctorArities := fun n => if n = `mk then some 2 else none
+  casesOns := fun n => if n = `con then some (acIid, 1) else none
+  ctorFields := fun _ => some [1]
+  casesDiscrPos := fun n => if n = `con then some 2 else none
+
+/-- The matching `IotaArities`: `numMotives = 1`, `numIndices = 0`, `numMinors = 1`. -/
+private def gIAι : IotaArities := fun n => if n = `con then some (1, 0, 1) else none
+
+theorem gΓι_registeredCtors : RegisteredCtors gΓι acΓ := by
+  intro cn iid cidx hc
+  by_cases h : cn = `mk
+  · subst h
+    simp [gΓι] at hc
+    obtain ⟨rfl, rfl⟩ := hc
+    exact ⟨_, acOIB, { name := "mk", nargs := 1 }, rfl, rfl, rfl, by simp [gΓι]⟩
+  · simp [gΓι, if_neg h] at hc
+
+theorem gΓι_registeredCases : RegisteredCases gΓι acΓ := by
+  intro con iid numParams hcon
+  by_cases h : con = `con
+  · subst h
+    simp [gΓι] at hcon
+    obtain ⟨rfl, rfl⟩ := hcon
+    exact ⟨_, acOIB, rfl, rfl, rfl, rfl⟩
+  · simp [gΓι, if_neg h] at hcon
+
+theorem gΓι_registeredCtorFields : RegisteredCtorFieldsAll gΓι acΓ := by
+  intro con iid np hcon
+  by_cases h : con = `con
+  · subst h
+    simp [gΓι] at hcon
+    obtain ⟨rfl, rfl⟩ := hcon
+    exact ⟨_, acOIB, rfl, rfl, rfl⟩
+  · simp [gΓι, if_neg h] at hcon
+
+/-- Non-vacuity: `CtorFieldsCoherent gΓι` is *derived* from the three registration
+records, and genuinely fires — `ctorArities mk = 2` decomposes as `npars 1 + nfs[0] 1`. -/
+theorem gΓι_ctorFieldsCoherent : CtorFieldsCoherent gΓι :=
+  ctorFieldsCoherent_of_registered gΓι_registeredCtors gΓι_registeredCases
+    gΓι_registeredCtorFields
+
+/-- Non-vacuity: `IotaArityCoherent gΓι gIAι` — `discrPos = 2 = np + nmot + nidx` with
+`np = 1`, and the constructor count `|[1]| = 1 = numMinors`. -/
+theorem gΓι_iotaArityCoherent : IotaArityCoherent gΓι gIAι := by
+  intro con iid np nmot nidx nmin hcases hia
+  by_cases h : con = `con
+  · subst h
+    simp [gΓι, gIAι] at hcases hia
+    obtain ⟨rfl, rfl⟩ := hcases
+    obtain ⟨rfl, rfl, rfl⟩ := hia
+    exact ⟨rfl, [1], rfl, rfl⟩
+  · simp [gΓι, if_neg h] at hcases
+
+/-- Non-vacuity: the derived `ErasesEnvCases.nonProp` fires — `AC` is registered
+non-propositional, so the target ι rule's guard is satisfied. -/
+theorem gΓι_nonProp : isPropositionalInductive acΓ acIid = false :=
+  ErasesEnvCases.nonProp (erasesEnvCases_of_registeredCases gΓι_registeredCases)
+    (con := `con) (np := 1) (by simp [gΓι])
 
 /-! ## Part 2 — non-recursive `ErasesEnvDelta` via the `visitExpr → Erases` bridge
 
