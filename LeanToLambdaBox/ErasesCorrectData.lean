@@ -43,16 +43,47 @@ open Lean Lean4Lean
 
 `NoBlock t` holds when `t` contains no *nonempty* block-constructor node
 `.construct iid c (_ :: _)`. The nullary node `.construct iid c []` (the base of a
-non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed. `case`/`proj`/
-`fix` are treated opaquely (`True`) — the data fragment of `erases_correct_data` never
-produces them (they belong to the `casesOn`/recursor work, C1–C3/P3). -/
+non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed. `proj`/`fix` are
+treated opaquely (`True`) — the data fragment of `erases_correct_data` never produces
+them (they belong to the recursor work, P3).
+
+`.case` **is** traversed (ι Task 3): the ι forward simulation
+(`ErasesCorrectIota.lean`) inverts a target `.case (iid, np) discr' alts'` and must feed
+`NoBlock discr'` to the discriminant IH and `NoBlock (alts'[cidx]).2` to the branch IH.
+With a `True` clause neither is obtainable and the ι case cannot be started at all. The
+per-alternative traversal goes through the mutual helper `NoBlockAlts` (the nested-list
+occurrence defeats the structural-recursion checker in `∀ a ∈ alts, NoBlock a.2` form);
+`NoBlock_case`/`NoBlockAlts_iff` expose exactly that form. All existing consumers use
+`NoBlock` in hypothesis position or conclude it for `box`/`construct`/`lambda`/IH
+witnesses, so strengthening it here is free for them. -/
+mutual
 def NoBlock : LBTerm → Prop
   | .lambda _ b => NoBlock b
   | .letIn _ v b => NoBlock v ∧ NoBlock b
   | .app f a => NoBlock f ∧ NoBlock a
+  | .case _ d alts => NoBlock d ∧ NoBlockAlts alts
   | .construct _ _ [] => True
   | .construct _ _ (_ :: _) => False
-  | _ => True
+  | .box => True
+  | .bvar _ => True
+  | .fvar _ => True
+  | .const _ => True
+  | .proj _ _ => True
+  | .fix _ _ => True
+  | .prim _ => True
+
+/-- `NoBlock` over `case` alternatives (each branch body is `NoBlock`). -/
+def NoBlockAlts : List (List BinderName × LBTerm) → Prop
+  | [] => True
+  | (_, b) :: rest => NoBlock b ∧ NoBlockAlts rest
+end
+
+/-- `NoBlockAlts` in the natural per-element form. -/
+theorem NoBlockAlts_iff (l : List (List BinderName × LBTerm)) :
+    NoBlockAlts l ↔ ∀ a ∈ l, NoBlock a.2 := by
+  induction l with
+  | nil => simp [NoBlockAlts]
+  | cons a rest ih => obtain ⟨ns, b⟩ := a; simp [NoBlockAlts, ih]
 
 @[simp] theorem NoBlock_box : NoBlock .box := trivial
 @[simp] theorem NoBlock_bvar (i : Nat) : NoBlock (.bvar i) := trivial
@@ -66,6 +97,15 @@ def NoBlock : LBTerm → Prop
     NoBlock (.letIn n v b) ↔ NoBlock v ∧ NoBlock b := Iff.rfl
 @[simp] theorem NoBlock_app (f a : LBTerm) :
     NoBlock (.app f a) ↔ NoBlock f ∧ NoBlock a := Iff.rfl
+@[simp] theorem NoBlock_case (info : InductiveId × Nat) (d : LBTerm)
+    (alts : List (List BinderName × LBTerm)) :
+    NoBlock (.case info d alts) ↔ NoBlock d ∧ ∀ a ∈ alts, NoBlock a.2 := by
+  show NoBlock d ∧ NoBlockAlts alts ↔ _
+  rw [NoBlockAlts_iff]
+@[simp] theorem NoBlock_proj (p : ProjectionInfo) (e : LBTerm) : NoBlock (.proj p e) := trivial
+@[simp] theorem NoBlock_fix (defs : List (@FixDef LBTerm)) (i : Nat) :
+    NoBlock (.fix defs i) := trivial
+@[simp] theorem NoBlock_prim (p : PrimVal) : NoBlock (.prim p) := trivial
 
 /-- `NoBlock` is preserved by de Bruijn shifting. -/
 theorem noBlock_shift {s : LBTerm} (hs : NoBlock s) (d c : Nat) :
@@ -79,6 +119,12 @@ theorem noBlock_shift {s : LBTerm} (hs : NoBlock s) (d c : Nat) :
       cases args with
       | nil => simp only [LBTerm.shift, LBTerm.shiftArgs]; trivial
       | cons a as => exact absurd hs (by simp [NoBlock])
+  | hcase info discr alts ihd iha =>
+      rw [NoBlock_case] at hs
+      simp only [LBTerm.shift, NoBlock_case, LBTerm.shiftAlts_eq_map]
+      refine ⟨ihd hs.1 c, fun a ha => ?_⟩
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
+      exact iha b hb (hs.2 b hb) _
   | _ => trivial
 
 /-- `NoBlock` is preserved by substitution (the substitutee `s` must be `NoBlock`
@@ -100,6 +146,12 @@ theorem noBlock_subst {t : LBTerm} (ht : NoBlock t) {s : LBTerm} (hs : NoBlock s
       cases args with
       | nil => simp only [LBTerm.subst, LBTerm.substArgs]; trivial
       | cons a as => exact absurd ht (by simp [NoBlock])
+  | hcase info discr alts ihd iha =>
+      rw [NoBlock_case] at ht
+      simp only [LBTerm.subst, NoBlock_case, LBTerm.substAlts_eq_map]
+      refine ⟨ihd ht.1 d, fun a ha => ?_⟩
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
+      exact iha b hb (ht.2 b hb) _
   | _ => trivial
 
 theorem noBlock_subst1 {t s : LBTerm} (ht : NoBlock t) (hs : NoBlock s) :

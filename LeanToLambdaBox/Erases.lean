@@ -110,6 +110,39 @@ def LBTerm.recData
   case _ => exact fun _ snd ih => ih
   case _ => exact fun _ _ _ ih => ih
 
+/-! ### The `shift`/`subst` list traversals in `List.map` form
+
+`LBTerm.shiftArgs`/`shiftAlts` (and their `subst` counterparts) are hand-rolled
+traversals (the structural-recursion checker cannot see through `List.map` for a nested
+inductive). These four lemmas expose them as maps, which is what every `LBTerm.recData`
+induction below needs in its `hconstruct`/`hcase` arm. Stated here (rather than after
+`mkLambdas`, where they used to live) because `noFix_shift`/`noFix_subst` now have a
+`.case` arm. -/
+
+theorem LBTerm.shiftArgs_eq_map (d c : Nat) (l : List LBTerm) :
+    LBTerm.shiftArgs d c l = l.map (LBTerm.shift d c) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.shiftArgs, List.map, ih]
+
+theorem LBTerm.substArgs_eq_map (s : LBTerm) (d : Nat) (l : List LBTerm) :
+    LBTerm.substArgs s d l = l.map (LBTerm.subst s d) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.substArgs, List.map, ih]
+
+theorem LBTerm.shiftAlts_eq_map (d c : Nat) (l : List (List BinderName × LBTerm)) :
+    LBTerm.shiftAlts d c l = l.map (fun a => (a.1, LBTerm.shift d (c + a.1.length) a.2)) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.shiftAlts, List.map, ih]
+
+theorem LBTerm.substAlts_eq_map (s : LBTerm) (d : Nat) (l : List (List BinderName × LBTerm)) :
+    LBTerm.substAlts s d l = l.map (fun a => (a.1, LBTerm.subst s (d + a.1.length) a.2)) := by
+  induction l with
+  | nil => rfl
+  | cons a as ih => simp only [LBTerm.substAlts, List.map, ih]
+
 /-! ### `NoFix`: fix-free target terms
 
 `NoFix t` holds when `t` contains no `.fix` node in relevant (spine) position. The
@@ -119,16 +152,45 @@ forward-simulation theorems purely to discharge the (vacuous, in that fragment) 
 disjunct that `Erases.lam_inv` gains once `Erases.fix` is added: a `.lam`-source that
 erases via the fix rule has target `.fix …`, and `NoFix (.fix …)` is `False`.
 
-`.construct`/`.case`/`.proj` are opaque (`True`): the data fragment's applied-form
+`.construct`/`.proj` are opaque (`True`): the data fragment's applied-form
 constructor spines carry their arguments through `.app` (`mkApps (.construct … []) args`),
 so `NoFix` reaches them via the `.app` recursion, not the (always-empty) `.construct`
-node. -/
+node.
+
+`.case` is **not** opaque (ι Task 3): the ι forward simulation inverts a target
+`.case (iid, np) discr' alts'` and must hand `NoFix discr'` to the discriminant IH and
+`NoFix (alts'[cidx]).2` to the branch IH. With a `True` clause neither is obtainable, so
+the ι case could not even be started. The per-alternative traversal is factored into the
+mutual helper `NoFixAlts` (as `LBClosedAlts` does for `LBClosed`) because the nested-list
+occurrence defeats the structural-recursion checker in `∀ a ∈ alts, NoFix a.2` form;
+`NoFix_case`/`NoFixAlts_iff` below expose exactly that form. -/
+mutual
 def NoFix : LBTerm → Prop
   | .lambda _ b => NoFix b
   | .letIn _ v b => NoFix v ∧ NoFix b
   | .app f a => NoFix f ∧ NoFix a
+  | .case _ d alts => NoFix d ∧ NoFixAlts alts
   | .fix _ _ => False
-  | _ => True
+  | .box => True
+  | .bvar _ => True
+  | .fvar _ => True
+  | .const _ => True
+  | .construct _ _ _ => True
+  | .proj _ _ => True
+  | .prim _ => True
+
+/-- `NoFix` over `case` alternatives (each branch body is `NoFix`). -/
+def NoFixAlts : List (List BinderName × LBTerm) → Prop
+  | [] => True
+  | (_, b) :: rest => NoFix b ∧ NoFixAlts rest
+end
+
+/-- `NoFixAlts` in the natural per-element form. -/
+theorem NoFixAlts_iff (l : List (List BinderName × LBTerm)) :
+    NoFixAlts l ↔ ∀ a ∈ l, NoFix a.2 := by
+  induction l with
+  | nil => simp [NoFixAlts]
+  | cons a rest ih => obtain ⟨ns, b⟩ := a; simp [NoFixAlts, ih]
 
 @[simp] theorem NoFix_box : NoFix .box := trivial
 @[simp] theorem NoFix_bvar (i : Nat) : NoFix (.bvar i) := trivial
@@ -144,6 +206,13 @@ def NoFix : LBTerm → Prop
     NoFix (.letIn n v b) ↔ NoFix v ∧ NoFix b := Iff.rfl
 @[simp] theorem NoFix_app (f a : LBTerm) :
     NoFix (.app f a) ↔ NoFix f ∧ NoFix a := Iff.rfl
+@[simp] theorem NoFix_case (info : InductiveId × Nat) (d : LBTerm)
+    (alts : List (List BinderName × LBTerm)) :
+    NoFix (.case info d alts) ↔ NoFix d ∧ ∀ a ∈ alts, NoFix a.2 := by
+  show NoFix d ∧ NoFixAlts alts ↔ _
+  rw [NoFixAlts_iff]
+@[simp] theorem NoFix_proj (p : ProjectionInfo) (e : LBTerm) : NoFix (.proj p e) := trivial
+@[simp] theorem NoFix_prim (p : PrimVal) : NoFix (.prim p) := trivial
 
 /-- `NoFix` is preserved by de Bruijn shifting. -/
 theorem noFix_shift {s : LBTerm} (hs : NoFix s) (d c : Nat) :
@@ -153,6 +222,12 @@ theorem noFix_shift {s : LBTerm} (hs : NoFix s) (d c : Nat) :
   | hlam n b ih => exact ih hs (c + 1)
   | hletIn n v b ihv ihb => exact ⟨ihv hs.1 c, ihb hs.2 (c + 1)⟩
   | happ f a ihf iha => exact ⟨ihf hs.1 c, iha hs.2 c⟩
+  | hcase info discr alts ihd iha =>
+      rw [NoFix_case] at hs
+      simp only [LBTerm.shift, NoFix_case, LBTerm.shiftAlts_eq_map]
+      refine ⟨ihd hs.1 c, fun a ha => ?_⟩
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
+      exact iha b hb (hs.2 b hb) _
   | hfix defs i _ => exact absurd hs (by simp [NoFix])
   | _ => trivial
 
@@ -170,6 +245,12 @@ theorem noFix_subst {t : LBTerm} (ht : NoFix t) {s : LBTerm} (hs : NoFix s)
   | hlam n b ih => exact ih ht (d + 1)
   | hletIn n v b ihv ihb => exact ⟨ihv ht.1 d, ihb ht.2 (d + 1)⟩
   | happ f a ihf iha => exact ⟨ihf ht.1 d, iha ht.2 d⟩
+  | hcase info discr alts ihd iha =>
+      rw [NoFix_case] at ht
+      simp only [LBTerm.subst, NoFix_case, LBTerm.substAlts_eq_map]
+      refine ⟨ihd ht.1 d, fun a ha => ?_⟩
+      obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
+      exact iha b hb (ht.2 b hb) _
   | hfix defs i _ => exact absurd ht (by simp [NoFix])
   | _ => trivial
 
@@ -225,18 +306,6 @@ theorem instantiate1'_foldl_app (e₀ : Expr) (d : Nat) (f : Expr) (args : List 
   | nil => rfl
   | cons a as ih => simp only [List.foldl, List.map, ih, Expr.instantiate1']
 
-theorem LBTerm.shiftArgs_eq_map (d c : Nat) (l : List LBTerm) :
-    LBTerm.shiftArgs d c l = l.map (LBTerm.shift d c) := by
-  induction l with
-  | nil => rfl
-  | cons a as ih => simp only [LBTerm.shiftArgs, List.map, ih]
-
-theorem LBTerm.substArgs_eq_map (s : LBTerm) (d : Nat) (l : List LBTerm) :
-    LBTerm.substArgs s d l = l.map (LBTerm.subst s d) := by
-  induction l with
-  | nil => rfl
-  | cons a as ih => simp only [LBTerm.substArgs, List.map, ih]
-
 /-- Re-wrap a `casesOn` alternative `(field-names, body)` as the lambda chain the
 minor function erases to. Lets the `casesOn` rule reuse the `lam` rule for the
 alternative's field binders. -/
@@ -261,18 +330,6 @@ theorem subst_mkLambdas (s : LBTerm) (d : Nat) (names : List BinderName) (body :
   | cons n ns ih =>
       have h : d + (ns.length + 1) = (d + 1) + ns.length := by omega
       simp only [mkLambdas, LBTerm.subst, List.length_cons, h, ih]
-
-theorem LBTerm.shiftAlts_eq_map (d c : Nat) (l : List (List BinderName × LBTerm)) :
-    LBTerm.shiftAlts d c l = l.map (fun a => (a.1, LBTerm.shift d (c + a.1.length) a.2)) := by
-  induction l with
-  | nil => rfl
-  | cons a as ih => simp only [LBTerm.shiftAlts, List.map, ih]
-
-theorem LBTerm.substAlts_eq_map (s : LBTerm) (d : Nat) (l : List (List BinderName × LBTerm)) :
-    LBTerm.substAlts s d l = l.map (fun a => (a.1, LBTerm.subst s (d + a.1.length) a.2)) := by
-  induction l with
-  | nil => rfl
-  | cons a as ih => simp only [LBTerm.substAlts, List.map, ih]
 
 /--
 Typed erasure relation between real `Lean.Expr` and `LBTerm`.
