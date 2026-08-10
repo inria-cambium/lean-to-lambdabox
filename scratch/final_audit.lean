@@ -1,8 +1,34 @@
 import LeanToLambdaBox
-/-! Final axiom audit for the dev/verify verification stack (2026-07-07).
+/-! Final axiom audit for the dev/verify verification stack (2026-07-07;
+re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork
+`7c5e652`).
+
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
-modeling axioms (Verify/Axioms.lean) where the executable checker/Expr model
-is involved. The pure-LBTerm layers must be sorryAx-free. -/
+modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
+checker / `Expr` model is involved. The pure-LBTerm layers must be sorryAx-free.
+
+## lean4lean-side baseline drift at the 2026-08-10 repoint
+
+Nothing of ours changed: no axiom of ours was added, and every result below that
+was sorryAx-free before is still sorryAx-free. The lean4lean modeling set moved:
+
+* **Discharged upstream, so they no longer appear**: `Lean.Expr.hasFVar_eq`,
+  `Lean.Expr.hasExprMVar_eq`, `Lean.Expr.hasLevelMVar_eq`,
+  `Lean.Expr.hasLevelParam_eq` (now theorems) and `Lean.Expr.mkAppRangeAux.eq_def`
+  (now proved).
+* **Added upstream by the `Level` standardization**: `Lean.Level.normalize_eq`
+  (reached by the deep kernel-checker cluster below), plus `Lean.Level.mkMaxAux_eq`,
+  `Lean.Level.skipExplicit_eq`, `Lean.Level.isExplicitSubsumedAux_eq` (declared
+  upstream, not reached from anything audited here).
+* **`bv_decide` native-LRAT artifacts** from lean4lean's `Verify/Expr.lean`:
+  `Lean.Expr.mkData_flags._native.bv_decide.ax_*` and
+  `Lean.Expr.Data.looseBVarRange_le._native.bv_decide.ax_*`. lean4lean-side SAT
+  certificates; they occur only in the executable-checker cluster (WS-O below).
+* **`sorryAx` reach grew upstream** (the fork's twelve `IOTA-TODO(soundness)`
+  items: `Aligned.addInduct`, `addInduct_WF`, the `IsDefEq`/`IsDefEqStrong` `pat`
+  inversion cases, …). This widens the *inherited* trust boundary but does not
+  reach any result here that was previously clean.
+-/
 
 open LeanToLambdaBox
 

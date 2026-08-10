@@ -179,14 +179,16 @@ inductive SEvalDataι (Γ : ErasureCtx) (E : SEnv) : Expr → Expr → Prop
 lean4lean definitional equality: a `casesOn` spine's translation is defeq to the
 translation of its ι-reduct (the selected branch applied to the constructor fields).
 
-**This is the ONE premise with no constructible non-vacuity guard.** Pinned lean4lean's
-`IsDefEq` exposes *no* ι/recursor computation rule — only `beta`, `eta`, `proofIrrel`,
-and the generic `extra`/`VDefEq` registered defeqs over *closed* terms — and its
-inductive layer (`VInductDecl.WF`/`addInduct`, `Verify.AddInduct`) is `sorry`ed /
-constructorless, so no ambient `VEnv` can register the ι-defeqs a real kernel provides.
-Hence `IotaConsistent` cannot be discharged (or even non-vacuously witnessed) against the
-pin. It is stated as an explicit **hypothesis**, never an axiom; the honest upstream
-dependency is a lean4lean recursor-defeq / inductive layer. -/
+**This is the ONE premise this development does not discharge.** The pinned lean4lean
+fork *does* expose an ι/recursor computation rule — `IsDefEq.pat`, fed by the new `VEnv`
+rule registry `pats`, which a real (no longer `sorry`ed) `VEnv.addInduct` populates with
+one `SimplePattern.iota` rule per recursor rule, alongside a real `VInductDecl.WF` and a
+real `Verify.AddInduct` structure. So `IotaConsistent` is **unblocked, not discharged**:
+an ambient `VEnv` can now carry ι-defeqs, but the route from a `TrEnv` to a concrete one
+is still incomplete upstream (`TrEnv.pats_iota` leaves the rule payload opaque;
+`addInduct_WF` / `Aligned.addInduct` / `addDecl.WF`'s `inductDecl` case are `sorry`) —
+see `SubjectReductionIota.lean`'s module docstring for the full accounting. It is stated
+as an explicit **hypothesis**, never an axiom. -/
 def IotaConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop :=
   ∀ {Δ : VLCtx} {con ctor : Name} {us cus : List Level} {pre minors cargs : List Expr}
     {iid : InductiveId} {np cidx : Nat} {ve : VExpr},
@@ -202,8 +204,9 @@ def IotaConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop :=
 
 `SEvalDataι_defeq` (subject reduction over `SEvalDataι`) and the ι case of the
 data-fragment forward simulation reuse the β+ζ+δ chain for the non-ι rules; the ι case
-is discharged **only** through `IotaConsistent` (there is no lean4lean ι-defeq route, as
-documented above). Mechanising them additionally needs a `casesOn`-spine translation
+is discharged **only** through `IotaConsistent` (the fork's ι-defeq route exists but is
+not yet chainable, as documented above). Mechanising them additionally needs a
+`casesOn`-spine translation
 inversion (to expose the evaluated scrutinee's ctor-spine translation) and a
 `β`-chain ↔ `iota_red`-substitution bridge over the P0-corrected reversing `iota_red`.
 These are the remaining C2/C3 pieces; the corrected relation `SEvalDataι` and the honest

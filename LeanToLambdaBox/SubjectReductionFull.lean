@@ -24,13 +24,15 @@ then `v` translates to some `vve` definitionally equal to `ve`.
   hypothesis** via `SEnvConsistent`, asserting exactly the defeq facts the δ case
   needs. This is the source-env ↔ `VEnv` consistency the project notes call for.
 
-* **ι (casesOn).** SCOPED OUT — see the report. lean4lean's `IsDefEq` exposes no
-  recursor/iota reduction rule (only `beta` and the generic `extra` defeq); the
-  iota fact would have to be threaded as a per-reduction defeq hypothesis whose
-  statement requires fully inverting the `casesOn` translation spine (a nested
-  application of the translated `pre`/`discr`/`minors`). That is a substantial
-  separate development; we deliberately do not fake it here. `ctor_val` is handled
-  (it is a value, structurally).
+* **ι (casesOn).** SCOPED OUT of this file — see the report. The pinned lean4lean
+  fork *does* expose an ι/recursor rule (`IsDefEq.pat`, fed by `VEnv.pats` /
+  `VEnv.addInduct`), but it is not yet chainable into a concrete instance, so the
+  iota fact is threaded as a per-reduction defeq hypothesis (`IotaConsistent`,
+  `SourceEvalData.lean`) whose *use* requires fully inverting the `casesOn`
+  translation spine (a nested application of the translated `pre`/`discr`/`minors`).
+  That is a substantial separate development, carried out in
+  `SubjectReductionIota.lean`; we deliberately do not fake it here. `ctor_val` is
+  handled (it is a value, structurally).
 
 `SEvalβ`/`SEvalβ_defeq` and all their committed metatheory are left untouched.
 -/

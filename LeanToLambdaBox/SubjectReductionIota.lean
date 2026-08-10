@@ -20,21 +20,33 @@ import LeanToLambdaBox.FirstOrder
 
 ## The `IotaConsistent` honesty statement (REQUIRED, precise)
 
-`IotaConsistent env Us Γ` (defined in `SourceEvalData.lean`) is the ONE hypothesis with
-**no constructible non-vacuity guard against the pinned lean4lean**, and it is stated as
-an explicit **hypothesis** — never an axiom of ours.
+`IotaConsistent env Us Γ` (defined in `SourceEvalData.lean`) is the ONE hypothesis this
+development does **not** discharge, and it is stated as an explicit **hypothesis** —
+never an axiom of ours.
 
-Precisely: pinned lean4lean's `VEnv.IsDefEq` exposes *no* recursor/ι computation rule.
-Its only definitional-equality routes are `beta`, `eta`, `proofIrrel`, and the generic
-`extra`/`VDefEq` registered defeqs, and those `extra` defeqs range over **closed** terms
-(`VDefEq` carries no open ι-schema). Moreover its inductive layer that would register the
-ι-defeqs a real kernel provides is unavailable: `Lean4Lean.Theory.VInductDecl.WF` /
-`addInduct` are `sorry`ed and `Lean4Lean.Verify.AddInduct` is constructorless, so **no
-ambient `VEnv` carries any ι-defeq**. Hence `IotaConsistent` can neither be discharged nor
-even non-vacuously witnessed against this lean4lean pin: any concrete instance would need a
-`VEnv` whose `IsDefEqU` relates a `casesOn` spine to its branch reduct, which no
-constructible `VEnv` here does. It is therefore threaded as a documented **upstream
-dependency** on a lean4lean recursor-defeq / inductive layer. Every *other*
+Against the current pin (the `barabbs/lean4lean` ι fork) the *categorical* blocker is
+gone. `VEnv` now carries a schematic-rule registry `pats`; `VEnv.IsDefEq` has a 14th
+constructor `pat`, the ι/recursor computation rule that consumes it; `VEnv.addInduct` is
+a real registration pipeline (no longer `sorry`) installing one `SimplePattern.iota` rule
+per recursor rule; `VInductDecl.WF` is a real structure; and `Lean4Lean.Verify.AddInduct`
+is a real 8-field structure rather than constructorless. An ambient `VEnv` *can* now carry
+ι-defeqs, so `IotaConsistent` is no longer un-witnessable in principle.
+
+It is nevertheless **unblocked, not discharged**. On the upstream side:
+
+* `TrEnv.pats_iota` concludes `∃ r, venv.pats P r` with the rule payload `r` opaque, so
+  `TrEnv.iota_defeq`'s `Realizes` premise cannot be instantiated and the reduct
+  `r.1.apply m1 m2` cannot be matched against our branch body;
+* `AddInduct.rec_find` never relates the model-side `ru.rhs` to the kernel recursor rule's
+  `rhs`, so a firing rule is not known to compute the expected branch;
+* registration is still trusted: `addInduct_WF` (`Ordered` has no `addPat` constructor),
+  `Aligned.addInduct`, and `addDecl.WF`'s `inductDecl` case are `sorry`;
+* the ι model covers only the exact-arity, syntactic-constructor case.
+
+On our side, an instance additionally needs the `casesOn`-spine translation inversion and
+the β-chain ↔ reversing-`iota_red` bridge that this file's C3 work identifies.
+`IotaConsistent` therefore stays a documented **upstream dependency** — now on
+*completing* lean4lean's ι interface rather than on its existence. Every *other*
 hypothesis-bearing theorem in this file (and in `ErasesCorrectData.lean`) ships a
 constructed non-vacuity guard (below); the ι theorems are the sole exception.
 -/
@@ -50,9 +62,9 @@ open Lean Lean4Lean
 If `e` translates to `ve` and `e` evaluates to `v` under `SEvalDataι`, then `v` translates
 to some `vve` definitionally equal to `ve`. The λ/β/δ/ctor cases reuse the reasoning of
 `SEvalβζδ_defeq` (`SEvalβζδ_defeq_spine` for the constructor spine); the ι case is
-discharged **only** via the `IotaConsistent` hypothesis `hiota` — pinned lean4lean has no
-recursor/ι defeq route (see the module docstring). `IotaConsistent` stays a hypothesis,
-never an axiom. -/
+discharged **only** via the `IotaConsistent` hypothesis `hiota` — the pinned fork's ι rule
+(`IsDefEq.pat`) exists but is not yet chainable into a concrete instance (see the module
+docstring). `IotaConsistent` stays a hypothesis, never an axiom. -/
 theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {Esrc : SEnv}
     (hcon : SEnvConsistent env Us Esrc) (hiota : IotaConsistent env Us Γ)
