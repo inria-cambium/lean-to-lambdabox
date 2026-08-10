@@ -153,7 +153,7 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
           htr
       -- IotaConsistent: the replaced casesOn spine is defeq to the branch reduct
       obtain ⟨bve, htr_branch, hdef2⟩ :=
-        hiota hcases hctor hia har hpre hmin hcargs hidx htr_replaced
+        hiota hΔ hcases hctor hia har hpre hmin hcargs hidx htr_replaced
       obtain ⟨rvv, htr_r, hdef3⟩ := ihbranch hΔ htr_branch
       exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΓ hdef1
         (VEnv.IsDefEqU.trans henv hΓ hdef2 hdef3)⟩

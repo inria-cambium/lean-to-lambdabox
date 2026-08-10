@@ -3,86 +3,95 @@ import LeanToLambdaBox.SourceEvalData
 import LeanToLambdaBox.SubjectReductionFull
 
 /-!
-# Discharging `IotaConsistent` — how far the pinned ι interface reaches
+# Discharging `IotaConsistent` — the chain, end to end
 
 `IotaPattern.lean` supplies the pattern-side core: a `Pattern.Matches` introduction
 rule for spines, the `SimplePattern.iotaRHS` reduct calculation, `TrExprS` spine
-inversion, the named upstream spec `PatsIotaSpec`, and — on top of them —
+inversion *and construction*, the named upstream spec `PatsIotaSpec`, and
 `iota_defeq_spine`, which **fires** the ι rule on a translated exact-arity redex.
-This file records the non-vacuity guard for that machinery and the precise state of
-the remaining chain to `IotaConsistent`.
 
-## The chain, and where it stands
+This file closes the chain: the source-level β engine, the per-`casesOn` shape
+certificate `IotaShape`, the derivation `iotaConsistent_of_shape`, and the constructed
+non-vacuity guards.
+
+## The chain
 
 For a `casesOn` spine `con pre… discr minors…` whose scrutinee has evaluated to a
 saturated constructor spine, `IotaConsistent` asks for a definitional equality to
-`(cargs.drop np).foldl Expr.app minors[cidx]`. The chain is
+`(cargs.drop np).foldl Expr.app minors[cidx]`:
 
 ```
- (0)  ve   = ⟦con pre… (ctor C̄) minors…⟧                       -- the source spine
- (1)  ≡ δ    unfold `con` to its value                          -- TrEnv.of_value
- (2)  ≡ β    reduce the casesOn wrapper to the recursor spine
- (3)  ≡ ι    the registered rule fires                          -- iota_defeq_spine  ✔
+ (0)  ve   = ⟦con pre… (ctor C̄) minors…⟧                  -- the source spine
+ (1)  ≡ δ    unfold `con` to its value                     -- SEnvConsistent
+ (2)  ≡ β    reduce the casesOn wrapper to the rec spine   -- trExprS_betaN + IotaShape
+ (3)  ≡ ι    the registered rule fires                     -- iota_defeq_spine
  (4)  ≡ β    reduce the rule template through its telescope
- (5)  ≡ β    unwrap the casesOn-inserted minor wrapper
+ (5)  ≡ β    unwrap the casesOn-inserted minor wrapper     -- trExprS_betaN + IotaShape
            = ⟦minors[cidx] (C̄.drop np)⟧
 ```
 
-**(3) is done** (`iota_defeq_spine`, `IotaPattern.lean`), modulo the single named
-hypothesis `PatsIotaSpec`, and is guarded below.
+**δ via `SEnvConsistent`, not `TrEnv.of_value`.** The repo already threads the source
+δ facts as `SEnvConsistent` (a premise of `SEvalβζδ_defeq` and `SEvalDataι_defeq`), so
+step (1) reuses it. That is not just economical: `TrEnv.of_value` routes through
+`H.map_wf`, and `TrEnv'.map_wf := H.aligned.map_wf` whose `induct` case is
+`Aligned.addInduct`, an IOTA-TODO `sorry` at the current pin — so the `of_value` route
+*would* inherit a gap that `pats_iota` (deliberately routed through the
+`Aligned`-free `TrEnv'.constMap_wf`) does not. This contradicts the handoff note's
+"you inherit no new gap", which is accurate for `pats_iota` alone. The fork's
+`iota-consume` branch de-taints `of_value` by swapping `map_wf → constMap_wf`; we
+neither rely on it nor work around it.
 
-**(1) is available but `sorry`-tainted at the current pin.** `TrEnv.of_value` routes
-through `H.map_wf`, and `TrEnv'.map_wf := H.aligned.map_wf` whose `induct` case is
-`Aligned.addInduct`, an IOTA-TODO `sorry` (`Verify/Environment/Lemmas.lean`). This
-contradicts the handoff note's "you inherit no new gap", which is accurate for
-`pats_iota` (deliberately routed through the `Aligned`-free `TrEnv'.constMap_wf`) but
-not for the δ-unfold. The fork's `iota-consume` branch de-taints it by swapping
-`map_wf → constMap_wf` in `of_value`; we do **not** work around it here.
+## `TrExprS` for the ι *reduct* spine
 
-**(2)/(4)/(5) are β-telescope bookkeeping** over a per-inductive shape certificate
-(`casesOn`'s δ-value and the recursor rule's template, both `rfl`-checkable `Expr`
-equations for any concrete inductive). They are laborious but unblocked.
+`IotaConsistent`'s conclusion demands a **`TrExprS` of an application spine** that is
+*not* a subterm of the redex and is well-typed only because the ι rule fired, so no app
+node of the input supplies the two `HasType` fields of `TrExprS.app`.
 
-## The blocker this workstream found: `TrExprS` for the ι *reduct* spine
+They are supplied by **application generation**: `Lean4Lean.VEnv.HasType.app_inv`
+(`Theory/Typing/Strong.lean`) is a *proved theorem* at the current pin —
+`Strong.lean`'s `IsDefEq.strong` / `IsDefEqStrong.hasType'` layering exists precisely
+to prove it — with premises `env.Ordered` and `OnCtx Γ (env.IsType U)`, both already in
+scope everywhere here. (`Experimental/NormalEq.lean` also *states* an `app_inv`, but as
+a field of an abstract `Typing` class — an interface, not evidence of unavailability.)
+`TrExprS.mkApps` (`IotaPattern.lean`) packages it. Its sorry-frontier is a subset of
+the one `VEnv.IsDefEq.uniqU` already carries, and `uniqU` is used pervasively in the
+committed development, so this adds no sorry-carrying declaration.
 
-`IotaConsistent`'s conclusion demands a **`TrExprS` of an application spine**,
-`TrExprS env Us Δ ((cargs.drop np).foldl Expr.app minors[cidx]) bve`. Building a
-`TrExprS.app` node requires its two `HasType` fields — `HasType f' (.forallE A B)`
-and `HasType a' A` — and that spine is well-typed only *because* of the ι reduction:
-it is not a subterm of the redex, so no app node of the input supplies them.
+## What is assumed
 
-Recovering them needs a **`HasType` application-generation lemma**
-(`HasType Γ (.app f a) V → ∃ A B, HasType f (.forallE A B) ∧ HasType a A`), which the
-pinned lean4lean does **not** prove outside `Experimental/` (`Theory/Typing/Lemmas.lean`
-has `HasType.forallE_inv` and `HasType.sort_inv` — inversion of forallE/sort *terms*,
-not of applications; `Theory/Typing/Injectivity.lean` has only `IsDefEqU.forallE_inv`).
-`Experimental/NormalEq.lean` states `app_inv` as a *field of a hypothesis class*, i.e.
-as an assumption, not a theorem.
+* **`PatsIotaSpec`** — the one named hypothesis structure: the fork's strengthened
+  rule lookup, dischargeable by `exact TrEnv.pats_iota' …` after the re-pin.
+* **`SEnvConsistent`** — already an accepted premise of the surrounding development.
+* **`IotaShape`** — the per-`casesOn` certificate: kernel lookups plus `Expr`
+  equations, `rfl`/`decide`-checkable for any concrete inductive. Nothing in it is a
+  typing or translation assumption.
 
-There is a route that does not need general generation — uniqueness of types
-(`VEnv.IsDefEq.uniqU`) against the *registered* constant type
-(`TrExprS.const` carries `env.constants c = some ci`, and `HasType.const` needs
-nothing more), then `IsDefEqU.forallE_inv` to peel the telescope — but it additionally
-requires tying the recursor's telescope domains to the rule template's binder types,
-which is a further kernel fact beyond the `PatsIotaSpec` bundle. That is the natural
-next increment; it is *not* discharged here, and no hypothesis stands in for it.
+No new `sorry` and no new axiom.
 
-## Non-vacuity guard
+## Non-vacuity guards
 
-Per the standing discipline every hypothesis-bearing theorem ships a **constructed**
-guard. `iota_defeq_spine`'s content is the ι rule firing, so the guard below builds a
-`VEnv` by `VEnv.addPat` directly (deliberately *not* through `TrEnv`: `TrEnv` for an
-environment containing inductives is unconstructible at this pin —
-`addDecl.WF`'s `inductDecl` case is `sorry`) and shows a *real* `IsDefEqU`.
+`iotaConsistent_of_shape` takes `env.WF`, and `VEnv.WF` is **unconstructible for a
+`pats`-carrying environment at this pin** (`VEnv.Ordered` has no `addPat` clause;
+`addInduct_WF` and `addDecl.WF`'s `inductDecl` case are `sorry`). So — exactly as for
+`SEvalDataι_defeq` — a guard that instantiates the whole theorem is not available, and
+the guards stay at the level of its two halves:
 
-The shape is chosen to exercise the `take`/`drop` conventions of
-`SimplePattern.iotaRHS_apply`: `np = nmot = nmin = nind = nfields = 1`, so **both**
-`np > 0` and `nind > 0`. With `np = nind = 0` (`Bool`, enums) both slices degenerate
-to the identity and a reversed convention would still look right; here the six
-arguments are pairwise distinct (`bvar 0 … bvar 5`) and the reduct visibly drops
-`bvar 3` — the recursor's **index**, which sits between the minors and the major
-premise — and `bvar 4` — the constructor's **parameter** — keeping
-`[bvar 0, bvar 1, bvar 2]` (params/motives/minors) and `[bvar 5]` (the field).
+* `envι_iota_fires` — the ι machinery fires and yields a real `IsDefEqU`, on a `VEnv`
+  built by `VEnv.addPat` directly. `sorryAx`-free. Its shape exercises the `take`/`drop`
+  conventions of `SimplePattern.iotaRHS_apply` at `np = nmot = nmin = nind = nfields = 1`,
+  so **both** `np > 0` and `nind > 0`: with `np = nind = 0` (`Bool`, enums) both slices
+  degenerate and a reversed convention would still look right, whereas here the six
+  arguments are pairwise distinct (`bvar 0 … bvar 5`) and the reduct visibly drops
+  `bvar 3` — the recursor's **index**, which sits between the minors and the major —
+  and `bvar 4` — the constructor's **parameter** — keeping `[bvar 0, bvar 1, bvar 2]`
+  and `[bvar 5]`.
+* `betaN_casesOn_guard` / `betaN_ruleTemplate_guard` — `IotaShape`'s two `Expr`
+  equations hold, by `rfl`, on a concrete `casesOn` wrapper and a concrete recursor
+  rule template at the same `np = nmot = nmin = nind = nfields = 1` shape. The first
+  certifies the argument **reordering** between `C.casesOn`'s telescope
+  (`params motive indices major minors`) and `C.rec`'s
+  (`params motives minors indices major`); the second certifies that `betaN` stops with
+  the branch **applied to** the fields rather than contracting them away.
 -/
 
 namespace LeanToLambdaBox
@@ -95,12 +104,9 @@ Steps (2), (4) and (5) of the chain are all the same operation — apply a sourc
 λ-telescope to a list of arguments and β-reduce — so they share one engine.
 
 The key point is that a β step produces the reduct's `TrExprS` **for free**, via
-`TrExprS.inst`: no application node has to be built, so none of the `HasType`
-premises that block the ι *reduct* (see the module docstring) are needed here. The
-engine is therefore fully proved. What is still missing, to compose it into a
-derivation of `IotaConsistent`, is the per-inductive shape certificate (which `Expr`
-the `casesOn` δ-unfolds to, and what the recursor rule's template is) and the
-ι-reduct `TrExprS` discussed in the module docstring. -/
+`TrExprS.inst`: no application node has to be built. (The one place an application
+node *is* built — re-attaching the model's ι reduct to the source rule template — goes
+through `TrExprS.mkApps`, i.e. through application generation.) -/
 
 /-- One head β step on a source `Expr`: contract if the head is a λ, otherwise just
 apply. Splitting this out of `betaN` keeps `betaN e (a :: as) = betaN (betaHead e a) as`
@@ -196,6 +202,137 @@ theorem trExprS_betaN {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
         htr'
     obtain ⟨ve', htrve', hd'⟩ := trExprS_betaN henv hΔ as htrmid
     exact ⟨ve', htrve', VEnv.IsDefEqU.trans henv hΓ hdmid hd'⟩
+
+/-! ## The per-`casesOn` shape certificate
+
+Everything the ι chain needs about the *kernel* that `TrEnv`/`VInductDecl.WF` do not
+pin — `VInductDecl.WF`'s own docstring says it does not "pin the recursor/rule shape to
+the one `addInduct` reduces with" — is packaged here, per registered `casesOn`, as
+kernel lookups plus **`Expr` equations**. For any concrete inductive every equation is
+a closed `Expr` equality between a `betaN` computation and a spine, hence `rfl`- or
+`decide`-checkable; nothing in it is a typing or translation assumption.
+
+The two β equations are exactly steps (2) and (4)/(5) of the chain:
+
+* `hunfold` — the `casesOn`'s δ-value, applied to `params ++ motive ++ indices`, the
+  major premise and the minors, β-normalises to the **recursor redex**
+  `(rec P̄ M̄ minors Ī) major`. This is where the argument reordering between
+  `C.casesOn`'s telescope (`params motive indices major minors`) and `C.rec`'s
+  (`params motives minors indices major`) is recorded, by the `recArgs` function.
+* the per-constructor equation — the recursor rule's template, applied to the
+  recursor spine's `params ++ motives ++ minors` (the ι reduct's rec-side slice) and
+  then the constructor's fields (its ctor-side slice), β-normalises to the selected
+  minor applied to the fields, *un-contracted*. `betaN` stops when its pending
+  argument list is exhausted, so the applications the template's body builds survive
+  even when the minor is itself a λ — which is what makes this equal to
+  `IotaConsistent`'s target rather than to its β-contraction. -/
+
+/-- **Per-`casesOn` shape certificate** (see the section docstring). -/
+structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Environment)
+    (Γ : ErasureCtx) (ia : IotaArities) (Esrc : SEnv) : Prop where
+  shape : ∀ {con : Name} {iid : InductiveId} {np nmot nidx nmin : Nat},
+    Γ.casesOns con = some (iid, np) → ia con = some (nmot, nidx, nmin) →
+    ∃ (conVal : Expr) (recName : Name) (rval : RecursorVal) (rus : List Level)
+      (recArgs : List Expr → List Expr → List Expr),
+      -- the `casesOn`'s source δ-value, and the recursor it unfolds to
+      Esrc con = some conVal ∧
+      kenv.find? recName = some (.recInfo rval) ∧
+      safety ≤ (Lean.ConstantInfo.recInfo rval).safety ∧
+      rval.levelParams.length = rus.length ∧
+      rval.numParams = np ∧ rval.numMotives = nmot ∧
+      rval.numMinors = nmin ∧ rval.numIndices = nidx ∧
+      -- (i) the recursor spine the `casesOn` wrapper β-reduces to
+      (∀ pre minors, pre.length = np + nmot + nidx → minors.length = nmin →
+        (recArgs pre minors).length = np + nmot + nmin + nidx) ∧
+      (∀ pre minors discr, pre.length = np + nmot + nidx → minors.length = nmin →
+        betaN conVal (pre ++ discr :: minors)
+          = .app ((recArgs pre minors).foldl Expr.app (.const recName rus)) discr) ∧
+      -- (ii) per constructor: its rule, and the rule template's β-normal form
+      (∀ {ctor : Name} {cidx : Nat}, Γ.ctors ctor = some (iid, cidx) →
+        ∃ rule : RecursorRule, rval.rules.find? (·.ctor == ctor) = some rule ∧
+          Γ.ctorArities ctor = some (np + rule.nfields) ∧
+          (rule.rhs.instantiateLevelParams rval.levelParams rus).looseBVarRange' = 0 ∧
+          ∀ (pre minors fields : List Expr) (hidx : cidx < minors.length),
+            pre.length = np + nmot + nidx → minors.length = nmin →
+            fields.length = rule.nfields →
+            betaN (rule.rhs.instantiateLevelParams rval.levelParams rus)
+              ((recArgs pre minors).take (np + nmot + nmin) ++ fields)
+              = fields.foldl Expr.app (minors[cidx]'hidx))
+
+/-! ## The payoff: `IotaConsistent` from the spec plus the certificate -/
+
+/-- **`IotaConsistent` is derivable** from
+
+* `PatsIotaSpec` — the one named hypothesis, the fork's strengthened rule lookup;
+* `SEnvConsistent` — the δ facts, already a premise of `SEvalDataι_defeq` (this is
+  *not* `TrEnv.of_value`, and therefore does **not** inherit the `Aligned.addInduct`
+  `sorry` that taints that route at the current pin);
+* `IotaShape` — the per-inductive, `rfl`-checkable kernel shape certificate.
+
+The chain is (0)→(1)(2) `SEnvConsistent` + head congruence + `trExprS_betaN` to the
+recursor redex, (3) `iota_defeq_spine` fires the rule, (4)(5) `TrExprS.instL_weak` +
+`TrExprS.mkApps` re-attach the ι reduct to the *source* rule template and
+`trExprS_betaN` normalises it to the branch applied to the fields. The reduct spine's
+`TrExprS` — the step that needs application generation — is built by
+`TrExprS.mkApps`. -/
+theorem iotaConsistent_of_shape {safety : DefinitionSafety} {kenv : Lean.Environment}
+    {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : ErasureCtx} {ia : IotaArities}
+    {Esrc : SEnv}
+    (hspec : PatsIotaSpec safety kenv env)
+    (hcon : SEnvConsistent env Us Esrc)
+    (hshape : IotaShape safety kenv Γ ia Esrc) :
+    IotaConsistent env Us Γ ia := by
+  intro Δ con ctor us cus pre minors cargs iid np cidx nmot nidx nmin ar ve
+    hΔ hcases hctor hia har hpre hmin hcargs hidx htr
+  obtain ⟨conVal, recName, rval, rus, recArgs, hconVal, hrec, hsafe, hlen,
+    hnp, hnmot, hnmin, hnidx, hraLen, hunfold, hctors⟩ := hshape.shape hcases hia
+  subst hnp; subst hnmot; subst hnmin; subst hnidx
+  obtain ⟨rule, hrule, harity, hsrcclosed, hbeta2⟩ := hctors hctor
+  have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+  have harEq : ar = rval.numParams + rule.nfields := by
+    rw [har] at harity; exact Option.some.inj harity
+  subst harEq
+  -- (0) reshape the redex into a single flat spine `con (pre ++ discr :: minors)`.
+  rw [show ((cargs.foldl Expr.app (.const ctor cus)) :: minors).foldl Expr.app
+        (pre.foldl Expr.app (.const con us))
+      = (pre ++ (cargs.foldl Expr.app (.const ctor cus)) :: minors).foldl Expr.app
+        (.const con us) from (List.foldl_append ..).symm] at htr
+  -- (1) δ-unfold the `casesOn` head, (2a) transport the spine to the unfolded head.
+  obtain ⟨hve, htrHead⟩ := TrExprS_spine_head _ htr
+  obtain ⟨cveb, htrConVal, hdδ⟩ := hcon hconVal htrHead
+  obtain ⟨ve₁, htr₁, hd₁⟩ :=
+    SEvalβζδ_defeq_spine henv hΔ
+      (fun e v => ∀ {ev}, TrExprS env Us Δ e ev →
+        ∃ vv, TrExprS env Us Δ v vv ∧ env.IsDefEqU Us.length Δ.toCtx ev vv)
+      (fun htr p => p htr)
+      _ (pre ++ (cargs.foldl Expr.app (.const ctor cus)) :: minors)
+      (pre ++ (cargs.foldl Expr.app (.const ctor cus)) :: minors)
+      (.const con us) conVal hve cveb rfl rfl htrHead htrConVal hdδ
+      (fun i h _ => fun htr => ⟨_, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩)
+      htr
+  -- (2b) β-normalise the unfolded wrapper to the recursor redex.
+  obtain ⟨ve₂, htr₂, hd₂⟩ := trExprS_betaN henv hΔ _ htr₁
+  rw [hunfold pre minors _ hpre hmin] at htr₂
+  -- (3) the ι rule fires.
+  obtain ⟨rhs, hc, rus', recArgs', cargs', htrRhs, hmapM, hall1, hall2, hd₃⟩ :=
+    iota_defeq_spine hspec henv hΔ hrec hrule hsafe
+      (hraLen pre minors hpre hmin) hcargs htr₂
+  -- (4a) re-attach the model reduct to the *source* rule template.
+  obtain ⟨e₂, htrRhsSrc, hdhead⟩ := TrExprS.instL_weak henv hΔ hmapM hlen hsrcclosed htrRhs
+  have hcongr := VEnv.IsDefEqU.mkApps_congr_head henv hΓ
+    (recArgs'.take (rval.numParams + rval.numMotives + rval.numMinors)
+      ++ cargs'.drop rval.numParams) hdhead hd₃.wf_r
+  have htr₃ := TrExprS.mkApps henv.ordered hΓ
+    (forall2_append
+      (forall2_take (rval.numParams + rval.numMotives + rval.numMinors) hall1)
+      (forall2_drop rval.numParams hall2))
+    htrRhsSrc hcongr.wf_l
+  -- (4b)/(5) β-normalise the template to the branch applied to the fields.
+  obtain ⟨ve₄, htr₄, hd₄⟩ := trExprS_betaN henv hΔ _ htr₃
+  rw [hbeta2 pre minors (cargs.drop rval.numParams) hidx hpre hmin (by simp [hcargs])] at htr₄
+  refine ⟨ve₄, htr₄, ?_⟩
+  exact VEnv.IsDefEqU.trans henv hΓ hd₁ (VEnv.IsDefEqU.trans henv hΓ hd₂
+    (VEnv.IsDefEqU.trans henv hΓ hd₃ (VEnv.IsDefEqU.trans henv hΓ hcongr.symm hd₄)))
 
 /-! ### The guard environment
 
@@ -301,5 +438,57 @@ theorem envι_iota_fires :
   rw [SimplePattern.iotaRHS_apply (np := 1) (nm := 1) (nmin := 1) (nind := 1) (nf := 1)
       (by simp) (by simp) hva hvb] at h
   exact h
+
+/-! ### Guards for `IotaShape`'s two `Expr` equations
+
+Both are checked at the same `np = nmot = nmin = nind = nfields = 1` shape as
+`envι_iota_fires`, on five/four pairwise distinct arguments, so the reordering and the
+slicing are visible rather than degenerate. -/
+
+private def A0 : Expr := .const `a0 []
+private def A1 : Expr := .const `a1 []
+private def A2 : Expr := .const `a2 []
+private def A3 : Expr := .const `a3 []
+private def A4 : Expr := .const `a4 []
+private def F0 : Expr := .const `f0 []
+private def ty : Expr := .const `I []
+
+/-- The `casesOn` wrapper at `np = nmot = nidx = nmin = 1`:
+`fun p motive idx major minor => R p motive minor idx major`. Inside the body the
+binders are `minor = #0`, `major = #1`, `idx = #2`, `motive = #3`, `p = #4`. -/
+private def conValG : Expr :=
+  .lam `p ty (.lam `motive ty (.lam `idx ty (.lam `major ty (.lam `minor ty
+    ((([Expr.bvar 4, .bvar 3, .bvar 0, .bvar 2]).foldl Expr.app (.const `R [])).app
+      (.bvar 1))
+    .default) .default) .default) .default) .default
+
+/-- **`IotaShape.hunfold` fires.** The `casesOn` wrapper, applied to
+`pre = [p, motive, idx]`, the major premise and `minors = [minor]`, β-normalises to the
+recursor redex — with the arguments **reordered** from `C.casesOn`'s telescope
+(`params motive indices major minors`) to `C.rec`'s
+(`params motives minors indices major`): `recArgs [p,m,i] [mn] = [p, m, mn, i]`, and
+the major premise moves to the outside. -/
+theorem betaN_casesOn_guard :
+    betaN conValG ([A0, A1, A2] ++ A3 :: [A4])
+      = .app (([A0, A1, A4, A2]).foldl Expr.app (.const `R [])) A3 := by
+  rfl
+
+/-- The recursor rule template for a one-field constructor at the same shape:
+`fun p motive minor field => minor field`. Inside the body `field = #0`,
+`minor = #1`. -/
+private def ruleRhsG : Expr :=
+  .lam `p ty (.lam `motive ty (.lam `minor ty (.lam `field ty
+    (.app (.bvar 1) (.bvar 0)) .default) .default) .default) .default
+
+/-- **`IotaShape`'s per-constructor equation fires.** The rule template, applied to the
+recursor spine's `take (np+nmot+nmin) = [p, motive, minor]` (the **index** `A2` is
+dropped) and then the constructor's fields `[f0]` (its **parameter** having been
+dropped by the ctor-side `drop np`), β-normalises to the selected minor **applied to**
+the fields — not to their contraction: `betaN` stops when its pending argument list is
+exhausted, so the application the template's body builds survives. -/
+theorem betaN_ruleTemplate_guard :
+    betaN ruleRhsG (([A0, A1, A4, A2]).take (1 + 1 + 1) ++ [F0])
+      = ([F0]).foldl Expr.app A4 := by
+  rfl
 
 end LeanToLambdaBox

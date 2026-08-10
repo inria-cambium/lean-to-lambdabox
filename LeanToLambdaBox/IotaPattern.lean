@@ -207,10 +207,162 @@ theorem TrExprS.mkApps_inv {env : VEnv} {Us : List Name} {Δ : VLCtx} :
     | @app f' A B a' _ _ _ hTf hTa htrf htra =>
       exact ⟨f', a' :: args', htrf, .cons htra hall, rfl⟩
 
-/-- A translated constant is a constant (at some translated level list). -/
+/-- A translated constant is a constant, at the translation of its level list. -/
 theorem TrExprS.const_inv {env : VEnv} {Us : List Name} {Δ : VLCtx} {c us ve}
-    (h : TrExprS env Us Δ (.const c us) ve) : ∃ us', ve = .const c us' := by
-  cases h with | const _ _ _ => exact ⟨_, rfl⟩
+    (h : TrExprS env Us Δ (.const c us) ve) :
+    ∃ us', us.mapM (VLevel.ofLevel Us) = some us' ∧ ve = .const c us' := by
+  cases h with | const _ h2 _ => exact ⟨_, h2, rfl⟩
+
+/-! ## `TrExprS` spine *construction* — via application generation
+
+The converse of `mkApps_inv`. Building a `TrExprS.app` node needs its two `HasType`
+fields, and for the ι *reduct* no app node of the input supplies them: the reduct
+spine is not a subterm of the redex, and is well-typed only because the ι rule fired.
+
+They are recovered by **application generation**,
+`Lean4Lean.VEnv.HasType.app_inv` (`Theory/Typing/Strong.lean`), which is a proved
+theorem at the current pin — `Strong.lean`'s `IsDefEq.strong` /
+`IsDefEqStrong.hasType'` layering exists exactly for this. Its premises are
+`env.Ordered` and `OnCtx Γ (env.IsType U)`, i.e. `henv.ordered` and `hΔ.toCtx`, which
+every call site here already has. Its sorry-frontier is a *subset* of the one
+`VEnv.IsDefEq.uniqU` already carries — and `uniqU` is called throughout the committed
+development (including `trExprS_beta_step`) — so this costs no new sorry-carrying
+declaration. -/
+
+/-- Every prefix of a well-typed application spine is well-typed. -/
+theorem VExpr.WF.mkApps_head {env : VEnv} (henv : env.Ordered) {U : Nat} {Γ : List VExpr}
+    (hΓ : OnCtx Γ (env.IsType U)) :
+    ∀ (args : List VExpr) {f : VExpr},
+      VExpr.WF env U Γ (VExpr.mkApps f args) → VExpr.WF env U Γ f
+  | [], _, h => h
+  | a :: as, f, h => by
+    have h1 : VExpr.WF env U Γ (VExpr.mkApps (.app f a) as) := h
+    obtain ⟨A, B, hf, _⟩ := (VExpr.WF.mkApps_head henv hΓ as h1).app_inv henv hΓ
+    exact ⟨_, hf⟩
+
+/-- **`TrExprS` for an application spine, from the spine's well-typedness.** Each
+`TrExprS.app` node's `HasType` fields are recovered by application generation, so no
+app node of the *input* has to supply them. Converse of `TrExprS.mkApps_inv`. -/
+theorem TrExprS.mkApps {env : VEnv} (henv : env.Ordered) {Us : List Name} {Δ : VLCtx}
+    (hΓ : OnCtx Δ.toCtx (env.IsType Us.length))
+    {args : List Expr} {args' : List VExpr}
+    (hall : List.Forall₂ (TrExprS env Us Δ) args args') :
+    ∀ {head : Expr} {hve : VExpr},
+      TrExprS env Us Δ head hve →
+      VExpr.WF env Us.length Δ.toCtx (VExpr.mkApps hve args') →
+      TrExprS env Us Δ (args.foldl Expr.app head) (VExpr.mkApps hve args') := by
+  induction hall with
+  | nil => exact fun htr _ => htr
+  | @cons a a' as as' hta hall ih =>
+    intro head hve htr hwf
+    have hwf' : VExpr.WF env Us.length Δ.toCtx (VExpr.mkApps (.app hve a') as') := hwf
+    obtain ⟨A, B, hf, ha⟩ := (VExpr.WF.mkApps_head henv hΓ _ hwf').app_inv henv hΓ
+    exact ih (.app hf ha htr hta) hwf
+
+/-- The right endpoint of a definitional equality is well-typed. -/
+theorem VEnv.IsDefEqU.wf_r {env : VEnv} {U Γ e1 e2}
+    (h : env.IsDefEqU U Γ e1 e2) : VExpr.WF env U Γ e2 :=
+  let ⟨_, h⟩ := h; ⟨_, h.symm.trans h⟩
+
+/-- The left endpoint of a definitional equality is well-typed. -/
+theorem VEnv.IsDefEqU.wf_l {env : VEnv} {U Γ e1 e2}
+    (h : env.IsDefEqU U Γ e1 e2) : VExpr.WF env U Γ e1 :=
+  let ⟨_, h⟩ := h; ⟨_, h.trans h.symm⟩
+
+/-- **Replacing the head of a `VExpr` application spine by a definitionally equal
+one.** The per-node `HasType` side conditions of `appDF` come from application
+generation on the (well-typed) right-hand spine. -/
+theorem VEnv.IsDefEqU.mkApps_congr_head {env : VEnv} (henv : env.WF) {U : Nat}
+    {Γ : List VExpr} (hΓ : OnCtx Γ (env.IsType U)) :
+    ∀ (args : List VExpr) {f g : VExpr},
+      env.IsDefEqU U Γ f g → VExpr.WF env U Γ (VExpr.mkApps g args) →
+      env.IsDefEqU U Γ (VExpr.mkApps f args) (VExpr.mkApps g args)
+  | [], _, _, hd, _ => hd
+  | a :: as, f, g, hd, hwf => by
+    have hwf' : VExpr.WF env U Γ (VExpr.mkApps (.app g a) as) := hwf
+    obtain ⟨A, B, hg, ha⟩ :=
+      (VExpr.WF.mkApps_head henv.ordered hΓ _ hwf').app_inv henv.ordered hΓ
+    have hfg : env.IsDefEq U Γ f g (.forallE A B) :=
+      (VEnv.IsDefEqU.of_l henv hΓ hd.symm hg).symm
+    have hstep : env.IsDefEqU U Γ (.app f a) (.app g a) := ⟨_, .appDF hfg ha⟩
+    exact VEnv.IsDefEqU.mkApps_congr_head henv hΓ as hstep hwf'
+
+/-! ## Transporting the fork-supplied rule template into the ambient context
+
+`PatsIotaSpec` hands back `TrExprS venv rval.levelParams [] rule.rhs rhs` — the kernel
+rule's template translated at the *declaration's own* level parameters and the *empty*
+local context. The ι chain needs it at the redex's `Us`/`Δ`. `instL_weak` does both
+moves: `TrExprS.instL` at `Δ = []` (whose `VLCtx.instL` is again `[]`), then `weak_nil`.
+
+`weak_nil` is needed because lean4lean's `FVLift.from_nil` only reaches `NoBV`
+contexts and `BVLift` only reaches all-`none` ones; a *mixed* `Δ` is reached by
+peeling one entry at a time, using `BVLift.skip`/`FVLift.skip_fvar` at each step. Both
+lifts are the identity here: the reduct is `Closed` (`ClosedN.liftN_eq`) and the
+template has no loose bvars (`Expr.liftLooseBVars_eq_self`). -/
+
+/-- A translation at the empty local context holds at any well-formed context, when
+the source has no loose bvars and the target is closed. -/
+theorem TrExprS.weak_nil {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {e : Expr} {e' : VExpr} (hsrc : e.looseBVarRange' = 0) (hc : e'.Closed) :
+    ∀ {Δ : VLCtx}, VLCtx.WF env Us.length Δ → TrExprS env Us [] e e' → TrExprS env Us Δ e e'
+  | [], _, H => H
+  | (none, d) :: Δ, hΔ, H => by
+    have ih := TrExprS.weak_nil henv hsrc hc (Δ := Δ) hΔ.1 H
+    have W : VLCtx.BVLift Δ ((none, d) :: Δ) (0+1) 0 (0+d.depth) 0 := .skip d .refl
+    have h2 := TrExprS.weakBV henv W ih
+    rwa [Expr.liftLooseBVars_eq_self (by omega), hc.liftN_eq (Nat.le_refl 0)] at h2
+  | (some fv, d) :: Δ, hΔ, H => by
+    have ih := TrExprS.weak_nil henv hsrc hc (Δ := Δ) hΔ.1 H
+    have W : VLCtx.FVLift Δ ((some fv, d) :: Δ) 0 (0+d.depth) 0 := .skip_fvar fv d .refl
+    have h2 := TrExprS.weakFV henv W hΔ ih
+    rwa [hc.liftN_eq (Nat.le_refl 0)] at h2
+
+/-- Level-instantiate a closed-context translation and transport it to `Δ`. The result
+is only *definitionally equal* to `e'.instL ls'` — `TrExprS.instL` returns a `TrExpr`,
+since level instantiation re-derives sort/const levels — which is why the caller
+composes it with `IsDefEqU.mkApps_congr_head`. -/
+theorem TrExprS.instL_weak {env : VEnv} (henv : env.WF) {Us ps : List Name}
+    {ls : List Level} {ls' : List VLevel} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ)
+    (Hls : ls.mapM (VLevel.ofLevel Us) = some ls') (hlen : ps.length = ls.length)
+    {e : Expr} {e' : VExpr}
+    (hsrc : (e.instantiateLevelParams ps ls).looseBVarRange' = 0)
+    (H : TrExprS env ps [] e e') :
+    ∃ e₂, TrExprS env Us Δ (e.instantiateLevelParams ps ls) e₂ ∧
+      env.IsDefEqU Us.length Δ.toCtx e₂ (e'.instL ls') := by
+  obtain ⟨e₂, htr, hd⟩ := TrExprS.instL (Δ := []) henv trivial Hls hlen H
+  have hwf : VExpr.WF env Us.length (VLCtx.toCtx []) e₂ := htr.wf henv.ordered (by trivial)
+  have hc : e₂.Closed := hwf.closedN henv.ordered trivial
+  exact ⟨e₂, TrExprS.weak_nil henv.ordered hsrc hc hΔ htr, hd.weak0 henv⟩
+
+/-- `Forall₂` survives `take` (slices the recursor spine at `np + nmot + nmin`). -/
+theorem forall2_take {α β} {R : α → β → Prop} :
+    ∀ (n : Nat) {l₁ : List α} {l₂ : List β}, List.Forall₂ R l₁ l₂ →
+      List.Forall₂ R (l₁.take n) (l₂.take n)
+  | 0, _, _, _ => .nil
+  | _+1, _, _, .nil => .nil
+  | n+1, _, _, .cons h hs => .cons h (forall2_take n hs)
+
+/-- `Forall₂` survives `drop` (slices the constructor spine at `np`). -/
+theorem forall2_drop {α β} {R : α → β → Prop} :
+    ∀ (n : Nat) {l₁ : List α} {l₂ : List β}, List.Forall₂ R l₁ l₂ →
+      List.Forall₂ R (l₁.drop n) (l₂.drop n)
+  | 0, _, _, h => h
+  | _+1, _, _, .nil => .nil
+  | n+1, _, _, .cons _ h => forall2_drop n h
+
+/-- Concatenation of `Forall₂`s. -/
+theorem forall2_append {α β} {R : α → β → Prop} {l₁ l₂ r₁ r₂}
+    (h1 : List.Forall₂ R l₁ l₂) (h2 : List.Forall₂ R r₁ r₂) :
+    List.Forall₂ R (l₁ ++ r₁) (l₂ ++ r₂) :=
+  (List.Forall₂.append_of_left (Lean4Lean.List.Forall₂.length_eq h1)).2 ⟨h1, h2⟩
+
+/-- `Forall₂` survives `getElem` at a common index. -/
+theorem forall2_getElem {α β} {R : α → β → Prop} :
+    ∀ {l₁ : List α} {l₂ : List β}, List.Forall₂ R l₁ l₂ → ∀ (i : Nat)
+      (h₁ : i < l₁.length) (h₂ : i < l₂.length), R (l₁[i]) (l₂[i])
+  | _, _, .cons h _, 0, _, _ => h
+  | _, _, .cons _ hs, i+1, h₁, h₂ => forall2_getElem hs i (by simpa using h₁) (by simpa using h₂)
 
 end Lean4Lean
 
@@ -308,6 +460,7 @@ theorem iota_defeq_spine {safety : DefinitionSafety} {kenv : Lean.Environment} {
             (ctorArgs.foldl Expr.app (.const cName cus))) ve) :
     ∃ (rhs : VExpr) (_ : rhs.Closed) (rus' : List VLevel) (recArgs' ctorArgs' : List VExpr),
       TrExprS venv rval.levelParams [] rule.rhs rhs ∧
+      rus.mapM (VLevel.ofLevel Us) = some rus' ∧
       List.Forall₂ (TrExprS venv Us Δ) recArgs recArgs' ∧
       List.Forall₂ (TrExprS venv Us Δ) ctorArgs ctorArgs' ∧
       venv.IsDefEqU Us.length Δ.toCtx ve
@@ -320,8 +473,8 @@ theorem iota_defeq_spine {safety : DefinitionSafety} {kenv : Lean.Environment} {
   | @app f' A₀ B a' _ _ _ hTf hTa htrf htra =>
     obtain ⟨hve1, recArgs', htrRecHead, hall1, rfl⟩ := TrExprS.mkApps_inv htrf
     obtain ⟨hve2, ctorArgs', htrCtorHead, hall2, rfl⟩ := TrExprS.mkApps_inv htra
-    obtain ⟨rus', rfl⟩ := htrRecHead.const_inv
-    obtain ⟨cus', rfl⟩ := htrCtorHead.const_inv
+    obtain ⟨rus', hmapM, rfl⟩ := htrRecHead.const_inv
+    obtain ⟨cus', _, rfl⟩ := htrCtorHead.const_inv
     have hras' : recArgs'.length =
         rval.numParams + rval.numMotives + rval.numMinors + rval.numIndices := by
       rw [← Lean4Lean.List.Forall₂.length_eq hall1]; exact hras
@@ -330,7 +483,7 @@ theorem iota_defeq_spine {safety : DefinitionSafety} {kenv : Lean.Environment} {
     obtain ⟨m2, hm, hva, hvb⟩ :=
       Pattern.matches_iota (recName := recName) (cName := cName) (ls := rus') (ls' := cus')
         _ _ recArgs' ctorArgs' hras' hcas'
-    refine ⟨rhs, hc, rus', recArgs', ctorArgs', htrRhs, hall1, hall2, ?_⟩
+    refine ⟨rhs, hc, rus', recArgs', ctorArgs', htrRhs, hmapM, hall1, hall2, ?_⟩
     have := TrEnv.iota_defeq (chk := []) hpats hm hty trivial nofun
     rwa [SimplePattern.iotaRHS_apply hras' hcas' hva hvb] at this
 

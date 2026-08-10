@@ -240,3 +240,28 @@ open LeanToLambdaBox
 -- (`TrProj`) only.
 #print axioms LeanToLambdaBox.trExprS_beta_step
 #print axioms LeanToLambdaBox.trExprS_betaN
+
+-- ι Task 2, part 2: `TrExprS` spine *construction* via application generation
+-- (`Lean4Lean.VEnv.HasType.app_inv`, `Theory/Typing/Strong.lean` — a proved theorem at
+-- this pin, whose sorry-frontier is a subset of the one `VEnv.IsDefEq.uniqU` already
+-- carries), the `[] → Δ` transport of the fork-supplied rule template, and the payoff
+-- `iotaConsistent_of_shape`.
+--
+-- `iotaConsistent_of_shape` picks up lean4lean's `Lean.Expr`-implementation modelling
+-- axioms (`mkData_eq`, `mkAppData_eq`, `replace_eq`, `Level.hasMVar_eq`,
+-- `Level.hasParam_eq`, `Level.instLawfulBEqLevel`, and two `bv_decide` native checks in
+-- lean4lean's own `Expr.Data` bit-packing proofs) via `TrExprS.instL` — the price of
+-- level-instantiating a polymorphic recursor rule. They are NOT new: its axiom set is a
+-- strict SUBSET of the already-committed `shipping_visitExpr_correct'`'s. No axiom of
+-- ours; `PatsIotaSpec`/`SEnvConsistent`/`IotaShape` are hypotheses, never axioms.
+--
+-- The two `IotaShape` `Expr`-equation guards must be `rfl`-provable and essentially
+-- axiom-free (`[propext]`): they are closed `Expr` computations.
+#print axioms Lean4Lean.VExpr.WF.mkApps_head
+#print axioms Lean4Lean.TrExprS.mkApps
+#print axioms Lean4Lean.VEnv.IsDefEqU.mkApps_congr_head
+#print axioms Lean4Lean.TrExprS.weak_nil
+#print axioms Lean4Lean.TrExprS.instL_weak
+#print axioms LeanToLambdaBox.iotaConsistent_of_shape
+#print axioms LeanToLambdaBox.betaN_casesOn_guard
+#print axioms LeanToLambdaBox.betaN_ruleTemplate_guard

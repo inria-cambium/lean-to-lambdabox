@@ -226,10 +226,17 @@ spine to *exactly* `N = np + nfields`. The four premises `hia`/`har`/`hpre`/`hmi
 `hcargs` record that; without them the statement quantifies over spines the ι rule
 provably cannot fire on (over-applied `casesOn`s — precisely the C3 counterexample in
 `SubjectReductionIota.lean` — and partial applications), and those cases are not merely
-harder but *false* for the rule as modelled. -/
+harder but *false* for the rule as modelled.
+
+**Well-formed ambient context.** The `VLCtx.WF` premise is the same class of
+correction: every typing fact the derivation needs about the redex (`TrExprS.wf`, and
+the application generation that recovers the reduct spine's `HasType` nodes) is only
+available at a well-formed local context, and every consumer already has one in scope
+(`SEvalDataι_defeq` threads its own `hΔ`). -/
 def IotaConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (ia : IotaArities) : Prop :=
   ∀ {Δ : VLCtx} {con ctor : Name} {us cus : List Level} {pre minors cargs : List Expr}
     {iid : InductiveId} {np cidx nmot nidx nmin ar : Nat} {ve : VExpr},
+    VLCtx.WF env Us.length Δ →
     Γ.casesOns con = some (iid, np) → Γ.ctors ctor = some (iid, cidx) →
     ia con = some (nmot, nidx, nmin) → Γ.ctorArities ctor = some ar →
     pre.length = np + nmot + nidx → minors.length = nmin → cargs.length = ar →
