@@ -182,6 +182,28 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gRegisteredClosureRec
 #print axioms LeanToLambdaBox.gErasesEnvDeltaRec
 
+-- ============================================================================
+-- ι-T4a: the `casesOn` bridge, flat-alternative slice (`Supported.casesApp`,
+-- motives 15–18). New trust is the `CasesBridgeHyps` **Prop** bundle, NEVER an
+-- axiom. The `EraseM` loop rule and the pure `visitCases` loop arithmetic must be
+-- lean4lean-free (4 standard at most); the fragment inversions and the widened
+-- bridge inherit `sorryAx` exactly as before, with no axiom of ours added.
+-- ============================================================================
+#print axioms Erasure.run_list_forIn_ok'
+#print axioms Erasure.run_array_forIn_ok'
+#print axioms LeanToLambdaBox.IsLamTelescope.instantiate1'
+#print axioms LeanToLambdaBox.exists_app_of_foldl_app_ne_nil
+#print axioms LeanToLambdaBox.rco_toArray_getElem
+#print axioms LeanToLambdaBox.slice_toArray_toList_drop
+#print axioms LeanToLambdaBox.list_split_cases
+#print axioms LeanToLambdaBox.subarray_next?_facts
+#print axioms LeanToLambdaBox.visitCases_match_default
+#print axioms LeanToLambdaBox.CasesBridgeHyps
+#print axioms LeanToLambdaBox.CasesInfoAgrees
+#print axioms LeanToLambdaBox.ForallMatchesLam
+#print axioms LeanToLambdaBox.Supported.casesApp_inv
+#print axioms LeanToLambdaBox.casesApp_spine_facts
+
 -- P3-v2b Part 4 + composition: recursion subsumed by v1's RegisteredClosure, and the
 -- D3 capstone with env-δ-consistency sourced from registration. No axiom of ours.
 #print axioms LeanToLambdaBox.registeredClosure_of_registeredClosureRec

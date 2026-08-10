@@ -528,6 +528,79 @@ theorem run_array_forIn_ok (P : β → ErasureState → Void IO.RealWorld → Pr
   exact run_list_forIn_ok ctx cctx ref P as.toList f init s w hinit
     (fun a ha => hstep a (Array.mem_toList_iff.mp ha)) r s' w' hrun
 
+/-- Auxiliary induction for `run_list_forIn_ok'`, generalized over the processed
+prefix. -/
+theorem run_list_forIn_ok'_go (f : γ → β → EraseM (ForInStep β)) (L : List γ)
+    (P : List γ → β → ErasureState → Void IO.RealWorld → Prop)
+    (hyield : ∀ pre x post acc s₁ w₁ b s₂ w₂, L = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.yield b, s₂) w₂ →
+      P (pre ++ [x]) b s₂ w₂)
+    (hdone : ∀ pre x post acc s₁ w₁ b s₂ w₂, L = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.done b, s₂) w₂ → False) :
+    ∀ (todo pre : List γ), L = pre ++ todo →
+      ∀ acc s₁ w₁, P pre acc s₁ w₁ →
+      ∀ r s' w', forIn todo acc f s₁ ctx cctx ref w₁ = .ok (r, s') w' →
+      P L r s' w' := by
+  intro todo
+  induction todo with
+  | nil =>
+    intro pre hL acc s₁ w₁ hP r s' w' hrun
+    rw [List.forIn_nil, run_pure] at hrun
+    cases hrun
+    simpa [hL] using hP
+  | cons x todo ih =>
+    intro pre hL acc s₁ w₁ hP r s' w' hrun
+    rw [List.forIn_cons, run_bind_ok] at hrun
+    obtain ⟨st, s₂, w₂, hf, hcont⟩ := hrun
+    cases st with
+    | done b => exact (hdone pre x todo acc s₁ w₁ b s₂ w₂ hL hP hf).elim
+    | yield b =>
+      have hcont' : forIn todo b f s₂ ctx cctx ref w₂ = .ok (r, s') w' := hcont
+      exact ih (pre ++ [x]) (by rw [List.append_assoc, List.singleton_append]; exact hL)
+        b s₂ w₂ (hyield pre x todo acc s₁ w₁ b s₂ w₂ hL hP hf) r s' w' hcont'
+
+/-- **Prefix-indexed** Hoare rule for `forIn` over a `List`: like
+`run_list_forIn_ok`, but the invariant is indexed by the *processed prefix* (so
+the step hypothesis knows exactly which element is being processed, and at which
+position), and early exit is *refuted* rather than accommodated — the `.done`
+hypothesis must derive `False`. Consequently the conclusion is the invariant at
+the **whole** list, which is what a loop that fills one output slot per input
+needs (`visitCases`' parallel alternatives `for`, whose two
+`Std.Stream.next? = none` arms are `ForInStep.done`). -/
+theorem run_list_forIn_ok' {f : γ → β → EraseM (ForInStep β)} {L : List γ} {init : β}
+    {s : ErasureState} {w : Void IO.RealWorld}
+    (P : List γ → β → ErasureState → Void IO.RealWorld → Prop)
+    (hinit : P [] init s w)
+    (hyield : ∀ pre x post acc s₁ w₁ b s₂ w₂, L = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.yield b, s₂) w₂ →
+      P (pre ++ [x]) b s₂ w₂)
+    (hdone : ∀ pre x post acc s₁ w₁ b s₂ w₂, L = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.done b, s₂) w₂ → False)
+    {r : β} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : forIn L init f s ctx cctx ref w = .ok (r, s') w') :
+    P L r s' w' :=
+  run_list_forIn_ok'_go ctx cctx ref f L P hyield hdone L [] rfl init s w hinit r s' w' hrun
+
+/-- Prefix-indexed Hoare rule for `forIn` over an `Array`, phrased on
+`as.toList` (see `run_list_forIn_ok'`). This is the rule the `visitCases`
+alternatives loop needs: the parallel-`for` accumulator threads two
+`Std.Stream` states whose positions must be tied to the alternative index, which
+only a prefix-indexed invariant can express. -/
+theorem run_array_forIn_ok' {f : γ → β → EraseM (ForInStep β)} {as : Array γ} {init : β}
+    {s : ErasureState} {w : Void IO.RealWorld}
+    (P : List γ → β → ErasureState → Void IO.RealWorld → Prop)
+    (hinit : P [] init s w)
+    (hyield : ∀ pre x post acc s₁ w₁ b s₂ w₂, as.toList = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.yield b, s₂) w₂ →
+      P (pre ++ [x]) b s₂ w₂)
+    (hdone : ∀ pre x post acc s₁ w₁ b s₂ w₂, as.toList = pre ++ x :: post →
+      P pre acc s₁ w₁ → f x acc s₁ ctx cctx ref w₁ = .ok (.done b, s₂) w₂ → False)
+    {r : β} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : forIn as init f s ctx cctx ref w = .ok (r, s') w') :
+    P as.toList r s' w' := by
+  rw [← Array.forIn_toList] at hrun
+  exact run_list_forIn_ok' ctx cctx ref P hinit hyield hdone hrun
+
 /-- Auxiliary induction for `run_list_foldlM_ok`, generalized over the
 processed prefix. -/
 theorem run_list_foldlM_ok_go (g : β → γ → EraseM β) (L : List γ)
@@ -785,6 +858,71 @@ example (xs : Array Nat) (ys : List Nat) (r : Nat) (s' : ErasureState)
     rw [run_pure] at hbody
     cases hbody
     exact hP
+
+-- The prefix-indexed rule on the same parallel-`for` shape: the invariant now
+-- ties the *second* iterator's stream state to the position in the first, so the
+-- early-exit (`Std.Stream.next? = none`) arm is refutable whenever the second
+-- iterator is long enough. Here: as many outputs as inputs.
+example (xs : Array Nat) (ys : List Nat) (hlen : xs.size ≤ ys.length)
+    (r : Array Nat) (s' : ErasureState) (w' : Void IO.RealWorld)
+    (h : (do
+        let mut acc := (#[] : Array Nat)
+        for x in xs, y in ys do
+          acc := acc.push (x + y)
+        pure acc : EraseM (Array Nat)) s ctx cctx ref w = .ok (r, s') w') :
+    r.size = xs.size := by
+  rw [run_bind_ok] at h
+  obtain ⟨p, s₁, w₁, hloop, hp⟩ := h
+  obtain ⟨acc, ps⟩ := p
+  replace hp : (pure acc : EraseM (Array Nat)) s₁ ctx cctx ref w₁ = .ok (r, s') w' := hp
+  rw [run_pure] at hp
+  cases hp
+  have key := run_array_forIn_ok' ctx cctx ref
+    (P := fun pre (a : Array Nat × List Nat) _ _ =>
+      a.1.size = pre.length ∧ a.2 = ys.drop pre.length)
+    ⟨rfl, rfl⟩
+    (fun pre x post acc s₂ w₂ b s₃ w₃ hL hP hbody => by
+      obtain ⟨nacc, sacc⟩ := acc
+      obtain ⟨hsize, hdrop⟩ := hP
+      simp only [] at hsize hdrop hbody
+      have hlt : pre.length < ys.length := by
+        have h1 : pre.length < xs.toList.length := by rw [hL]; simp
+        simp only [Array.length_toList] at h1; omega
+      cases sacc with
+      | nil =>
+        exact absurd (List.drop_eq_nil_iff.mp hdrop.symm) (by omega)
+      | cons y rest =>
+        replace hbody :
+            (pure (ForInStep.yield (nacc.push (x + y), rest)) :
+              EraseM (ForInStep (Array Nat × List Nat))) s₂ ctx cctx ref w₂
+              = .ok (ForInStep.yield b, s₃) w₃ := hbody
+        rw [run_pure] at hbody
+        cases hbody
+        refine ⟨by simp [hsize], ?_⟩
+        show rest = ys.drop (pre ++ [x]).length
+        have h2 : ys.drop (pre.length + 1) = (ys.drop pre.length).drop 1 := by
+          rw [List.drop_drop]
+        simp only [List.length_append, List.length_cons, List.length_nil, h2, ← hdrop]
+        rfl)
+    (fun pre x post acc s₂ w₂ b s₃ w₃ hL hP hbody => by
+      obtain ⟨nacc, sacc⟩ := acc
+      obtain ⟨hsize, hdrop⟩ := hP
+      simp only [] at hsize hdrop hbody
+      have hlt : pre.length < ys.length := by
+        have h1 : pre.length < xs.toList.length := by rw [hL]; simp
+        simp only [Array.length_toList] at h1; omega
+      cases sacc with
+      | nil =>
+        exact absurd (List.drop_eq_nil_iff.mp hdrop.symm) (by omega)
+      | cons y rest =>
+        replace hbody :
+            (pure (ForInStep.yield (nacc.push (x + y), rest)) :
+              EraseM (ForInStep (Array Nat × List Nat))) s₂ ctx cctx ref w₂
+              = .ok (ForInStep.done b, s₃) w₃ := hbody
+        rw [run_pure] at hbody
+        exact nomatch hbody)
+    hloop
+  simpa using key.1
 
 end Examples
 

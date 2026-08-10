@@ -87,7 +87,7 @@ theorem shipping_erase_correct_firstorder_registered
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -105,7 +105,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hnfenv H HD hrun hinv hsup htr hnb hnfx hev hfo
+    hctorenv hcc hnfenv H HD C hrun hinv hsup htr hnb hnfx hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -117,6 +117,7 @@ and its uniqueness. The run and the two trust bundles stay hypothetical. -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
@@ -129,7 +130,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorder_registered envFO_wf (Us := []) (Esrc := fun _ => none)
-    (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_ ?_ H HD hrun hinv hsup envFO_trC hnb hnfx ?_ (envFO_foC_d harity)
+    (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_ ?_ H HD C hrun hinv hsup envFO_trC hnb hnfx ?_
+    (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.disj, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.erase, vacuous

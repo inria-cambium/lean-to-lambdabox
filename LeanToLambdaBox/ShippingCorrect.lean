@@ -73,7 +73,7 @@ theorem shipping_visitExpr_correct
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
     (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -86,7 +86,7 @@ theorem shipping_visitExpr_correct
     ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
   obtain ⟨t', vve, h1, h2, h3, _⟩ :=
     erases_correct henv hΔ hcon hdelta hnfenv htr
-      (visitExpr_refines_erases H HD henv.ordered e s ctx cctx ref w t s' w' hrun
+      (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
         Δ hinv hsup ⟨ve, htr⟩).1
       hnfx hev
   exact ⟨t', vve, h1, h2, h3⟩
@@ -114,7 +114,7 @@ theorem shipping_visitExpr_correct'
     (hdelta : ErasesEnvDelta (ves.venv .safe) Us Γ Esrc E)
     (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
-    (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw)
+    (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -126,7 +126,7 @@ theorem shipping_visitExpr_correct'
     (hev : SEvalβδ Esrc e v) :
     ∃ t' vve, Eval E t t' ∧ TrExprS (ves.venv .safe) Us Δ v vve ∧
       Erases (ves.venv .safe) Us Γ Δ v t' :=
-  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta hnfenv (R.toBridgeHyps wf) HD
+  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta hnfenv (R.toBridgeHyps wf) HD C
     hrun hinv hsup htr hnfx hev
 
 /-! ## Non-vacuity guard
@@ -142,7 +142,7 @@ itself, as a value), its `TrExprS` witness, and a concrete `BridgeInv` at
 `Δ = []`. -/
 example (Γ : ErasureCtx) (cfg : ErasureConfig)
     (gw : Void IO.RealWorld → NameGenerator)
-    (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw)
+    (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lam `a (.sort .zero) (.bvar 0) .default) {}
@@ -166,7 +166,7 @@ example (Γ : ErasureCtx) (cfg : ErasureConfig)
   exact shipping_visitExpr_correct (Esrc := fun _ => none) henv
     (Lean4Lean.TrLCtx.nil (env := .empty) (Us := [])).wf
     (fun h _ => nomatch h) (fun h => nomatch h) (fun {_ _} h => by simp [LBTerm.envLookup] at h)
-    H HD (known := fun _ => False) hrun
+    H HD C (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
       kfresh := fun _ h => nomatch h

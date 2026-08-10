@@ -25,10 +25,15 @@ terms on which the bridge theorem speaks. It deliberately covers
   `.construct iid cidx []` under an application spine, while `Erases.ctor` is the
   args-inside *block* form — bridging those needs an applied-form `Erases` rule
   and an `erases_correct` extension under `construct_app` semantics (future work);
-* **`casesOn` heads** (`Γ.casesOns`), **projections**, **literals** (under
-  `nat := .peano` a `Nat` literal routes into the constructor path; under
-  `.machine` into `prim`), and **`mdata`** (`Erases` has no `mdata` rule);
+* **projections**, **literals** (under `nat := .peano` a `Nat` literal routes
+  into the constructor path; under `.machine` into `prim`), and **`mdata`**
+  (`Erases` has no `mdata` rule);
 * everything `visitExpr` itself panics on (`sort`, `forallE`, `mvar`).
+
+Two spine-shaped rules extend it: `ctorApp` (saturated constructor applications,
+the data fragment) and `casesApp` (saturated `casesOn` applications with
+*manifest* λ minors and — for now, ι-T4a — zero-field alternatives, the ι
+fragment). Both are documented at their constructors.
 
 `bvar` *is* in the fragment even though `visitExpr`'s `.bvar` case is
 `unreachable!` on the locally-closed terms it actually visits: the predicate is
@@ -39,6 +44,45 @@ instantiates the binder with a fresh fvar first (`Supported.instantiate1'`).
 namespace LeanToLambdaBox
 
 open Lean Lean4Lean
+
+/-- `e` is a **manifest** λ-telescope of depth at least `n`.
+
+Needed by the ι fragment: `Erasure.lambdaOrIntroToArity`'s "intro" branch
+η-expands a non-`.lam` minor (`k (.app e (.fvar x)) …`), and `Erases` has **no η
+rule** — no derivation relates a non-`.lam` source to a `.lambda`-headed target.
+So only manifest lambdas keep the eraser inside the relation; see the
+`Supported.casesApp` docstring for the coverage consequence. -/
+def IsLamTelescope : Nat → Expr → Prop
+  | 0,   _            => True
+  | n+1, .lam _ _ b _ => IsLamTelescope n b
+  | _+1, _            => False
+
+@[simp] theorem IsLamTelescope_zero (e : Expr) : IsLamTelescope 0 e := trivial
+
+/-- Manifest λ-telescopes survive opening a binder (both sides descend at the
+same de Bruijn depth). -/
+theorem IsLamTelescope.instantiate1' {n : Nat} {e v : Expr} :
+    IsLamTelescope n e → ∀ k, IsLamTelescope n (e.instantiate1' v k) := by
+  induction n generalizing e with
+  | zero => intro _ _; trivial
+  | succ n ih =>
+    match e with
+    | .lam nm ty b bi =>
+      intro h k
+      show IsLamTelescope (n + 1) (Expr.lam nm _ (b.instantiate1' v (k + 1)) bi)
+      exact ih h (k + 1)
+    | .bvar _ | .fvar _ | .mvar _ | .sort _ | .const _ _ | .app _ _ | .letE _ _ _ _ _
+    | .lit _ | .mdata _ _ | .proj _ _ _ | .forallE _ _ _ _ => intro h _; exact absurd h id
+
+/-- A nonempty `foldl Expr.app` spine is an `.app` node. Used to refute the
+spine-shaped `Supported` rules (`ctorApp`, `casesApp`) against
+`.const`/`.lam`/`.letE`-headed goals. -/
+theorem exists_app_of_foldl_app_ne_nil (f : Expr) :
+    ∀ {args : List Expr}, args ≠ [] → ∃ g a, args.foldl Expr.app f = .app g a := by
+  intro args h
+  rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
+  · exact absurd rfl h
+  · exact ⟨init.foldl Expr.app f, last, by rw [List.concat_eq_append, List.foldl_append]; rfl⟩
 
 /-- The v1 supported fragment of the `visitExpr`→`Erases` bridge (see module
 docstring). Syntactic in the source term and the static erasure context `Γ`:
@@ -75,6 +119,46 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
       (hzero : cn ≠ ``Nat.zero) (hsucc : cn ≠ ``Nat.succ)
       (hargs : ∀ i (hi : i < args.length), Supported known Γ (args[i])) :
       Supported known Γ (args.foldl Expr.app (.const cn us))
+  /-- A **saturated `casesOn` application** (ι fragment, C4). Mirrors `ctorApp`'s
+      saturation discipline. `con` is a registered `casesOn` head (`Γ.casesOns`) whose
+      discriminant sits at `Γ.casesDiscrPos con = some dp`; the inductive has
+      per-constructor field-count list `Γ.ctorFields iid = some nfs`; the spine is
+      **exactly** `dp` dropped arguments, the discriminant, and one minor per
+      constructor — i.e. `CasesInfo.arity` arguments — so `visitCasesEtaGo`'s
+      η-expansion branch is dead. The dropped prefix `pre` (params/motive/indices)
+      carries **no** obligation: `Erases.cases` imposes none, and the eraser never
+      visits it. `con.getPrefix ∉ {Nat, Int}` kills `visitCases`' machine-`Nat`/`Int`
+      special cases purely, exactly as `cn ≠ Nat.zero/succ` does for `ctorApp`.
+      Over-application composes on top via `Supported.app`.
+
+      **Fragment boundaries** (all deliberate, all needed by the model):
+      * each minor is a **manifest** λ-telescope of at least its constructor's field
+        count (`hlam`) — the eraser's `lambdaOrIntroToArity` intro branch η-expands,
+        which `Erases` cannot model (no η rule). Lean's `match` compiler emits minors
+        as explicit `fun a b => …`, so real pattern-matching code is inside the
+        fragment; hand-written η-contracted minors (`Option.casesOn o none Some`) are
+        not. Fixing that needs an `Erases`-level η rule, not more proof effort.
+      * `hflat` — **temporary** (ι-T4a, the flat-alternative slice): every constructor
+        has zero retained fields, so `lambdaOrIntroToArity … 0 k = k e []` and no
+        binder is ever opened. This covers `Bool`, `Ordering`, `Decidable`-style
+        dispatch and any enum match. ι-T4b deletes it (a weakening for producers).
+
+      The conclusion is spelled with the *flat* spine `pre ++ discr :: minors`;
+      `List.foldl_append` relates it to `Erases.cases`' nested
+      `(discr :: minors).foldl _ (pre.foldl _ _)`. -/
+  | casesApp {con : Name} {us : List Level} {iid : InductiveId} {np dp : Nat}
+      {nfs : List Nat} {pre minors : List Expr} {discr : Expr}
+      (hc : Γ.casesOns con = some (iid, np))
+      (hdp : Γ.casesDiscrPos con = some dp)
+      (hnfs : Γ.ctorFields iid = some nfs)
+      (hpre : pre.length = dp)
+      (hsat : minors.length = nfs.length)
+      (hflat : ∀ j (h : j < nfs.length), nfs[j] = 0)
+      (hnat : con.getPrefix ≠ ``Nat) (hint : con.getPrefix ≠ ``Int)
+      (hdiscr : Supported known Γ discr)
+      (hlam : ∀ j (h : j < minors.length), IsLamTelescope (nfs[j]'(hsat ▸ h)) (minors[j]))
+      (hminors : ∀ j (h : j < minors.length), Supported known Γ (minors[j])) :
+      Supported known Γ ((pre ++ discr :: minors).foldl Expr.app (.const con us))
 
 /-- The fragment is closed under opening a binder with a free variable — the
 form in which the bridge's binder cases recurse (`lambdaMonocular`/`letMonocular`
@@ -101,6 +185,19 @@ theorem Supported.instantiate1' {known : Name → Prop} {Γ : ErasureCtx} {e : E
     refine .ctorApp hc hcases har (by simp [hsat]) hzero hsucc (fun i hi => ?_)
     rw [List.getElem_map]
     exact ihargs i (by simpa using hi) k
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+      hdiscr hlam hminors ihdiscr ihminors =>
+    rw [instantiate1'_foldl_app]
+    simp only [Expr.instantiate1', List.map_append, List.map_cons]
+    refine .casesApp (pre := pre.map (·.instantiate1' (.fvar x) k))
+      (minors := minors.map (·.instantiate1' (.fvar x) k))
+      (discr := discr.instantiate1' (.fvar x) k)
+      hc hdp hnfs (by simp [hpre]) (by simp [hsat]) hflat hnat hint (ihdiscr k)
+      (fun j hj => ?_) (fun j hj => ?_)
+    · rw [List.getElem_map]
+      exact (hlam j (by simpa using hj)).instantiate1' k
+    · rw [List.getElem_map]
+      exact ihminors j (by simpa using hj) k
 
 /-- Version at the real `Expr.instantiate1` (what the shipping code runs),
 transported along lean4lean's modeling axiom `instantiate1_eq`. -/
@@ -128,6 +225,11 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+      hdiscr hlam hminors =>
+      obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
+        (args := pre ++ discr :: minors) (by simp)
+      rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
 
 example {known : Name → Prop} {Γ : ErasureCtx} :
@@ -139,6 +241,11 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+      hdiscr hlam hminors =>
+      obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
+        (args := pre ++ discr :: minors) (by simp)
+      rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
 
 /-- A saturated nullary constructor *is* in the fragment (`ctorApp`, `args = []`,
@@ -158,6 +265,38 @@ example (iid : InductiveId) :
   · decide
   · decide
   · intro i hi; exact absurd hi (by simp)
+
+/-- A saturated `casesOn` application *is* in the fragment (`casesApp`, flat
+alternatives): `J` has one parameter and one index, so the motive and the index
+push the discriminant to `dp = 3 ≠ numParams`; two constructors with no retained
+fields give two `.fvar` minors. Exercises `hpre` at a `dp` that is *not* the
+parameter count — the pin that stops an over-applied `casesOn` from being
+re-parsed with the first minor as discriminant. -/
+example (iid : InductiveId) (p m i d a b : FVarId) :
+    Supported (fun _ => True)
+      ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none,
+        fun n => if n = `J.casesOn then some (iid, 1) else none,
+        fun _ => some [0, 0],
+        fun n => if n = `J.casesOn then some 3 else none⟩
+      ([Expr.fvar p, .fvar m, .fvar i, .fvar d, .fvar a, .fvar b].foldl Expr.app
+        (.const `J.casesOn [])) := by
+  have h : ([Expr.fvar p, .fvar m, .fvar i, .fvar d, .fvar a, .fvar b] : List Expr)
+      = [Expr.fvar p, .fvar m, .fvar i] ++ Expr.fvar d :: [Expr.fvar a, .fvar b] := rfl
+  rw [h]
+  refine .casesApp (iid := iid) (np := 1) (dp := 3) (nfs := [0, 0]) (by simp) (by simp) rfl
+    rfl rfl ?_ (by decide) (by decide) (.fvar d) ?_ ?_
+  · intro j hj
+    match j, hj with
+    | 0, _ => rfl
+    | 1, _ => rfl
+  · intro j hj
+    match j, hj with
+    | 0, _ => trivial
+    | 1, _ => trivial
+  · intro j hj
+    match j, hj with
+    | 0, _ => exact .fvar a
+    | 1, _ => exact .fvar b
 
 /-! ## lctx ↔ `VLCtx` correspondence: extension lemmas
 

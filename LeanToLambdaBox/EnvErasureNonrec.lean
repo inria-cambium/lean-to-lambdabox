@@ -172,7 +172,8 @@ from `visitExpr_refines_erases`'s own guards (`VisitExprRefines.lean` NonVacuity
 the `Δ = []` invariant guard below. -/
 theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (henv : env.Ordered)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (henv : env.Ordered)
     {prepbody : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {body' : LBTerm}
     {s' : ErasureState} {w' : Void IO.RealWorld}
@@ -181,7 +182,7 @@ theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name →
     (hsupp : Supported known Γ prepbody)
     (hex : ∃ ve, TrExprS env Us [] prepbody ve) :
     Erases env Us Γ [] prepbody body' :=
-  (visitExpr_refines_erases H HD henv _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
+  (visitExpr_refines_erases H HD C henv _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
 
 /-- **Cold-start closure registration for the non-recursive fragment** (a clean `Prop`
 hypothesis; P3-v2b's DAG registration discharges it). For every source constant `n`

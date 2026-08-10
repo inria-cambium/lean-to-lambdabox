@@ -58,7 +58,7 @@ theorem shipping_visitExpr_correct_data
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hnfenv : NoFixEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -73,7 +73,7 @@ theorem shipping_visitExpr_correct_data
       Erases env Us Γ Δ v t' ∧ NoBlock t' := by
   obtain ⟨t', vve, h1, h2, h3, h4, _⟩ :=
     erases_correct_data henv hΔ hcon hdelta hctorenv hcc hnfenv hev htr
-      (visitExpr_refines_erases H HD henv.ordered e s ctx cctx ref w t s' w' hrun
+      (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
         Δ hinv hsup ⟨ve, htr⟩).1
       hnb hnfx
   exact ⟨t', vve, h1, h2, h3, h4⟩
@@ -87,6 +87,7 @@ itself. The run and the two trust bundles stay hypothetical (opaque primitives);
 everything else — including the `NoBlock` witness — is constructed. -/
 example (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
@@ -98,7 +99,7 @@ example (gw : Void IO.RealWorld → NameGenerator)
       Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_visitExpr_correct_data envFO_wf (Us := []) (Δ := []) trivial
-    (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ ?_ H HD hrun hinv hsup htr hnb hnfx ?_
+    (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ ?_ H HD C hrun hinv hsup htr hnb hnfx ?_
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
   · intro cn iid cidx hc
