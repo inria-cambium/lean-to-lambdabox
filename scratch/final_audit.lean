@@ -278,3 +278,77 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.iotaConsistent_of_shape
 #print axioms LeanToLambdaBox.betaN_casesOn_guard
 #print axioms LeanToLambdaBox.betaN_ruleTemplate_guard
+
+-- ============================================================================
+-- ι Task 3: the ι forward simulation (`ErasesCorrectIota.lean`), the `casesOn`-spine
+-- erasure inversion (`ErasesCorrectData.lean`), the relocated closedness/de-Bruijn kit
+-- (`Closed.lean`), and the Γ-population coherence discharge (`EnvErasureNonrec.lean`).
+--
+-- The `LBTerm` layers must be **sorryAx-free**: `Closed.lean` touches only `LBTerm`,
+-- never `TrExprS`, so `LBClosed`'s metatheory and the general de Bruijn commutation kit
+-- (`subst_subst` and friends) carry nothing beyond `propext`/`Quot.sound`. Everything
+-- that mentions `Erases`/`TrExprS` inherits `sorryAx` from lean4lean's `TrProj`
+-- placeholder — the pre-existing boundary, no new gap.
+--
+-- `IotaConsistent`, `PatsIotaSpec`, `IotaShape`, `IotaRelevant`, `ClosedEnv`,
+-- `ErasesEnvCasesι`, `FlatCaseFields`, `CtorFieldsCoherent`, `IotaArityCoherent` are all
+-- HYPOTHESES (Props with constructed guards where constructible), never axioms, so they
+-- add nothing to any axiom set below.
+-- ============================================================================
+
+-- The de Bruijn / closedness kit: pure LBTerm, must be sorryAx-free.
+#print axioms LeanToLambdaBox.LBClosed.mono
+#print axioms LeanToLambdaBox.LBClosed.shift
+#print axioms LeanToLambdaBox.LBClosed.subst
+#print axioms LeanToLambdaBox.LBClosed.subst1
+#print axioms LeanToLambdaBox.LBClosed.substList
+#print axioms LeanToLambdaBox.LBClosed.mkApps
+#print axioms LeanToLambdaBox.LBClosed.mkApps_inv
+#print axioms LeanToLambdaBox.LBClosed.mkLambdas
+#print axioms LBTerm.shift_shift
+#print axioms LBTerm.subst_shift_cancel
+#print axioms LBTerm.subst_shift_comm
+#print axioms LBTerm.subst_subst
+
+-- `NoBlock`/`NoFix` now traverse `.case`; their shift/subst preservation must stay
+-- sorryAx-free (pure LBTerm).
+#print axioms LeanToLambdaBox.noBlock_shift
+#print axioms LeanToLambdaBox.noBlock_subst
+#print axioms LeanToLambdaBox.noFix_shift
+#print axioms LeanToLambdaBox.noFix_subst
+
+-- A6ι: the `casesOn`-spine erasure inversion and its exact-arity corollary.
+-- Spine injectivity is pure `Expr` combinatorics (sorryAx-free); the inversions
+-- themselves inherit `sorryAx` via `Erases`/`TrExprS`.
+#print axioms LeanToLambdaBox.foldl_app_const_inj
+#print axioms LeanToLambdaBox.Erases.app_inv_t
+#print axioms LeanToLambdaBox.Erases.const_inv_full
+#print axioms LeanToLambdaBox.Erases.cases_spine_inv
+#print axioms LeanToLambdaBox.Erases.iota_redex_inv
+
+-- C2, with `IotaConsistent` discharged, and the extracted ι reduct step.
+#print axioms LeanToLambdaBox.SEvalDataι_iota_reduct
+#print axioms LeanToLambdaBox.SEvalDataι_defeq_of_shape
+
+-- The two-stage `IotaShape` guards (closed `Expr` computations, `rfl`).
+#print axioms LeanToLambdaBox.betaN_ruleTemplate_eta_guard
+#print axioms LeanToLambdaBox.betaN_ruleTemplate_rec_guard
+
+-- C3: the ι forward simulation on the flat fragment, and the source-side elimination
+-- it rests on. No axiom of ours.
+#print axioms LeanToLambdaBox.SEvalDataι_partial_cases_lam_elim
+#print axioms LeanToLambdaBox.erases_correct_dataι
+
+-- Γ-population coherence: the non-Prop conjunct and the `CtorFieldsCoherent` discharge,
+-- plus the constructed non-vacuity guards for every ι side condition except
+-- `IotaRelevant` (see `ErasesCorrectIota.lean` for why that one has none at this pin).
+#print axioms LeanToLambdaBox.ErasesEnvCases.nonProp
+#print axioms LeanToLambdaBox.ctorFieldsCoherent_of_registered
+#print axioms LeanToLambdaBox.gΓι_ctorFieldsCoherent
+#print axioms LeanToLambdaBox.gΓι_iotaArityCoherent
+#print axioms LeanToLambdaBox.gΓι_nonProp
+#print axioms LeanToLambdaBox.gΓflat_flat
+#print axioms LeanToLambdaBox.gΓflat_erasesEnvCasesι
+#print axioms LeanToLambdaBox.gΓflat_ctorFieldsCoherent
+#print axioms LeanToLambdaBox.gΓflat_iotaArityCoherent
+#print axioms LeanToLambdaBox.gEcl_closedEnv
