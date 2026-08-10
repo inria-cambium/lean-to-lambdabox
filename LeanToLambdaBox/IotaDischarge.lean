@@ -85,13 +85,18 @@ the guards stay at the level of its two halves:
   `bvar 3` — the recursor's **index**, which sits between the minors and the major —
   and `bvar 4` — the constructor's **parameter** — keeping `[bvar 0, bvar 1, bvar 2]`
   and `[bvar 5]`.
-* `betaN_casesOn_guard` / `betaN_ruleTemplate_guard` — `IotaShape`'s two `Expr`
-  equations hold, by `rfl`, on a concrete `casesOn` wrapper and a concrete recursor
-  rule template at the same `np = nmot = nmin = nind = nfields = 1` shape. The first
-  certifies the argument **reordering** between `C.casesOn`'s telescope
+* `betaN_casesOn_guard` / `betaN_ruleTemplate_guard` — `IotaShape`'s `Expr` equations
+  hold, by `rfl`, on a concrete `casesOn` wrapper and a concrete recursor rule template
+  at the same `np = nmot = nmin = nind = nfields = 1` shape. The first certifies the
+  argument **reordering** between `C.casesOn`'s telescope
   (`params motive indices major minors`) and `C.rec`'s
   (`params motives minors indices major`); the second certifies that `betaN` stops with
   the branch **applied to** the fields rather than contracting them away.
+* `betaN_ruleTemplate_eta_guard` / `betaN_ruleTemplate_rec_guard` — the *two-stage* form
+  against the shapes the kernel really generates: `Option.casesOn`'s η-wrapper
+  (`ihs = []`) and `Nat.casesOn`'s IH-discarding wrapper (`ihs ≠ []`). The degenerate
+  guard above uses a hand-written non-η template, which is why the single-stage
+  statement's unsatisfiability for every field-carrying inductive went unnoticed.
 -/
 
 namespace LeanToLambdaBox
@@ -219,13 +224,38 @@ The two β equations are exactly steps (2) and (4)/(5) of the chain:
   `(rec P̄ M̄ minors Ī) major`. This is where the argument reordering between
   `C.casesOn`'s telescope (`params motive indices major minors`) and `C.rec`'s
   (`params motives minors indices major`) is recorded, by the `recArgs` function.
-* the per-constructor equation — the recursor rule's template, applied to the
-  recursor spine's `params ++ motives ++ minors` (the ι reduct's rec-side slice) and
-  then the constructor's fields (its ctor-side slice), β-normalises to the selected
-  minor applied to the fields, *un-contracted*. `betaN` stops when its pending
-  argument list is exhausted, so the applications the template's body builds survive
-  even when the minor is itself a λ — which is what makes this equal to
-  `IotaConsistent`'s target rather than to its β-contraction. -/
+* the per-constructor equation, **in two β stages** — the recursor rule's template,
+  applied to the recursor spine's `params ++ motives ++ minors` (the ι reduct's rec-side
+  slice) and then the constructor's fields (its ctor-side slice), β-normalises to a
+  *wrapper* applied to the fields **and the recursive calls**; the wrapper then discards
+  the recursive calls and hands the fields to the selected minor. `betaN` stops when its
+  pending argument list is exhausted, so the applications the template's body builds
+  survive even when the minor is itself a λ — which is what makes this equal to
+  `IotaConsistent`'s target rather than to its β-contraction.
+
+  **Why two stages** (probed against the real kernel, v4.33.0-rc2). Lean's generated
+  `casesOn` **η-expands every minor that takes fields**, and for a recursive inductive
+  the wrapper additionally swallows the induction hypotheses:
+  ```
+  Bool.casesOn   := fun {motive} t false true => Bool.rec false true t
+  Option.casesOn := fun {α} {motive} t none some => Option.rec none (fun val => some val) t
+  Nat.casesOn    := fun {motive} t zero succ => Nat.rec zero (fun n n_ih => succ n) t
+  Nat.rec's succ rule rhs = fun motive zero succ n => succ n (Nat.rec zero succ n)
+  ```
+  So for anything but a zero-field constructor the single-stage reduct ends in a redex
+  `betaN` cannot contract — it is created *inside* the template's body, not pending in
+  the supplied argument list — and the old one-stage equation was **unsatisfiable for
+  `Option`, `Nat`, `List`, `Prod`, …**, i.e. for every inductive except enumerations.
+  (The earlier guard did not catch this because it used a hand-written, *non*-η-expanded
+  template, a shape no real `casesOn` has.)
+
+  Stage two *discards* `ihs`, which is exactly the semantic content of "a `casesOn` is a
+  recursor whose minors ignore the recursive results" — the fact that makes
+  `SEvalDataι.iota`'s reduct `(cargs.drop np).foldl app minors[cidx]` (fields only, no
+  IHs) the right source-side reduct in the first place. Making it a certificate
+  *obligation* rather than an unstated assumption is a strict improvement in honesty.
+  For a non-recursive inductive with a zero-field constructor the wrapper is the minor
+  itself, `ihs = []`, and stage two is `rfl`. -/
 
 /-- **Per-`casesOn` shape certificate** (see the section docstring). -/
 structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Environment)
@@ -255,9 +285,11 @@ structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Environment)
           ∀ (pre minors fields : List Expr) (hidx : cidx < minors.length),
             pre.length = np + nmot + nidx → minors.length = nmin →
             fields.length = rule.nfields →
-            betaN (rule.rhs.instantiateLevelParams rval.levelParams rus)
-              ((recArgs pre minors).take (np + nmot + nmin) ++ fields)
-              = fields.foldl Expr.app (minors[cidx]'hidx))
+            ∃ (wrapper : Expr) (ihs : List Expr),
+              betaN (rule.rhs.instantiateLevelParams rval.levelParams rus)
+                ((recArgs pre minors).take (np + nmot + nmin) ++ fields)
+                = (fields ++ ihs).foldl Expr.app wrapper ∧
+              betaN wrapper (fields ++ ihs) = fields.foldl Expr.app (minors[cidx]'hidx))
 
 /-! ## The payoff: `IotaConsistent` from the spec plus the certificate -/
 
@@ -327,12 +359,18 @@ theorem iotaConsistent_of_shape {safety : DefinitionSafety} {kenv : Lean.Environ
       (forall2_take (rval.numParams + rval.numMotives + rval.numMinors) hall1)
       (forall2_drop rval.numParams hall2))
     htrRhsSrc hcongr.wf_l
-  -- (4b)/(5) β-normalise the template to the branch applied to the fields.
+  -- (4b) β-normalise the template to the `casesOn`-inserted wrapper applied to the
+  -- fields and the recursive calls, then (5) β-normalise the wrapper away.
   obtain ⟨ve₄, htr₄, hd₄⟩ := trExprS_betaN henv hΔ _ htr₃
-  rw [hbeta2 pre minors (cargs.drop rval.numParams) hidx hpre hmin (by simp [hcargs])] at htr₄
-  refine ⟨ve₄, htr₄, ?_⟩
+  obtain ⟨wrapper, ihs, hstage1, hstage2⟩ :=
+    hbeta2 pre minors (cargs.drop rval.numParams) hidx hpre hmin (by simp [hcargs])
+  rw [hstage1] at htr₄
+  obtain ⟨ve₅, htr₅, hd₅⟩ := trExprS_betaN henv hΔ _ htr₄
+  rw [hstage2] at htr₅
+  refine ⟨ve₅, htr₅, ?_⟩
   exact VEnv.IsDefEqU.trans henv hΓ hd₁ (VEnv.IsDefEqU.trans henv hΓ hd₂
-    (VEnv.IsDefEqU.trans henv hΓ hd₃ (VEnv.IsDefEqU.trans henv hΓ hcongr.symm hd₄)))
+    (VEnv.IsDefEqU.trans henv hΓ hd₃ (VEnv.IsDefEqU.trans henv hΓ hcongr.symm
+      (VEnv.IsDefEqU.trans henv hΓ hd₄ hd₅))))
 
 /-! ### The guard environment
 
@@ -480,15 +518,70 @@ private def ruleRhsG : Expr :=
   .lam `p ty (.lam `motive ty (.lam `minor ty (.lam `field ty
     (.app (.bvar 1) (.bvar 0)) .default) .default) .default) .default
 
-/-- **`IotaShape`'s per-constructor equation fires.** The rule template, applied to the
-recursor spine's `take (np+nmot+nmin) = [p, motive, minor]` (the **index** `A2` is
-dropped) and then the constructor's fields `[f0]` (its **parameter** having been
-dropped by the ctor-side `drop np`), β-normalises to the selected minor **applied to**
-the fields — not to their contraction: `betaN` stops when its pending argument list is
-exhausted, so the application the template's body builds survives. -/
+/-- **`IotaShape`'s per-constructor equation fires — degenerate case.** The rule
+template, applied to the recursor spine's `take (np+nmot+nmin) = [p, motive, minor]`
+(the **index** `A2` is dropped) and then the constructor's fields `[f0]` (its
+**parameter** having been dropped by the ctor-side `drop np`), β-normalises to the
+selected minor **applied to** the fields — not to their contraction: `betaN` stops when
+its pending argument list is exhausted, so the application the template's body builds
+survives. Here the `casesOn` inserted no wrapper, so `wrapper = minor`, `ihs = []` and
+stage two is `rfl`. -/
 theorem betaN_ruleTemplate_guard :
-    betaN ruleRhsG (([A0, A1, A4, A2]).take (1 + 1 + 1) ++ [F0])
-      = ([F0]).foldl Expr.app A4 := by
-  rfl
+    ∃ (wrapper : Expr) (ihs : List Expr),
+      betaN ruleRhsG (([A0, A1, A4, A2]).take (1 + 1 + 1) ++ [F0])
+        = ([F0] ++ ihs).foldl Expr.app wrapper ∧
+      betaN wrapper ([F0] ++ ihs) = ([F0]).foldl Expr.app A4 :=
+  ⟨A4, [], rfl, rfl⟩
+
+/-! ### Guards for the *two-stage* form (ι Task 3)
+
+The degenerate guard above uses a hand-written, non-η-expanded template — a shape no
+real `casesOn` has, which is exactly why the single-stage statement survived as long as
+it did. These two check the stage split against the shapes the kernel actually generates:
+`Option.casesOn`'s η-wrapper (`fun val => some val`, `ihs = []`) and `Nat.casesOn`'s
+IH-discarding wrapper (`fun n n_ih => succ n`, `ihs ≠ []`). Both stages are closed `Expr`
+computations, hence `rfl`. -/
+
+/-- The η-wrapper Lean's `Option.casesOn` inserts for the one-field minor:
+`fun val => minor val`. -/
+private def someW : Expr := .lam `v ty (.app A4 (.bvar 0)) .default
+
+/-- `Option.rec`'s `some` rule template: `fun α motive none some val => some val`.
+Inside the body `val = #0`, `some = #1`. -/
+private def ruleRhsEtaG : Expr :=
+  .lam `a ty (.lam `motive ty (.lam `mnone ty (.lam `msome ty (.lam `field ty
+    (.app (.bvar 1) (.bvar 0)) .default) .default) .default) .default) .default
+
+/-- **Stage split at `Option.some`'s shape** (`np = nmot = 1`, `nmin = 2`, one field).
+The template reduces to the *η-wrapper* applied to the field — a redex the single-stage
+equation could not express — and the wrapper then hands the field to the minor. -/
+theorem betaN_ruleTemplate_eta_guard :
+    ∃ (wrapper : Expr) (ihs : List Expr),
+      betaN ruleRhsEtaG (([A0, A1, A2, someW]).take (1 + 1 + 2) ++ [F0])
+        = ([F0] ++ ihs).foldl Expr.app wrapper ∧
+      betaN wrapper ([F0] ++ ihs) = ([F0]).foldl Expr.app A4 :=
+  ⟨someW, [], rfl, rfl⟩
+
+/-- The IH-discarding wrapper Lean's `Nat.casesOn` inserts: `fun n n_ih => minor n`. -/
+private def succW : Expr := .lam `n ty (.lam `nih ty (.app A4 (.bvar 1)) .default) .default
+
+/-- `Nat.rec`'s `succ` rule template: `fun motive zero succ n => succ n (R n)`, with
+`R n` standing for the recursive call the rule builds. Inside the body `n = #0`,
+`succ = #1`. -/
+private def ruleRhsRecG : Expr :=
+  .lam `motive ty (.lam `mzero ty (.lam `msucc ty (.lam `n ty
+    (.app (.app (.bvar 1) (.bvar 0)) (.app (.const `R []) (.bvar 0))) .default)
+    .default) .default) .default
+
+/-- **Stage split at `Nat.succ`'s shape** (`np = 0`, `nmot = 1`, `nmin = 2`, one field,
+**recursive**). Stage one produces the wrapper applied to the field *and the recursive
+call*; stage two **discards** the recursive call — which is precisely the fact that makes
+`SEvalDataι.iota`'s fields-only reduct the right one. -/
+theorem betaN_ruleTemplate_rec_guard :
+    ∃ (wrapper : Expr) (ihs : List Expr),
+      betaN ruleRhsRecG (([A1, A2, succW]).take (0 + 1 + 2) ++ [F0])
+        = ([F0] ++ ihs).foldl Expr.app wrapper ∧
+      betaN wrapper ([F0] ++ ihs) = ([F0]).foldl Expr.app A4 :=
+  ⟨succW, [.app (.const `R []) F0], rfl, rfl⟩
 
 end LeanToLambdaBox
