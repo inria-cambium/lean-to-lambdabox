@@ -1,4 +1,5 @@
 import LeanToLambdaBox.EnvErasureNonrec
+import LeanToLambdaBox.Closed
 
 /-!
 # Cold-start env-consistency discharge: the **recursive** (value-`fix`) fragment (P3-v2b)
@@ -23,7 +24,7 @@ derivation from
   inertness equalities of `Erases.fix` (`hlift`/`hinst`/`habsl`/`hshift`/`hsubst`/`htobv`)
   are *derived* rather than assumed — the Expr side via lean4lean's
   `liftLooseBVars_eq_self`/`instantiate1'_eq_self`/`FVarsIn.abstract_eq_self`, the LBTerm
-  side via the small `LBClosed` de-Bruijn-closedness metatheory built in Part 1.
+  side via the small `LBClosed` de-Bruijn-closedness metatheory (`Closed.lean`).
 
 As in the non-recursive fragment, the cold-start DAG registration (which recursive
 constants land in `E`, and that each is registered with a consistent `.fix` decl) is
@@ -36,175 +37,14 @@ namespace LeanToLambdaBox
 
 open Lean Lean4Lean Erasure
 
-/-! ## Part 1 — `LBClosed`: de-Bruijn closedness for `LBTerm`
+/-! ## Part 1 — `LBClosed` (now in `Closed.lean`)
 
-`LBClosed t k` holds when `t` has no loose de-Bruijn index `≥ k` (the `LBTerm`
-analogue of lean4lean's `Lean4Lean.Closed`). It is exactly what makes `shift`/`subst`
-the identity on the constructed `.fix` node (whose bodies live under `defs.length`
-binders and are otherwise closed). Defined by the same mutual recursion as
-`shift`/`hasFVar` (the per-list traversals factored into helpers so the
-structural-recursion checker sees through the nested `List` occurrences). -/
-
-mutual
-/-- No loose de-Bruijn index `≥ k` occurs in `t`. -/
-def LBClosed : LBTerm → Nat → Prop
-  | .box, _ => True
-  | .bvar i, k => i < k
-  | .fvar _, _ => True
-  | .lambda _ b, k => LBClosed b (k + 1)
-  | .letIn _ v b, k => LBClosed v k ∧ LBClosed b (k + 1)
-  | .app f a, k => LBClosed f k ∧ LBClosed a k
-  | .const _, _ => True
-  | .construct _ _ args, k => LBClosedArgs args k
-  | .case _ discr alts, k => LBClosed discr k ∧ LBClosedAlts alts k
-  | .proj _ e, k => LBClosed e k
-  | .fix defs _, k => LBClosedDefs defs (k + defs.length)
-  | .prim _, _ => True
-
-/-- `LBClosed` over a `construct` argument list (each argument closed at `k`). -/
-def LBClosedArgs : List LBTerm → Nat → Prop
-  | [], _ => True
-  | t :: rest, k => LBClosed t k ∧ LBClosedArgs rest k
-
-/-- `LBClosed` over `case` alternatives (each branch body closed below its own field
-binders). -/
-def LBClosedAlts : List (List BinderName × LBTerm) → Nat → Prop
-  | [], _ => True
-  | (ns, b) :: rest, k => LBClosed b (k + ns.length) ∧ LBClosedAlts rest k
-
-/-- `LBClosed` over `fix` definitions (each body closed at the shared level `k`, which
-the caller sets to include the `defs.length` fix binders). -/
-def LBClosedDefs : List (@FixDef LBTerm) → Nat → Prop
-  | [], _ => True
-  | fd :: rest, k => LBClosed fd.body k ∧ LBClosedDefs rest k
-end
-
-@[simp] theorem LBClosed_box (k : Nat) : LBClosed .box k ↔ True := Iff.rfl
-@[simp] theorem LBClosed_bvar (i k : Nat) : LBClosed (.bvar i) k ↔ i < k := Iff.rfl
-@[simp] theorem LBClosed_fvar (x : FVarId) (k : Nat) : LBClosed (.fvar x) k ↔ True := Iff.rfl
-@[simp] theorem LBClosed_const (kn : Kername) (k : Nat) : LBClosed (.const kn) k ↔ True := Iff.rfl
-@[simp] theorem LBClosed_prim (p : PrimVal) (k : Nat) : LBClosed (.prim p) k ↔ True := Iff.rfl
-@[simp] theorem LBClosed_lambda (n : BinderName) (b : LBTerm) (k : Nat) :
-    LBClosed (.lambda n b) k ↔ LBClosed b (k + 1) := Iff.rfl
-@[simp] theorem LBClosed_letIn (n : BinderName) (v b : LBTerm) (k : Nat) :
-    LBClosed (.letIn n v b) k ↔ LBClosed v k ∧ LBClosed b (k + 1) := Iff.rfl
-@[simp] theorem LBClosed_app (f a : LBTerm) (k : Nat) :
-    LBClosed (.app f a) k ↔ LBClosed f k ∧ LBClosed a k := Iff.rfl
-@[simp] theorem LBClosed_construct (iid : InductiveId) (c : Nat) (args : List LBTerm) (k : Nat) :
-    LBClosed (.construct iid c args) k ↔ LBClosedArgs args k := Iff.rfl
-@[simp] theorem LBClosed_case (info : InductiveId × Nat) (discr : LBTerm)
-    (alts : List (List BinderName × LBTerm)) (k : Nat) :
-    LBClosed (.case info discr alts) k ↔ LBClosed discr k ∧ LBClosedAlts alts k := Iff.rfl
-@[simp] theorem LBClosed_proj (p : ProjectionInfo) (e : LBTerm) (k : Nat) :
-    LBClosed (.proj p e) k ↔ LBClosed e k := Iff.rfl
-@[simp] theorem LBClosed_fix (defs : List (@FixDef LBTerm)) (i k : Nat) :
-    LBClosed (.fix defs i) k ↔ LBClosedDefs defs (k + defs.length) := Iff.rfl
-
-/-- `LBClosedArgs` in the natural per-element form. -/
-theorem LBClosedArgs_iff (l : List LBTerm) (k : Nat) :
-    LBClosedArgs l k ↔ ∀ t ∈ l, LBClosed t k := by
-  induction l with
-  | nil => simp [LBClosedArgs]
-  | cons t rest ih => simp [LBClosedArgs, ih]
-
-/-- `LBClosedAlts` in the natural per-element form. -/
-theorem LBClosedAlts_iff (l : List (List BinderName × LBTerm)) (k : Nat) :
-    LBClosedAlts l k ↔ ∀ a ∈ l, LBClosed a.2 (k + a.1.length) := by
-  induction l with
-  | nil => simp [LBClosedAlts]
-  | cons a rest ih => obtain ⟨ns, b⟩ := a; simp [LBClosedAlts, ih]
-
-/-- `LBClosedDefs` in the natural per-element form. -/
-theorem LBClosedDefs_iff (l : List (@FixDef LBTerm)) (k : Nat) :
-    LBClosedDefs l k ↔ ∀ d ∈ l, LBClosed d.body k := by
-  induction l with
-  | nil => simp [LBClosedDefs]
-  | cons fd rest ih => simp [LBClosedDefs, ih]
-
-/-! ### `shift`/`subst` are the identity on de-Bruijn-closed terms
-
-If `t` is closed below `k` and the cutoff `c ≥ k`, then `shift`/`subst` at cutoff `c`
-touch no index of `t` and return it unchanged. The single induction is over
-`LBTerm.recData` (the `Prop`-motive recursor with per-list membership IHs), threading
-`k ≤ c` under each binder. -/
-
-theorem LBClosed.shift_eq {t : LBTerm} {k : Nat} (hc : LBClosed t k)
-    {c : Nat} (hle : k ≤ c) (d : Nat) : LBTerm.shift d c t = t := by
-  induction t using LBTerm.recData generalizing k c with
-  | hbox | hfvar | hconst | hprim => rfl
-  | hbvar i => simp only [LBClosed_bvar] at hc; simp only [LBTerm.shift]; rw [if_neg (by omega)]
-  | hlam n b ih =>
-      simp only [LBClosed_lambda] at hc
-      simp only [LBTerm.shift, ih hc (Nat.succ_le_succ hle)]
-  | hletIn n v b ihv ihb =>
-      simp only [LBClosed_letIn] at hc
-      simp only [LBTerm.shift, ihv hc.1 hle, ihb hc.2 (Nat.succ_le_succ hle)]
-  | happ f a ihf iha =>
-      simp only [LBClosed_app] at hc
-      simp only [LBTerm.shift, ihf hc.1 hle, iha hc.2 hle]
-  | hconstruct iid c' args ih =>
-      simp only [LBClosed_construct, LBClosedArgs_iff] at hc
-      simp only [LBTerm.shift, LBTerm.shiftArgs_eq_map]
-      rw [List.map_congr_left (fun x hx => ih x hx (hc x hx) hle), List.map_id_fun', id_eq]
-  | hcase info discr alts ihd iha =>
-      simp only [LBClosed_case, LBClosedAlts_iff] at hc
-      simp only [LBTerm.shift, ihd hc.1 hle, LBTerm.shiftAlts_eq_map]
-      rw [List.map_congr_left (fun a ha => ?_), List.map_id_fun', id_eq]
-      rw [iha a ha (hc.2 a ha) (Nat.add_le_add_right hle _)]
-  | hproj p e ih => simp only [LBClosed_proj] at hc; simp only [LBTerm.shift, ih hc hle]
-  | hfix defs i ih =>
-      simp only [LBClosed_fix, LBClosedDefs_iff] at hc
-      simp only [LBTerm.shift]
-      congr 1
-      have key : ∀ (l : List (@FixDef LBTerm)),
-          (∀ x ∈ l, LBTerm.shift d (c + defs.length) x.body = x.body) →
-          LBTerm.shiftDefs d (c + defs.length) l = l := by
-        intro l hshl
-        induction l with
-        | nil => rfl
-        | cons fd rest ihr =>
-            simp only [LBTerm.shiftDefs, hshl fd (List.mem_cons_self ..),
-              ihr (fun x hx => hshl x (List.mem_cons_of_mem _ hx))]
-      exact key defs (fun x hx => ih x hx (hc x hx) (by omega))
-
-theorem LBClosed.subst_eq {t : LBTerm} {k : Nat} (hc : LBClosed t k)
-    {c : Nat} (hle : k ≤ c) (s : LBTerm) : LBTerm.subst s c t = t := by
-  induction t using LBTerm.recData generalizing k c with
-  | hbox | hfvar | hconst | hprim => rfl
-  | hbvar i => simp only [LBClosed_bvar] at hc; simp only [LBTerm.subst]; rw [if_pos (by omega)]
-  | hlam n b ih =>
-      simp only [LBClosed_lambda] at hc
-      simp only [LBTerm.subst, ih hc (Nat.succ_le_succ hle)]
-  | hletIn n v b ihv ihb =>
-      simp only [LBClosed_letIn] at hc
-      simp only [LBTerm.subst, ihv hc.1 hle, ihb hc.2 (Nat.succ_le_succ hle)]
-  | happ f a ihf iha =>
-      simp only [LBClosed_app] at hc
-      simp only [LBTerm.subst, ihf hc.1 hle, iha hc.2 hle]
-  | hconstruct iid c' args ih =>
-      simp only [LBClosed_construct, LBClosedArgs_iff] at hc
-      simp only [LBTerm.subst, LBTerm.substArgs_eq_map]
-      rw [List.map_congr_left (fun x hx => ih x hx (hc x hx) hle), List.map_id_fun', id_eq]
-  | hcase info discr alts ihd iha =>
-      simp only [LBClosed_case, LBClosedAlts_iff] at hc
-      simp only [LBTerm.subst, ihd hc.1 hle, LBTerm.substAlts_eq_map]
-      rw [List.map_congr_left (fun a ha => ?_), List.map_id_fun', id_eq]
-      rw [iha a ha (hc.2 a ha) (Nat.add_le_add_right hle _)]
-  | hproj p e ih => simp only [LBClosed_proj] at hc; simp only [LBTerm.subst, ih hc hle]
-  | hfix defs i ih =>
-      simp only [LBClosed_fix, LBClosedDefs_iff] at hc
-      simp only [LBTerm.subst]
-      congr 1
-      have key : ∀ (l : List (@FixDef LBTerm)),
-          (∀ x ∈ l, LBTerm.subst s (c + defs.length) x.body = x.body) →
-          LBTerm.substDefs s (c + defs.length) l = l := by
-        intro l hshl
-        induction l with
-        | nil => rfl
-        | cons fd rest ihr =>
-            simp only [LBTerm.substDefs, hshl fd (List.mem_cons_self ..),
-              ihr (fun x hx => hshl x (List.mem_cons_of_mem _ hx))]
-      exact key defs (fun x hx => ih x hx (hc x hx) (by omega))
+The de-Bruijn-closedness predicate `LBClosed`/`LBClosedArgs`/`LBClosedAlts`/`LBClosedDefs`
+and its metatheory (`LBClosed.shift_eq`/`LBClosed.subst_eq`, monotonicity, the
+shift/subst bound laws, the spine/telescope helpers) used to live here; they are pure
+target-side de-Bruijn facts with no `Erases` content, so they now live in
+`LeanToLambdaBox/Closed.lean` (imported above) where the ι-bridge can share them.
+-/
 
 /-! ## Part 2 — the `Erases.fix` reconciliation from closedness + bridge facts
 

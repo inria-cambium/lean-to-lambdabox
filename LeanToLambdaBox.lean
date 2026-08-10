@@ -24,6 +24,9 @@ import LeanToLambdaBox.Export.EvalT
 import LeanToLambdaBox.ErasureContext
 import LeanToLambdaBox.Erasability
 import LeanToLambdaBox.Erases
+-- Target-side de-Bruijn metatheory: the closedness predicate `LBClosed` and the general
+-- `shift`/`subst` commutation kit (`subst_subst`), shared by the env-erasure and ι layers.
+import LeanToLambdaBox.Closed
 import LeanToLambdaBox.SourceEval
 import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
