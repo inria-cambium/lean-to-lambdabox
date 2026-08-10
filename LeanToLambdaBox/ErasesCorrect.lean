@@ -243,13 +243,17 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | ctor_head cn us iid cidx hc =>
       simp only [Expr.instantiate1', LBTerm.subst, LBTerm.substArgs]
       exact .ctor_head cn us iid cidx hc
-  | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
       simp only [instantiate1'_foldl_app, List.map_cons,
                  Expr.instantiate1', LBTerm.subst, LBTerm.substAlts_eq_map]
-      refine .cases con us iid numParams (pre.map (·.instantiate1' e₀ dk)) hc (ihd W)
+      refine .cases con us iid numParams (pre.map (·.instantiate1' e₀ dk)) hc
+        (by simpa using hpre) hnfs (ihd W)
         (minors := minors.map (·.instantiate1' e₀ dk))
         (alts' := alts'.map (fun a => (a.1, LBTerm.subst s' (dk + a.1.length) a.2)))
-        (by simpa using hlen) (fun j hj => ?_)
+        (by simpa using hlen) (by simpa using hnlen)
+        (fun j hj => by rw [List.getElem_map]; exact harity j (by simpa using hj))
+        (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
   | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen

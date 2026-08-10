@@ -216,7 +216,7 @@ theorem Erases.app_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
   | app hf ha => cases he; exact .inr (.inl ⟨_, _, hf, ha, rfl⟩)
   | @ctor _ cn us _ _ args _ hc _ _ _ =>
       exact .inr (.inr ⟨cn, us, args, rfl, .inl (by rw [hc]; simp)⟩)
-  | @cases _ con us _ numParams pre discr _ minors _ hc _ _ _ _ _ =>
+  | @cases _ con us _ numParams pre discr _ minors _ _ hc _ _ _ _ _ _ =>
       exact .inr (.inr ⟨con, us, pre ++ discr :: minors, (List.foldl_append ..).symm,
         .inr (by rw [hc]; simp)⟩)
   | _ => exact absurd he (by simp)
@@ -291,7 +291,7 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
         rw [List.concat_eq_append, List.foldl_append, List.foldl_cons,
           List.foldl_nil] at he
         exact absurd he (by simp)
-  | @cases _ con cus _ numParams pre discr _ minors _ _ _ _ _ _ =>
+  | @cases _ con cus _ numParams pre discr _ minors _ _ _ _ _ _ _ =>
       -- The non-empty cons spine is `.app`-shaped, never a `.const`.
       simp only [List.foldl_cons] at he
       rcases foldl_app_eq_or_isApp ((pre.foldl Expr.app (.const con cus)).app discr)

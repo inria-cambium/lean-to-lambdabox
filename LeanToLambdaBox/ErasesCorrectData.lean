@@ -319,7 +319,7 @@ theorem Erases.app_inv_t {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
   | app hf ha => cases he; exact .inr (.inl ⟨_, _, hf, ha, rfl⟩)
   | @ctor _ cn us iid cidx args args' hc hlen _ _ =>
       exact .inr (.inr (.inl ⟨cn, us, args, iid, cidx, args', rfl, hc, hlen, rfl⟩))
-  | @cases _ con us iid np pre discr discr' minors alts' hcase _ _ _ _ _ =>
+  | @cases _ con us iid np pre discr discr' minors alts' _ hcase _ _ _ _ _ _ =>
       exact .inr (.inr (.inr ⟨con, us, pre, discr, minors, iid, np, discr', alts',
         rfl, hcase, rfl⟩))
   | _ => exact absurd he (by simp)
@@ -348,7 +348,7 @@ theorem Erases.const_inv_full {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {�
         exact .inr (.inr ⟨iid, cidx, hc, rfl⟩)
       · rw [List.concat_eq_append, List.foldl_append, List.foldl_cons, List.foldl_nil] at he
         exact absurd he (by simp)
-  | @cases _ con cus _ numParams pre discr _ minors _ _ _ _ _ _ =>
+  | @cases _ con cus _ numParams pre discr _ minors _ _ _ _ _ _ _ =>
       simp only [List.foldl_cons] at he
       rcases foldl_app_eq_or_isApp ((pre.foldl Expr.app (.const con cus)).app discr)
         minors with hh | hh
@@ -827,11 +827,13 @@ theorem Erases.defeqDFC {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : Eras
       refine .ctor cn us iid cidx hc hlen (fun i hi => ?_)
       obtain ⟨ave, htr_i⟩ := (trExprS_appSpine_inv args (.const cn us) beh htyped).2 i hi
       exact ihargs i hi hΔ htr_i
-  | @cases Δ con us iid numParams pre discr discr' minors alts' hc hd hlen halts ihd ihalts =>
+  | @cases Δ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs hd
+      hlen hnlen harity halts ihd ihalts =>
       obtain ⟨_, hspine⟩ := trExprS_appSpine_inv (discr :: minors)
         (pre.foldl Expr.app (.const con us)) beh htyped
       obtain ⟨dve, htr_d⟩ := hspine 0 (by simp)
-      refine .cases con us iid numParams pre hc (ihd hΔ (by simpa using htr_d)) hlen (fun j hj => ?_)
+      refine .cases con us iid numParams pre hc hpre hnfs (ihd hΔ (by simpa using htr_d)) hlen
+        hnlen harity (fun j hj => ?_)
       obtain ⟨mve, htr_m⟩ := hspine (j + 1) (by simp; omega)
       exact ihalts j hj hΔ (by simpa using htr_m)
   | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen

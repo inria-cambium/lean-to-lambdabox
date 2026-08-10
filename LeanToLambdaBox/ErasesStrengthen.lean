@@ -179,10 +179,10 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have ⟨_, hall⟩ := fvarsIn_foldl_app sc
     exact .ctor cn us iid cidx hc hlen fun i hi =>
       ihargs i hi W (hall _ (List.getElem_mem hi))
-  | cases con us iid numParams pre hc _ hlen _ ihd ihalts =>
+  | cases con us iid numParams pre hc hpre hnfs _ hlen hnlen harity _ ihd ihalts =>
     have ⟨_, hall⟩ := fvarsIn_foldl_app sc
-    exact .cases con us iid numParams pre hc (ihd W (hall _ (.head _))) hlen
-      fun j hj => ihalts j hj W (hall _ (.tail _ (List.getElem_mem hj)))
+    exact .cases con us iid numParams pre hc hpre hnfs (ihd W (hall _ (.head _))) hlen
+      hnlen harity fun j hj => ihalts j hj W (hall _ (.tail _ (List.getElem_mem hj)))
   | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
       hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
       -- Thinning changes only the (conclusion) context; the fix source/target and the

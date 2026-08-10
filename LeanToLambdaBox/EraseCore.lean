@@ -55,9 +55,10 @@ and the non-vacuity guard below.)
 **`casesOn` is deliberately excluded** from `eraseCore`: the `Erases.cases` rule
 re-wraps each minor function with `mkLambdas` and splits the spine into dropped
 `pre` (params/motive/indices) and `discr :: minors`; reproducing that split purely
-(it relies on `getCasesInfo?` arities the abstract `Γ` does not carry, e.g.
-`discrPos`/`numParams` placement) does not stay clean. The `ctor` case *does* stay
-clean and is included. `casesOn` heads route to `.error` rather than to the wrong
+does not stay clean (`Γ` does now carry the split data — `casesDiscrPos` and the
+per-constructor `ctorFields` the rule's arity pins consume — but the canonicaliser
+would still have to rebuild each minor's telescope and re-wrap it with `mkLambdas`).
+The `ctor` case *does* stay clean and is included. `casesOn` heads route to `.error` rather than to the wrong
 `Erases` shape — honest under-approximation.
 
 See the feasibility probe at the bottom for what remains to connect this to the
@@ -583,9 +584,10 @@ or higher-order-combinator obstruction was found empirically) rather than blocke
   bookkeeping work, untouched here.
 * **`casesOn`.** Excluded from `eraseCore` (routes to `.error`): the `Erases.cases`
   shape needs the `getCasesInfo?` arity data (`discrPos`, param/motive/index counts,
-  per-minor field arities) that the abstract `Γ` does not carry, plus the `mkLambdas`
-  re-wrapping of minors. Modelling it purely is feasible but did not stay clean, so
-  it is honestly under-approximated.
+  per-minor field arities) — `Γ` now carries it (`casesDiscrPos`/`ctorFields`, the
+  rule's arity pins), but reproducing the spine split *and* the `mkLambdas` re-wrapping
+  of minors purely is feasible yet did not stay clean, so it is honestly
+  under-approximated.
 * **`prepare_erasure`** (the pre-pass run before `visitExpr`), **`@[csimp]`/`@[extern]`
   rewrites**, **machine-`Nat`/`Int` lowering** (`config.nat = .machine`, `.prim`
   literals, `Nat.succ`↦`+1`), **projections** (`.proj`, blocked by lean4lean's

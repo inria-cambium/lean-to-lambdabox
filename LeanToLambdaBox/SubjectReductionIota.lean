@@ -153,8 +153,22 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
 
 /-! ## C3 — the ι forward simulation: a raised implementation finding
 
+**Status: the relational under-constraint reported below has since been fixed in
+`Erases.lean`.** `Erases.cases` now carries three arity pins — `hpre`
+(`Γ.casesDiscrPos con = some pre.length`), `hnfs` + `hnlen` (one alternative per
+constructor, from `Γ.ctorFields`) and `harity` (alternative `j` binds exactly
+constructor `j`'s fields) — which make the model's parse of a `casesOn` spine coincide
+with `visitCasesEtaGo`'s. Note that a *third* pin beyond the two identified below was
+required: without `hpre` the counterexample survives in shifted form, because an
+**over-applied** `casesOn` can be re-parsed with the first minor as the discriminant
+(`pre = [motive, discr]`, `minors = [min₁, min₂, …]`), again yielding a `.case` on a
+`.lambda` — stuck, since `WcbvEval` has no `case_cong` rule. The analysis below is kept
+as the record of the obstruction; the ι forward simulation itself remains unproved (it
+still needs the matching pins on `SEvalDataι.iota` and the β-chain ↔ `iota_red` bridge
+noted at the end of this section).
+
 **A general `erases_correct_dataι` (ι forward simulation matching `erases_correct_data_zeta`'s
-generality) is FALSE against the current `Erases.cases` relation, and the obstruction is a
+generality) is FALSE against the then-current `Erases.cases` relation, and the obstruction is a
 genuine under-constraint of that relation** — reported here (not silently patched;
 `Erases.lean` is out of scope) per the project's "raise implementation issues" discipline.
 

@@ -152,14 +152,18 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have hi' : i < args.length := by simpa using hi
     rw [List.getElem_map, List.getElem_map]
     exact ihargs i hi' W (hargs_cl _ (List.getElem_mem hi'))
-  | @cases _ con us iid numParams pre discr discr' minors alts' hcase _ hlen _ ihd ihalts =>
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hcase hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
     obtain ⟨-, hall⟩ := closed_foldl_app hc
     simp only [abstract1_foldl_app, List.map_cons, Expr.abstract1, toBvar, toBvarAlts_eq_map]
     refine .cases con us iid numParams (pre.map (·.abstract1 v₀ dk)) hcase
+      (by simpa using hpre) hnfs
       (ihd W (hall _ (List.mem_cons_self ..)))
       (minors := minors.map (·.abstract1 v₀ dk))
       (alts' := alts'.map (fun a => (a.1, toBvar v₀ (dk + a.1.length) a.2)))
-      (by simpa using hlen) (fun j hj => ?_)
+      (by simpa using hlen) (by simpa using hnlen)
+      (fun j hj => by rw [List.getElem_map]; exact harity j (by simpa using hj))
+      (fun j hj => ?_)
     have hj' : j < minors.length := by simpa using hj
     rw [List.getElem_map, List.getElem_map, ← toBvar_mkLambdas]
     exact ihalts j hj' W (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj')))

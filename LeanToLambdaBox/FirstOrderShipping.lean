@@ -21,9 +21,10 @@ non-deterministic erasure derivation.
 ## Scope and the `eraseCore` connection
 
 * **β+δ+ctor only** (as instructed). The ι (`casesOn`/recursor) variant is deferred:
-  the general ι forward simulation is *false* against the current `Erases.cases`
-  (it under-constrains the minor arities), so it needs `Erases.cases` strengthened
-  first (out of scope here).
+  the general ι forward simulation was *false* against the un-pinned `Erases.cases`
+  (it under-constrained the minor arities). `Erases.cases` now carries the arity pins
+  (`hpre`/`hnfs`+`hnlen`/`harity`), so that obstruction is gone, but the ι simulation
+  itself is still to be built (out of scope here).
 * The *pure* canonicaliser `eraseCore` (`FirstOrder.firstOrderValue_erases_eq_eraseCore`,
   D2) produces the **block** form `.construct iid cidx args'` (args inside), whereas
   the shipping / `appliedFlags` value `t'` here is the **applied** form

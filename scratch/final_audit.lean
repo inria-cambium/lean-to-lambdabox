@@ -94,9 +94,9 @@ open LeanToLambdaBox
 -- WS-F2 (theory): ζ transport + ζ-including data simulation, and the ι subject
 -- reduction. Expected: 4 standard + lean4lean `sorryAx` (inherited TrProj cluster).
 -- `IotaConsistent` is a HYPOTHESIS of `SEvalDataι_defeq` (never an axiom), so it adds
--- nothing to the axiom set. (No `erases_correct_dataι`: the general ι forward
--- simulation is falsified by the under-constrained `Erases.cases` — see
--- `SubjectReductionIota.lean`'s C3 finding.)
+-- nothing to the axiom set. (Still no `erases_correct_dataι`: `Erases.cases` now carries
+-- the arity pins that unblock it — see the C3 status note in `SubjectReductionIota.lean` —
+-- but the ι forward simulation itself is not built yet.)
 #print axioms Erases.defeqDFC
 #print axioms erases_correct_data_zeta
 #print axioms SEvalDataι_defeq

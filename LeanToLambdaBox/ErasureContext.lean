@@ -35,6 +35,23 @@ structure ErasureCtx where
   /-- For each source `casesOn`-like name, its `(InductiveId, #params)`. Used by
       `Erases` to recognise `casesOn` applications. -/
   casesOns : Name → Option (InductiveId × Nat) := fun _ => none
+  /-- For each `InductiveId`, the per-constructor **field** counts in constructor-index
+      order — `register_inductive`'s `nargs = Array.count .keep argmask`
+      (`Erasure.lean:222`), i.e. the *retained* (post-argmask) fields, matching
+      `ConstructorBody.nargs` and hence `Semantics/Env.constructorArity`'s
+      `body.npars + cb.nargs` minus `npars`. Its length is the inductive's constructor
+      count. `Erases.cases` uses it to pin each minor's binder telescope to its
+      constructor's field arity, and the minor count to the constructor count.
+      Defaulted to `none` so existing `ErasureCtx` literals need not mention it. -/
+  ctorFields : InductiveId → Option (List Nat) := fun _ => none
+  /-- For each registered `casesOn` head, the discriminant's position in the
+      application spine — `CasesInfo.discrPos` = `numParams + 1 (motive) + numIndices`,
+      i.e. the number of leading arguments `visitCases` drops into `pre`. Pins the
+      `Erases.cases` spine split so that an **over-applied** `casesOn` cannot be
+      mis-parsed (an over-application would otherwise be readable as a `casesOn` whose
+      discriminant is the first minor, which erases to a stuck `.case`).
+      Defaulted to `none`. -/
+  casesDiscrPos : Name → Option Nat := fun _ => none
 
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=

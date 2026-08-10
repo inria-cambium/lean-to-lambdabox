@@ -333,20 +333,48 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
   | ctor_head {Δ} (cn : Name) (us : List Level) (iid : InductiveId) (cidx : Nat)
       (hc : Γ.ctors cn = some (iid, cidx)) :
       Erases env Us Γ Δ (.const cn us) (.construct iid cidx [])
-  /-- A `casesOn` application. The implementation (`visitCases`) erases only the
-      discriminant and the minor functions, dropping params/motive/indices, and
-      turns each minor into an alternative `(field-names, body)` via
-      `lambdaOrIntroToArity`. We model the minors with the normal relation by
+  /-- A `casesOn` application. The implementation (`visitCases`, `Erasure.lean:768`)
+      erases only the discriminant and the minor functions, dropping the
+      `casesInfo.discrPos` leading arguments (params/motive/indices), and turns each
+      minor into an alternative `(field-names, body)` via `lambdaOrIntroToArity` +
+      `mkAlt (filter argmask …)`. We model the minors with the normal relation by
       relating each to its alternative **re-wrapped** as a lambda chain
       (`mkLambdas`), so the `lam` rule handles the field binders. `pre` carries the
-      dropped leading arguments (params/motive/indices). -/
+      dropped leading arguments (params/motive/indices).
+
+      **Arity pins.** Three premises make the model's parse of a `casesOn` spine
+      coincide with `visitCasesEtaGo`'s (which consumes exactly
+      `casesInfo.arity = discrPos + 1 + #alts` arguments and appends the rest with
+      `.app`):
+      * `hpre` — `pre` is exactly the dropped prefix (`CasesInfo.discrPos`);
+      * `hnlen` — one alternative per constructor (`nfs` is the inductive's
+        per-constructor field-count list, `Γ.ctorFields`);
+      * `harity` — alternative `j` binds exactly constructor `j`'s fields.
+
+      Without them the relation strictly over-approximates the eraser and the ι
+      forward simulation is false: an over-counted binder telescope (or, without
+      `hpre`, an **over-applied** `casesOn` re-parsed with the first minor as
+      discriminant) erases to a `.case` that `WcbvEval` cannot step — there is no
+      `case_cong` rule, so a `.case` on a `.lambda` discriminant is stuck. See §C3 in
+      `SubjectReductionIota.lean`.
+
+      Note (pre-existing, inherited from `Erases.ctor`): `nfs` records the *retained*
+      (post-argmask) field counts, and the model does not represent argmask filtering
+      — `Erases.ctor` relates a source spine to a target spine of the same length. The
+      two coincide exactly when the argmask is all-`keep`. -/
   | cases {Δ} (con : Name) (us : List Level) (iid : InductiveId) (numParams : Nat)
       (pre : List Expr)
       {discr : Expr} {discr' : LBTerm}
       {minors : List Expr} {alts' : List (List BinderName × LBTerm)}
+      {nfs : List Nat}
       (hc : Γ.casesOns con = some (iid, numParams))
+      (hpre : Γ.casesDiscrPos con = some pre.length)
+      (hnfs : Γ.ctorFields iid = some nfs)
       (hd : Erases env Us Γ Δ discr discr')
       (hlen : minors.length = alts'.length)
+      (hnlen : alts'.length = nfs.length)
+      (harity : ∀ j (h : j < alts'.length),
+                  (alts'[j]'h).1.length = nfs[j]'(hnlen ▸ h))
       (halts : ∀ j (h : j < minors.length),
                  Erases env Us Γ Δ minors[j]
                    (mkLambdas (alts'[j]'(hlen ▸ h)).1 (alts'[j]'(hlen ▸ h)).2)) :
@@ -431,13 +459,17 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | ctor_head cn us iid cidx hc =>
       simp only [Expr.liftLooseBVars', LBTerm.shift, LBTerm.shiftArgs]
       exact .ctor_head cn us iid cidx hc
-  | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
       simp only [liftLooseBVars'_foldl_app, List.map_cons,
                  Expr.liftLooseBVars', LBTerm.shift, LBTerm.shiftAlts_eq_map]
-      refine .cases con us iid numParams (pre.map (·.liftLooseBVars' dk dn)) hc (ihd W)
+      refine .cases con us iid numParams (pre.map (·.liftLooseBVars' dk dn)) hc
+        (by simpa using hpre) hnfs (ihd W)
         (minors := minors.map (·.liftLooseBVars' dk dn))
         (alts' := alts'.map (fun a => (a.1, LBTerm.shift dn (dk + a.1.length) a.2)))
-        (by simpa using hlen) (fun j hj => ?_)
+        (by simpa using hlen) (by simpa using hnlen)
+        (fun j hj => by rw [List.getElem_map]; exact harity j (by simpa using hj))
+        (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← shift_mkLambdas]
       exact ihalts j (by simpa using hj) W
   | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
@@ -498,13 +530,17 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | ctor_head cn us iid cidx hc =>
       simp only [Expr.instantiate1', LBTerm.subst, LBTerm.substArgs]
       exact .ctor_head cn us iid cidx hc
-  | @cases _ con us iid numParams pre discr discr' minors alts' hc _ hlen _ ihd ihalts =>
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
       simp only [instantiate1'_foldl_app, List.map_cons,
                  Expr.instantiate1', LBTerm.subst, LBTerm.substAlts_eq_map]
-      refine .cases con us iid numParams (pre.map (·.instantiate1' e₀ dk)) hc (ihd W)
+      refine .cases con us iid numParams (pre.map (·.instantiate1' e₀ dk)) hc
+        (by simpa using hpre) hnfs (ihd W)
         (minors := minors.map (·.instantiate1' e₀ dk))
         (alts' := alts'.map (fun a => (a.1, LBTerm.subst s' (dk + a.1.length) a.2)))
-        (by simpa using hlen) (fun j hj => ?_)
+        (by simpa using hlen) (by simpa using hnlen)
+        (fun j hj => by rw [List.getElem_map]; exact harity j (by simpa using hj))
+        (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
   | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
@@ -542,5 +578,81 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ Δf : VLCtx) :
   · -- each opened body erases: `.fvar x ↦ .fvar x`
     obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
     exact .fvar ⟨`x⟩
+
+/-! ### Non-vacuity guards for `Erases.cases`
+
+The three arity pins (`hpre`/`hnfs`+`hnlen`/`harity`) are easy to render *vacuous*:
+both new `ErasureCtx` fields default to `fun _ => none`, which refutes `hpre` and
+`hnfs` outright, so at the default `Γ` the rule is now unusable. Two constructed
+witnesses, at concrete `Γ`s that do register the data:
+
+* `Γcases0` — the degenerate shape: no parameters, no indices (`discrPos = 1`, the
+  motive), one constructor with no fields, so the sole alternative has the empty
+  telescope (`mkLambdas [] t = t`);
+* `Γcases2` — the non-degenerate shape: **one parameter and one index**
+  (`discrPos = 1 + 1 + 1 = 3`, so `pre` is strictly longer than the parameter list and
+  the `hpre` pin is doing real work), **two** constructors with **one and two** fields,
+  so `harity` is checked at two distinct non-zero telescopes and the minors erase
+  through the `lam` rule (with real `TrExprS` side premises) rather than degenerately.
+-/
+
+/-- A concrete `Γ` registering `con` as `I.casesOn`: zero parameters, `discrPos = 1`
+(motive only), one constructor with zero fields. -/
+private def Γcases0 : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  casesOns := fun n => if n = `con then some (⟨toKername `I, 0⟩, 0) else none
+  ctorFields := fun _ => some [0]
+  casesDiscrPos := fun n => if n = `con then some 1 else none
+
+/-- Non-vacuity (degenerate): `con motive d m` erases to `.case (iid, 0) ⟦d⟧ [([], ⟦m⟧)]`.
+`pre`'s single element is unconstrained — the rule imposes no erasure on the dropped
+prefix, only its length. -/
+example (env : VEnv) (Us : List Name) (Δ : VLCtx) (x y : FVarId) :
+    Erases env Us Γcases0 Δ
+      ((((Expr.const `con []).app (.sort .zero)).app (.fvar x)).app (.fvar y))
+      (.case (⟨toKername `I, 0⟩, 0) (.fvar x) [([], .fvar y)]) := by
+  refine .cases `con [] ⟨toKername `I, 0⟩ 0 [.sort .zero]
+    (by simp [Γcases0]) (by simp [Γcases0]) rfl (.fvar x)
+    (minors := [.fvar y]) (nfs := [0]) rfl rfl (fun j h => ?_) (fun j h => ?_)
+  · obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
+    rfl
+  · obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
+    exact .fvar y
+
+/-- A concrete `Γ` registering `con` as `J.casesOn`: **one** parameter, one index
+(hence `discrPos = 3`), and **two** constructors, with one and two fields. -/
+private def Γcases2 : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  casesOns := fun n => if n = `con then some (⟨toKername `J, 0⟩, 1) else none
+  ctorFields := fun _ => some [1, 2]
+  casesDiscrPos := fun n => if n = `con then some 3 else none
+
+/-- Non-vacuity (non-degenerate): `con param motive index d m₁ m₂` with
+`m₁ = fun a => a` and `m₂ = fun a b => a` erases to
+`.case (iid, 1) ⟦d⟧ [([a], .bvar 0), ([a, b], .bvar 1)]` — two alternatives with
+distinct, non-empty telescopes matching `ctorFields = [1, 2]`, and a three-element
+dropped prefix matching `casesDiscrPos = 3`. -/
+example (env : VEnv) (Us : List Name) (Δ : VLCtx) (x : FVarId) (a b : Name) :
+    Erases env Us Γcases2 Δ
+      ([Expr.fvar x,
+        .lam a (.sort .zero) (.bvar 0) .default,
+        .lam a (.sort .zero) (.lam b (.sort .zero) (.bvar 1) .default) .default].foldl
+          Expr.app
+        ([Expr.sort .zero, .sort .zero, .sort .zero].foldl Expr.app (.const `con [])))
+      (.case (⟨toKername `J, 0⟩, 1) (.fvar x)
+        [([nameToBinder a], .bvar 0), ([nameToBinder a, nameToBinder b], .bvar 1)]) := by
+  refine .cases `con [] ⟨toKername `J, 0⟩ 1 [.sort .zero, .sort .zero, .sort .zero]
+    (by simp [Γcases2]) (by simp [Γcases2]) rfl (.fvar x)
+    (nfs := [1, 2]) rfl rfl (fun j h => ?_) (fun j h => ?_)
+  · match j, h with
+    | 0, _ => rfl
+    | 1, _ => rfl
+  · match j, h with
+    | 0, _ => exact .lam (ty' := .sort .zero) (.sort rfl) (.bvar 0)
+    | 1, _ =>
+        exact .lam (ty' := .sort .zero) (.sort rfl)
+          (.lam (ty' := .sort .zero) (.sort rfl) (.bvar 1))
 
 end LeanToLambdaBox
