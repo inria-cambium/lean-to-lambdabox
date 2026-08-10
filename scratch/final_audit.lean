@@ -183,11 +183,15 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gErasesEnvDeltaRec
 
 -- ============================================================================
--- ι-T4a: the `casesOn` bridge, flat-alternative slice (`Supported.casesApp`,
--- motives 15–18). New trust is the `CasesBridgeHyps` **Prop** bundle, NEVER an
--- axiom. The `EraseM` loop rule and the pure `visitCases` loop arithmetic must be
--- lean4lean-free (4 standard at most); the fragment inversions and the widened
--- bridge inherit `sorryAx` exactly as before, with no axiom of ours added.
+-- ι-T4a/b: the `casesOn` bridge (`Supported.casesApp`, motives 15–18), now at
+-- general λ-telescope alternatives. New trust is the `CasesBridgeHyps` **Prop**
+-- bundle, NEVER an axiom. The `EraseM` loop rule, the pure `visitCases` loop
+-- arithmetic and the `mkAlt`/`closeAlt` layer must be lean4lean-free (4 standard
+-- at most); the fragment inversions, the telescope opener and the widened bridge
+-- inherit `sorryAx` exactly as before, with no axiom of ours added. The `mkAlt`
+-- name lookup and the lctx-persistence lemma go through lean4lean's
+-- `PersistentHashMap`/`PersistentArray` modeling axioms, as `Bridge.lean`'s other
+-- `find?` lemmas already do.
 -- ============================================================================
 #print axioms Erasure.run_list_forIn_ok'
 #print axioms Erasure.run_array_forIn_ok'
@@ -203,6 +207,15 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.ForallMatchesLam
 #print axioms LeanToLambdaBox.Supported.casesApp_inv
 #print axioms LeanToLambdaBox.casesApp_spine_facts
+-- ι-T4b: the λ-telescope layer.
+#print axioms LeanToLambdaBox.ForallMatchesLam.instantiate1'
+#print axioms LeanToLambdaBox.closeAlt_foldl
+#print axioms LeanToLambdaBox.mkLambdas_closeAlt_cons
+#print axioms LeanToLambdaBox.filter_replicate_keep
+#print axioms LeanToLambdaBox.run_mkAlt
+#print axioms LeanToLambdaBox.LocalContext.find?_mkLocalDecl_of_ne
+#print axioms LeanToLambdaBox.LocalContext.fvarIdToDecl_find!_congr
+#print axioms LeanToLambdaBox.bridge_alt_telescope
 
 -- P3-v2b Part 4 + composition: recursion subsumed by v1's RegisteredClosure, and the
 -- D3 capstone with env-δ-consistency sourced from registration. No axiom of ours.

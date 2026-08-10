@@ -32,8 +32,7 @@ terms on which the bridge theorem speaks. It deliberately covers
 
 Two spine-shaped rules extend it: `ctorApp` (saturated constructor applications,
 the data fragment) and `casesApp` (saturated `casesOn` applications with
-*manifest* λ minors and — for now, ι-T4a — zero-field alternatives, the ι
-fragment). Both are documented at their constructors.
+*manifest* λ minors, the ι fragment). Both are documented at their constructors.
 
 `bvar` *is* in the fragment even though `visitExpr`'s `.bvar` case is
 `unreachable!` on the locally-closed terms it actually visits: the predicate is
@@ -131,18 +130,13 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
       special cases purely, exactly as `cn ≠ Nat.zero/succ` does for `ctorApp`.
       Over-application composes on top via `Supported.app`.
 
-      **Fragment boundaries** (all deliberate, all needed by the model):
-      * each minor is a **manifest** λ-telescope of at least its constructor's field
-        count (`hlam`) — the eraser's `lambdaOrIntroToArity` intro branch η-expands,
-        which `Erases` cannot model (no η rule). Lean's `match` compiler emits minors
-        as explicit `fun a b => …`, so real pattern-matching code is inside the
-        fragment; hand-written η-contracted minors (`Option.casesOn o none Some`) are
-        not. Fixing that needs an `Erases`-level η rule, not more proof effort.
-      * `hflat` — **temporary** (ι-T4a, the flat-alternative slice): every constructor
-        has zero retained fields, so `lambdaOrIntroToArity … 0 k = k e []` and no
-        binder is ever opened. This covers `Bool`, `Ordering`, `Decidable`-style
-        dispatch and any enum match. ι-T4b deletes it (a weakening for producers).
-
+      **Fragment boundary** (deliberate, and forced by the model): each minor is a
+      **manifest** λ-telescope of at least its constructor's field count (`hlam`) —
+      the eraser's `lambdaOrIntroToArity` intro branch η-expands, which `Erases`
+      cannot model (no η rule). Lean's `match` compiler emits minors as explicit
+      `fun a b => …`, so real pattern-matching code is inside the fragment;
+      hand-written η-contracted minors (`Option.casesOn o none Some`) are not.
+      Fixing that needs an `Erases`-level η rule, not more proof effort.
       The conclusion is spelled with the *flat* spine `pre ++ discr :: minors`;
       `List.foldl_append` relates it to `Erases.cases`' nested
       `(discr :: minors).foldl _ (pre.foldl _ _)`. -/
@@ -153,7 +147,6 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
       (hnfs : Γ.ctorFields iid = some nfs)
       (hpre : pre.length = dp)
       (hsat : minors.length = nfs.length)
-      (hflat : ∀ j (h : j < nfs.length), nfs[j] = 0)
       (hnat : con.getPrefix ≠ ``Nat) (hint : con.getPrefix ≠ ``Int)
       (hdiscr : Supported known Γ discr)
       (hlam : ∀ j (h : j < minors.length), IsLamTelescope (nfs[j]'(hsat ▸ h)) (minors[j]))
@@ -185,14 +178,14 @@ theorem Supported.instantiate1' {known : Name → Prop} {Γ : ErasureCtx} {e : E
     refine .ctorApp hc hcases har (by simp [hsat]) hzero hsucc (fun i hi => ?_)
     rw [List.getElem_map]
     exact ihargs i (by simpa using hi) k
-  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors ihdiscr ihminors =>
     rw [instantiate1'_foldl_app]
     simp only [Expr.instantiate1', List.map_append, List.map_cons]
     refine .casesApp (pre := pre.map (·.instantiate1' (.fvar x) k))
       (minors := minors.map (·.instantiate1' (.fvar x) k))
       (discr := discr.instantiate1' (.fvar x) k)
-      hc hdp hnfs (by simp [hpre]) (by simp [hsat]) hflat hnat hint (ihdiscr k)
+      hc hdp hnfs (by simp [hpre]) (by simp [hsat]) hnat hint (ihdiscr k)
       (fun j hj => ?_) (fun j hj => ?_)
     · rw [List.getElem_map]
       exact (hlam j (by simpa using hj)).instantiate1' k
@@ -225,7 +218,7 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
-  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
         (args := pre ++ discr :: minors) (by simp)
@@ -241,7 +234,7 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
-  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
         (args := pre ++ discr :: minors) (by simp)
@@ -266,37 +259,40 @@ example (iid : InductiveId) :
   · decide
   · intro i hi; exact absurd hi (by simp)
 
-/-- A saturated `casesOn` application *is* in the fragment (`casesApp`, flat
-alternatives): `J` has one parameter and one index, so the motive and the index
-push the discriminant to `dp = 3 ≠ numParams`; two constructors with no retained
-fields give two `.fvar` minors. Exercises `hpre` at a `dp` that is *not* the
-parameter count — the pin that stops an over-applied `casesOn` from being
-re-parsed with the first minor as discriminant. -/
-example (iid : InductiveId) (p m i d a b : FVarId) :
+/-- A saturated `casesOn` application *is* in the fragment (`casesApp`): `J` has
+one parameter and one index, so the motive and the index push the discriminant to
+`dp = 3 ≠ numParams`; the two constructors have **one and two** fields, so the
+minors are genuine λ-telescopes of those depths. Exercises `hpre` at a `dp` that
+is *not* the parameter count — the pin that stops an over-applied `casesOn` from
+being re-parsed with the first minor as discriminant — and `hlam` at two distinct
+non-zero telescope depths. -/
+example (iid : InductiveId) (p m i d : FVarId) :
     Supported (fun _ => True)
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none,
         fun n => if n = `J.casesOn then some (iid, 1) else none,
-        fun _ => some [0, 0],
+        fun _ => some [1, 2],
         fun n => if n = `J.casesOn then some 3 else none⟩
-      ([Expr.fvar p, .fvar m, .fvar i, .fvar d, .fvar a, .fvar b].foldl Expr.app
-        (.const `J.casesOn [])) := by
-  have h : ([Expr.fvar p, .fvar m, .fvar i, .fvar d, .fvar a, .fvar b] : List Expr)
-      = [Expr.fvar p, .fvar m, .fvar i] ++ Expr.fvar d :: [Expr.fvar a, .fvar b] := rfl
+      ([Expr.fvar p, .fvar m, .fvar i, .fvar d,
+          .lam `u (.const `U []) (.bvar 0) .default,
+          .lam `u (.const `U []) (.lam `v (.const `V []) (.bvar 1) .default) .default].foldl
+        Expr.app (.const `J.casesOn [])) := by
+  have h : ([Expr.fvar p, .fvar m, .fvar i, .fvar d,
+      .lam `u (.const `U []) (.bvar 0) .default,
+      .lam `u (.const `U []) (.lam `v (.const `V []) (.bvar 1) .default) .default] : List Expr)
+      = [Expr.fvar p, .fvar m, .fvar i] ++ Expr.fvar d ::
+          [Expr.lam `u (.const `U []) (.bvar 0) .default,
+           .lam `u (.const `U []) (.lam `v (.const `V []) (.bvar 1) .default) .default] := rfl
   rw [h]
-  refine .casesApp (iid := iid) (np := 1) (dp := 3) (nfs := [0, 0]) (by simp) (by simp) rfl
-    rfl rfl ?_ (by decide) (by decide) (.fvar d) ?_ ?_
+  refine .casesApp (iid := iid) (np := 1) (dp := 3) (nfs := [1, 2]) (by simp) (by simp) rfl
+    rfl rfl (by decide) (by decide) (.fvar d) ?_ ?_
   · intro j hj
     match j, hj with
-    | 0, _ => rfl
-    | 1, _ => rfl
+    | 0, _ => exact (by trivial : IsLamTelescope 0 (Expr.bvar 0))
+    | 1, _ => exact (by trivial : IsLamTelescope 0 (Expr.bvar 1))
   · intro j hj
     match j, hj with
-    | 0, _ => trivial
-    | 1, _ => trivial
-  · intro j hj
-    match j, hj with
-    | 0, _ => exact .fvar a
-    | 1, _ => exact .fvar b
+    | 0, _ => exact .lam _ _ _ (.bvar 0)
+    | 1, _ => exact .lam _ _ _ (.lam _ _ _ (.bvar 1))
 
 /-! ## lctx ↔ `VLCtx` correspondence: extension lemmas
 
@@ -357,11 +353,77 @@ theorem LocalContext.find?_mkLetDecl_self {lctx : LocalContext} {x : FVarId}
   simp [List.find?, LocalDecl.fvarId]
   rfl
 
+/-- Looking up a *different* fvar is unaffected by pushing a local declaration —
+what makes the telescope's outer binder names survive to the innermost context,
+where `Erasure.mkAlt` reads them. -/
+theorem LocalContext.find?_mkLocalDecl_of_ne {lctx : LocalContext} {x y : FVarId}
+    (h1 : lctx.WF) (h2 : lctx.find? x = none)
+    {n : Name} {ty : Expr} {bi : BinderInfo} (hne : y ≠ x) :
+    (lctx.mkLocalDecl x n ty bi).find? y = lctx.find? y := by
+  rw [(h1.mkLocalDecl h2).find?_eq_find?_toList, Lean.LocalContext.mkLocalDecl_toList,
+    h1.find?_eq_find?_toList]
+  simp only [List.find?_cons, Lean.LocalDecl.fvarId]
+  rw [show (y == x) = false from by
+    simp only [Bool.eq_false_iff, ne_eq, fvarId_beq_iff_eq]; exact hne]
+
+/-- `fvarIdToDecl.find!` is a function of `find?`, so it transports along it. -/
+theorem LocalContext.fvarIdToDecl_find!_congr {l1 l2 : LocalContext} {y : FVarId}
+    (h : l1.find? y = l2.find? y) : l1.fvarIdToDecl.find! y = l2.fvarIdToDecl.find! y := by
+  rw [Lean.LocalContext.find?, Lean.LocalContext.find?] at h
+  simp [PersistentHashMap.find!, h]
+
 theorem LocalContext.fvarIdToDecl_find!_of_find? {lctx : LocalContext}
     {x : FVarId} {d : LocalDecl} (h : lctx.find? x = some d) :
     lctx.fvarIdToDecl.find! x = d := by
   rw [LocalContext.find?] at h
   simp [PersistentHashMap.find!, h]
+
+/-! ## `mkAlt`'s de Bruijn closing, as a pure function
+
+`Erasure.mkAlt xs t` (Erasure.lean:259) abstracts the field binders `xs`
+outermost-first, the *innermost* becoming `.bvar 0`. `closeAlt` is that loop,
+and `mkLambdas_closeAlt_cons` is the identity that lets the alternative's
+λ-telescope be peeled one binder at a time by `bridge_lam_case`. -/
+
+/-- `Erasure.mkAlt`'s de Bruijn closing loop as a pure function: the `i`-th binder
+counted *from the end* becomes `.bvar i`. -/
+def closeAlt : List FVarId → LBTerm → LBTerm
+  | [], t => t
+  | x :: xs, t => toBvar x xs.length (closeAlt xs t)
+
+/-- …and it is exactly the `for` loop `mkAlt` runs. -/
+theorem closeAlt_foldl (xs : List FVarId) (t : LBTerm) :
+    (xs.reverse.zipIdx).foldl (fun b p => toBvar p.1 p.2 b) t = closeAlt xs t := by
+  induction xs generalizing t with
+  | nil => rfl
+  | cons x xs ih =>
+    rw [List.reverse_cons, List.zipIdx_append]
+    simp only [List.foldl_append, List.length_reverse, List.zipIdx_cons, List.zipIdx_nil,
+      List.foldl_cons, List.foldl_nil, ih, closeAlt]
+    simp
+
+/-- **Peeling one alternative binder.** `mkLambdas`-of-`closeAlt` on a cons is a
+single `.lambda` over `toBvar x 0` of the rest — i.e. exactly the shape
+`bridge_lam_case` produces. (This is where `toBvar_mkLambdas` earns its keep: the
+outer binder's insertion level is the *number of inner binders*, and pushing it
+under the `mkLambdas` chain is what re-indexes it to `0`.) -/
+theorem mkLambdas_closeAlt_cons (N : BinderName) (Ns : List BinderName)
+    (x : FVarId) (xs : List FVarId) (t : LBTerm) (h : Ns.length = xs.length) :
+    mkLambdas (N :: Ns) (closeAlt (x :: xs) t)
+      = .lambda N (toBvar x 0 (mkLambdas Ns (closeAlt xs t))) := by
+  rw [toBvar_mkLambdas]
+  simp only [mkLambdas, closeAlt, Nat.zero_add, h]
+
+/-! Non-vacuity: the closing identity at depth 2 — `mkAlt [x₁,x₂] t`'s body is
+`toBvar x₁ 1 (toBvar x₂ 0 t)`, and re-wrapping it as a λ-chain is the same as
+peeling one binder at a time. -/
+example (N₁ N₂ : BinderName) (x₁ x₂ : FVarId) (t : LBTerm) :
+    mkLambdas [N₁, N₂] (closeAlt [x₁, x₂] t)
+      = .lambda N₁ (toBvar x₁ 0 (.lambda N₂ (toBvar x₂ 0 t))) :=
+  mkLambdas_closeAlt_cons N₁ [N₂] x₁ [x₂] t rfl
+
+example (x₁ x₂ : FVarId) (t : LBTerm) :
+    closeAlt [x₁, x₂] t = toBvar x₁ 1 (toBvar x₂ 0 t) := rfl
 
 /-! ## The binder cases of the bridge, Erases-side core
 

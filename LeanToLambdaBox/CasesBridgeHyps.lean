@@ -1,6 +1,7 @@
 import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.ErasureContext
 import Lean4Lean.Verify.NameGenerator
+import Lean4Lean.Verify.Axioms
 
 /-!
 # The ι-fragment trust bundle: `CasesBridgeHyps`
@@ -49,11 +50,11 @@ Because they quantify over opaque runtime primitives their global satisfiability
 is not in-logic decidable — the documented trust boundary, exactly as for
 `BridgeHyps`/`DataBridgeHyps`.
 
-Note `infer_lam_run` is stated but **not used** by the flat-alternative slice
-(ι-T4a): with zero-field alternatives `lambdaOrIntroToArity` never opens a
-binder, so only `DataBridgeHyps.infer_run`'s monotonicity is needed. It is
-declared here so the general-alternative slice (ι-T4b) is a pure extension of
-the *proofs*, not of the bundle.
+`infer_lam_run` is the only clause the flat-alternative slice (ι-T4a) did not
+need; the general-alternative slice (ι-T4b) uses it to open each minor's binder
+through the inferred type. All the *typing* data that opening needs
+(`TrExprS`/`IsType` for the domain) still comes from inverting the minor's own
+`TrExprS.lam`, which is why `infer_lam_run` stays purely syntactic.
 -/
 
 namespace LeanToLambdaBox
@@ -66,11 +67,103 @@ open Lean Lean4Lean Erasure
 This must be stated *telescopically*: `Erasure.visitAlt` calls `inferType`
 **once** and `lambdaOrIntroToArity` threads the codomain down without
 re-inferring, so a single-level statement would not survive to level 2. It is
-vacuously true as soon as either side stops being a binder, so it is safe to
-state for all pairs. -/
+vacuously true as soon as `e` stops being a λ, so it is safe to state for all
+pairs.
+
+The middle clause (a λ forces a `∀`) is **load-bearing**, not decoration: the
+eraser's `forallMonocular` destructures the type with `let .forallE … | unreachable!`,
+and `unreachable!` at `EraseM` *succeeds* with `default` rather than failing
+(`Erasure.run_panicWithPosWithDecl`). Without it a run that fell through the panic
+would satisfy the hypotheses and refute the conclusion. It is equally true of
+`Lean.Meta.inferLambdaType`, whose output on a λ is a `mkForallFVars`. -/
 def ForallMatchesLam : Expr → Expr → Prop
   | .forallE n d c _, .lam m a b _ => n = m ∧ d = a ∧ ForallMatchesLam c b
+  | _,                .lam _ _ _ _ => False
   | _,                _            => True
+
+/-- `ForallMatchesLam` is vacuous unless the *type* side is a `∀`… -/
+theorem forallMatchesLam_of_not_forallE {ty e : Expr}
+    (h : ∀ n d c bi, ty ≠ .forallE n d c bi) (hl : ∀ n a b bi, e ≠ .lam n a b bi) :
+    ForallMatchesLam ty e := by
+  cases ty with
+  | forallE n d c bi => exact absurd rfl (h n d c bi)
+  | _ =>
+    cases e with
+    | lam m a b bi' => exact absurd rfl (hl m a b bi')
+    | _ => trivial
+
+/-- …and unless the *term* side is a λ. -/
+theorem forallMatchesLam_of_not_lam {ty e : Expr}
+    (h : ∀ n a b bi, e ≠ .lam n a b bi) : ForallMatchesLam ty e := by
+  cases ty with
+  | forallE n d c bi =>
+    cases e with
+    | lam m a b bi' => exact absurd rfl (h m a b bi')
+    | _ => trivial
+  | _ =>
+    cases e with
+    | lam m a b bi' => exact absurd rfl (h m a b bi')
+    | _ => trivial
+
+/-- Substituting a *free variable* never creates a `∀` head… -/
+theorem instantiate1'_fvar_not_forallE {e : Expr} (x : FVarId) (k : Nat)
+    (h : ∀ n d c bi, e ≠ .forallE n d c bi) :
+    ∀ n d c bi, e.instantiate1' (.fvar x) k ≠ .forallE n d c bi := by
+  intro n d c bi
+  cases e with
+  | bvar i =>
+    simp only [Expr.instantiate1']
+    split
+    · simp
+    · split
+      · simp [Expr.liftLooseBVars']
+      · simp
+  | forallE a b c d => exact absurd rfl (h a b c d)
+  | _ => simp [Expr.instantiate1']
+
+/-- …nor a λ head. -/
+theorem instantiate1'_fvar_not_lam {e : Expr} (x : FVarId) (k : Nat)
+    (h : ∀ n a b bi, e ≠ .lam n a b bi) :
+    ∀ n a b bi, e.instantiate1' (.fvar x) k ≠ .lam n a b bi := by
+  intro n a b bi
+  cases e with
+  | bvar i =>
+    simp only [Expr.instantiate1']
+    split
+    · simp
+    · split
+      · simp [Expr.liftLooseBVars']
+      · simp
+  | lam p q r t => exact absurd rfl (h p q r t)
+  | _ => simp [Expr.instantiate1']
+
+/-- **The binder-for-binder match survives opening a binder.** Both sides descend
+at the same de Bruijn depth, which is exactly what `lambdaMonocularOrIntro` does
+(it instantiates the ∀'s codomain and the λ's body with the *same* fresh fvar).
+The substituend is restricted to an fvar — for a general substituend the claim is
+false, since a `.bvar` could be replaced by a λ. -/
+theorem ForallMatchesLam.instantiate1' {ty e : Expr} (x : FVarId) :
+    ForallMatchesLam ty e → ∀ k, ForallMatchesLam (ty.instantiate1' (.fvar x) k)
+      (e.instantiate1' (.fvar x) k) := by
+  induction ty generalizing e with
+  | forallE n d c bi ihd ihc =>
+    cases e with
+    | lam m a b bi' =>
+      intro h k
+      obtain ⟨h1, h2, h3⟩ := h
+      exact ⟨h1, by rw [h2], ihc h3 (k + 1)⟩
+    | _ =>
+      intro _ k
+      exact forallMatchesLam_of_not_lam (instantiate1'_fvar_not_lam x k (by intro _ _ _ _; simp))
+  | _ =>
+    intro h k
+    refine forallMatchesLam_of_not_forallE
+      (instantiate1'_fvar_not_forallE x k (by intro _ _ _ _; simp))
+      (instantiate1'_fvar_not_lam x k ?_)
+    intro nn aa bb bb'
+    cases e with
+    | lam p q r t => exact absurd h id
+    | _ => simp
 
 /-- The runtime `CasesInfo` for `con` has the *plain `casesOn`* shape and agrees
 with `Γ`'s metadata: the discriminant sits at `dp`, there is **no**

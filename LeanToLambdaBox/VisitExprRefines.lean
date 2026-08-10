@@ -119,7 +119,6 @@ def CasesSpineData (known : Name → Prop) (Γ : ErasureCtx) (con : Name)
   ∃ (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
     Γ.casesOns con = some (iid, np) ∧ Γ.casesDiscrPos con = some dp ∧
     Γ.ctorFields iid = some nfs ∧ args.length = dp + 1 + nfs.length ∧
-    (∀ j (h : j < nfs.length), nfs[j] = 0) ∧
     con.getPrefix ≠ ``Nat ∧ con.getPrefix ≠ ``Int ∧
     (∀ (h : dp < args.length), Supported known Γ (args[dp])) ∧
     (∀ j (hj : j < nfs.length) (h : dp + 1 + j < args.length),
@@ -155,7 +154,7 @@ theorem Supported.const_inv' {known : Name → Prop} {Γ : ErasureCtx} {cn : Nam
         exact .inr ⟨iid, cidx, ar, hc', har', hsat', hcases', hz', hs', hargs'⟩
       · rw [List.concat_eq_append, List.foldl_append, List.foldl_cons, List.foldl_nil] at he
         exact absurd he (by simp)
-  | @casesApp con us' iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us' iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us')
         (args := pre ++ discr :: minors) (by simp)
@@ -177,11 +176,11 @@ theorem Supported.app_inv'' {known : Name → Prop} {Γ : ErasureCtx} {f a : Exp
   | @ctorApp cn' us' iid cidx ar args' hc' hcases' har' hsat' hz' hs' hargs' =>
       exact .inr (.inl ⟨cn', us', args', rfl, iid, cidx, ar, hc', har', hsat',
         hcases', hz', hs', hargs'⟩)
-  | @casesApp con us' iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us' iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       subst hpre
       refine .inr (.inr ⟨con, us', pre ++ discr :: minors, rfl,
-        iid, np, pre.length, nfs, hc, hdp, hnfs, by simp [hsat]; omega, hflat, hnat, hint,
+        iid, np, pre.length, nfs, hc, hdp, hnfs, by simp [hsat]; omega, hnat, hint,
         fun hlt => ?_, fun j hj hlt => ?_⟩)
       · rw [getElem_append_cons_mid]; exact hdiscr
       · rw [getElem_append_cons_add pre discr minors j (hsat ▸ hj)]
@@ -198,7 +197,7 @@ theorem Supported.lam_inv {known : Name → Prop} {Γ : ErasureCtx} {n : Name} {
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
-  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
         (args := pre ++ discr :: minors) (by simp)
@@ -216,7 +215,7 @@ theorem Supported.letE_inv {known : Name → Prop} {Γ : ErasureCtx} {n : Name}
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
           List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
-  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
       hdiscr hlam hminors =>
       obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
         (args := pre ++ discr :: minors) (by simp)
@@ -306,7 +305,6 @@ theorem Supported.casesApp_inv {known : Name → Prop} {Γ : ErasureCtx} :
       Γ.casesOns con = some (iid, np) →
       ∃ dp nfs, Γ.casesDiscrPos con = some dp ∧ Γ.ctorFields iid = some nfs ∧
         dp + 1 + nfs.length ≤ args.length ∧
-        (∀ j (h : j < nfs.length), nfs[j] = 0) ∧
         con.getPrefix ≠ ``Nat ∧ con.getPrefix ≠ ``Int ∧
         (∀ (h : dp < args.length), Supported known Γ (args[dp])) ∧
         (∀ j (hj : j < nfs.length) (h : dp + 1 + j < args.length),
@@ -326,9 +324,9 @@ theorem Supported.casesApp_inv {known : Name → Prop} {Γ : ErasureCtx} :
       rcases h.app_inv'' with ⟨hf, ha⟩ | ⟨cn', us', args'', heq, hcd⟩ | ⟨con', us', args'', heq, hcd⟩
       · -- over-application: recurse on the initial segment
         have hltm : init.length < m := by rw [← hm, hlen]; omega
-        obtain ⟨dp, nfs, hdp, hnfs, hle, hflat, hnat, hint, hd, hlam, hsupp⟩ :=
+        obtain ⟨dp, nfs, hdp, hnfs, hle, hnat, hint, hd, hlam, hsupp⟩ :=
           ih init.length hltm rfl hf hcs
-        refine ⟨dp, nfs, hdp, hnfs, by omega, hflat, hnat, hint, fun hlt => ?_,
+        refine ⟨dp, nfs, hdp, hnfs, by omega, hnat, hint, fun hlt => ?_,
           fun j hj hlt => ?_, fun i hi hile => ?_⟩
         · rw [List.getElem_append_left (show dp < init.length by omega)]
           exact hd (by omega)
@@ -352,7 +350,7 @@ theorem Supported.casesApp_inv {known : Name → Prop} {Γ : ErasureCtx} :
         obtain ⟨rfl, rfl⟩ := hfn
         rw [hcs] at hcs'; exact absurd hcs' (by simp)
       · -- exact saturation: the whole spine is the `casesApp` node
-        obtain ⟨iid', np', dp, nfs, hcs', hdp, hnfs, hlen', hflat, hnat, hint, hd, hlam⟩ := hcd
+        obtain ⟨iid', np', dp, nfs, hcs', hdp, hnfs, hlen', hnat, hint, hd, hlam⟩ := hcd
         have hfn : (Expr.app (init.foldl Expr.app (.const con us)) last).getAppFn
             = (args''.foldl Expr.app (.const con' us')).getAppFn := by rw [heq]
         simp only [Expr.getAppFn] at hfn
@@ -368,7 +366,7 @@ theorem Supported.casesApp_inv {known : Name → Prop} {Γ : ErasureCtx} :
           have h2 := congrArg (fun e => e.getAppArgs.toList) heq2
           simp only [foldl_getAppArgs_toList] at h2; exact h2
         subst hargeq
-        refine ⟨dp, nfs, hdp, hnfs, Nat.le_of_eq hlen'.symm, hflat, hnat, hint, hd,
+        refine ⟨dp, nfs, hdp, hnfs, Nat.le_of_eq hlen'.symm, hnat, hint, hd,
           fun j hj hlt => (hlam j hj hlt).1, fun i hi hile => ?_⟩
         have hj : i - (dp + 1) < nfs.length := by omega
         have hii : dp + 1 + (i - (dp + 1)) = i := by omega
@@ -513,19 +511,18 @@ theorem casesApp_spine_facts {env : VEnv} {Us : List Name} {known : Name → Pro
     (hsupp : Supported known Γ e) (hex : ∃ ve, TrExprS env Us Δ e ve)
     (hfn : e.getAppFn = .const con us) (hcs : Γ.casesOns con = some (iid, np)) :
     ∃ dp nfs, Γ.casesDiscrPos con = some dp ∧ Γ.ctorFields iid = some nfs ∧
-      (∀ j (h : j < nfs.length), nfs[j] = 0) ∧
       con.getPrefix ≠ ``Nat ∧ con.getPrefix ≠ ``Int ∧
       dp + 1 + nfs.length ≤ e.getAppArgs.size ∧
       CasesSpineFacts env Us known Γ Δ dp nfs e.getAppArgs := by
   have hsuppS : Supported known Γ (e.getAppArgs.toList.foldl Expr.app (.const con us)) := by
     rw [← hfn, getAppArgs_spine]; exact hsupp
-  obtain ⟨dp, nfs, hdp, hnfs, hle, hflat, hnat, hint, hd, hlam, hsuppargs⟩ :=
+  obtain ⟨dp, nfs, hdp, hnfs, hle, hnat, hint, hd, hlam, hsuppargs⟩ :=
     Supported.casesApp_inv e.getAppArgs.toList.length rfl hsuppS hcs
   obtain ⟨ve, hve⟩ := hex
   have hveS : TrExprS env Us Δ (e.getAppArgs.toList.foldl Expr.app e.getAppFn) ve := by
     rw [getAppArgs_spine]; exact hve
   obtain ⟨_, hargtr⟩ := trExprS_appSpine_inv _ _ _ hveS
-  refine ⟨dp, nfs, hdp, hnfs, hflat, hnat, hint, by simpa using hle, ?_, ?_, ?_⟩
+  refine ⟨dp, nfs, hdp, hnfs, hnat, hint, by simpa using hle, ?_, ?_, ?_⟩
   · intro h
     have h' : dp < e.getAppArgs.toList.length := by simpa using h
     refine ⟨by simpa using hd h', ?_⟩
@@ -648,19 +645,6 @@ theorem list_split_cases {α} (l : List α) (dp n : Nat)
     _ = l.take dp ++ (l[dp]'(by omega) :: (l.drop (dp + 1)).take n) ++ l.drop (dp + 1 + n) := by
         rw [← h4, List.append_assoc, List.cons_append, List.take_append_drop]
 
-/-- An empty field list is filtered to itself by *any* argmask — which is why the
-flat-alternative slice needs no argmask-triviality assumption at all. -/
-theorem filter_nil_toList {α : Type} (mask : Erasure.ConstructorArgMask) :
-    (Erasure.filter mask (([] : List α).toArray)).toList = [] := by
-  have h : Array.zip mask (([] : List α).toArray) = #[] := by
-    apply Array.eq_empty_of_size_eq_zero; simp
-  simp [Erasure.filter, h]
-
-/-- `mkAlt` on an empty binder list is pure: no name lookup, no `toBvar` pass. -/
-theorem run_mkAlt_nil (body : LBTerm) (s : ErasureState) (ctx : ErasureContext)
-    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) :
-    Erasure.mkAlt [] body s ctx cctx ref w = .ok (([], body), s) w := rfl
-
 /-- `fvar_to_name` is pure: it always succeeds, does not touch state or world,
 and returns `nameToBinder` of the found declaration's `userName`. -/
 theorem run_fvar_to_name (x : FVarId) (nm : Name) (s : ErasureState)
@@ -675,6 +659,90 @@ theorem run_fvar_to_name (x : FVarId) (nm : Name) (s : ErasureState)
   unfold nameToBinder
   simp only []
   split <;> rfl
+
+/-- A **trivial argmask** filters nothing: the list-level computation behind
+`filter_replicate_keep`. -/
+theorem filterMap_zip_replicate {α : Type} (n : Nat) : ∀ (l : List α), l.length = n →
+    ((List.replicate n Erasure.ConstructorArgRelevance.keep).zip l).filterMap
+      (fun x => match x.1 with
+        | Erasure.ConstructorArgRelevance.erase => none
+        | Erasure.ConstructorArgRelevance.keep => some x.2) = l := by
+  induction n with
+  | zero => intro l hl; rw [List.eq_nil_of_length_eq_zero hl]; rfl
+  | succ n ih =>
+    intro l hl
+    match l with
+    | a :: as =>
+      simp only [List.replicate, List.zip_cons_cons, List.filterMap_cons]
+      rw [ih as (by simpa using hl)]
+
+/-- A trivial argmask of the right width is the identity on the field list. This is
+what makes `Erasure.visitAlt`'s `filter argmask fvarids.toArray` disappear; the
+argmask's triviality comes from `CasesBridgeHyps.casesreg_run`
+(`remove_irrel_constr_args := false`, the shipping default). The model does not
+represent argmask filtering at all (see `Erases.cases`' docstring), so this is
+where that restriction is cashed in. -/
+theorem filter_replicate_keep {α : Type} (n : Nat) (arr : Array α) (h : arr.size = n) :
+    Erasure.filter (Array.replicate n Erasure.ConstructorArgRelevance.keep) arr = arr := by
+  unfold Erasure.filter
+  apply Array.toList_inj.mp
+  rw [Array.toList_filterMap, Array.toList_zip, Array.toList_replicate]
+  exact filterMap_zip_replicate n arr.toList (by rw [Array.length_toList]; exact h)
+
+/-- `mkAlt`'s name pass is pure: it reads each binder's `userName` out of the
+*current* local context. -/
+theorem run_mapM_fvar_to_name_loop (xs : List FVarId) : ∀ (acc : List BinderName)
+    (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
+    (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld),
+    List.mapM.loop Erasure.fvar_to_name xs acc s ctx cctx ref w
+      = .ok (acc.reverse ++
+          xs.map (fun x => nameToBinder ((ctx.lctx.fvarIdToDecl.find! x).userName)), s) w := by
+  induction xs with
+  | nil => intro acc s ctx cctx ref w; unfold List.mapM.loop; simp [run_pure]
+  | cons x xs ih =>
+    intro acc s ctx cctx ref w
+    unfold List.mapM.loop
+    rw [run_bind, run_fvar_to_name x _ s ctx cctx ref w rfl]
+    simp only []
+    rw [ih]
+    simp
+
+theorem run_mapM_fvar_to_name (xs : List FVarId) (s : ErasureState) (ctx : ErasureContext)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) :
+    (xs.mapM Erasure.fvar_to_name : EraseM (List BinderName)) s ctx cctx ref w
+      = .ok (xs.map (fun x => nameToBinder ((ctx.lctx.fvarIdToDecl.find! x).userName)), s) w := by
+  unfold List.mapM
+  rw [run_mapM_fvar_to_name_loop]
+  simp
+
+/-- …and its `toBvar` pass is the pure `closeAlt` fold. -/
+theorem run_forIn_toBvar (L : List (FVarId × Nat)) : ∀ (t : LBTerm) (s : ErasureState)
+    (ctx : ErasureContext) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w : Void IO.RealWorld),
+    (forIn L t (fun x b => pure (ForInStep.yield (toBvar x.1 x.2 b))) : EraseM LBTerm)
+        s ctx cctx ref w
+      = .ok (L.foldl (fun b p => toBvar p.1 p.2 b) t, s) w := by
+  induction L with
+  | nil => intro t s ctx cctx ref w; rw [List.forIn_nil, run_pure]; rfl
+  | cons p ps ih =>
+    intro t s ctx cctx ref w
+    rw [List.forIn_cons, run_bind, run_pure]
+    simp only []
+    rw [ih]
+    rfl
+
+/-- **`mkAlt` is pure**: state- and world-preserving, and computed by `closeAlt`
+plus the binders' `userName`s at the context it runs in. -/
+theorem run_mkAlt (xs : List FVarId) (t : LBTerm) (s : ErasureState) (ctx : ErasureContext)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) :
+    Erasure.mkAlt xs t s ctx cctx ref w
+      = .ok ((xs.map (fun x => nameToBinder ((ctx.lctx.fvarIdToDecl.find! x).userName)),
+              closeAlt xs t), s) w := by
+  unfold Erasure.mkAlt
+  rw [run_bind, run_mapM_fvar_to_name]
+  simp only []
+  rw [run_bind, run_forIn_toBvar, closeAlt_foldl]
+  rfl
 
 /-! ## The trust bundle and the induction invariant -/
 
@@ -848,6 +916,105 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     · exact (hinv.reserved fv hfv').mono hle
   consts := hinv.consts
 
+/-! ## Opening an alternative's λ-telescope -/
+
+/-- **`Erasure.lambdaOrIntroToArity` on a manifest λ-telescope.** Peels `n` binders
+through the *inferred type* (`forallMonocular` pushes the **∀**'s binder name and
+domain, which `ForallMatchesLam` pins to the λ's own), extends the bridge invariant
+at each level, and hands the continuation `K` the fully-opened body together with
+the `n` fresh fvars — plus the two facts the caller needs:
+
+* `hext` — the outer binders' declarations survive the inner `mkLocalDecl`s, so
+  `Erasure.mkAlt`, which reads every binder's `userName` at the *innermost*
+  context, still sees the source names;
+* the **closing** property — any `Erases` fact about the opened body at the
+  extended context re-closes to an `Erases` fact about the original λ-telescope
+  against `mkLambdas … (closeAlt …)`, i.e. exactly the alternative
+  `Erases.cases`' `halts` premise demands. It is `bridge_lam_case` iterated, with
+  `mkLambdas_closeAlt_cons` doing the de Bruijn bookkeeping.
+
+Nothing here mentions `visitAlt` or the fixpoint approximation: `K` is arbitrary,
+so the lemma is reusable and the fixpoint step stays plumbing. -/
+theorem bridge_alt_telescope {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    (H : BridgeHyps env Us Γ gw) (henv : env.Ordered)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) :
+    ∀ (n : Nat) (e ty : Expr) (Δ : VLCtx)
+      (K : Expr → List FVarId → EraseM (List BinderName × LBTerm))
+      (s : ErasureState) (ctx : ErasureContext) (w : Void IO.RealWorld)
+      (r : List BinderName × LBTerm) (s' : ErasureState) (w' : Void IO.RealWorld),
+      Erasure.lambdaOrIntroToArity e ty n K s ctx cctx ref w = .ok (r, s') w' →
+      BridgeInv env Us known Γ (gw w) ctx s Δ →
+      IsLamTelescope n e → Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
+      ForallMatchesLam ty e →
+      ∃ (ys : List FVarId) (efin : Expr) (Δ' : VLCtx) (ctx' : ErasureContext)
+        (w₁ : Void IO.RealWorld),
+        ys.length = n ∧ gw w ≤ gw w₁ ∧
+        BridgeInv env Us known Γ (gw w₁) ctx' s Δ' ∧
+        Supported known Γ efin ∧ (∃ ve, TrExprS env Us Δ' efin ve) ∧
+        (∀ y ∈ Δ.fvars, ctx'.lctx.fvarIdToDecl.find! y = ctx.lctx.fvarIdToDecl.find! y) ∧
+        K efin ys s ctx' cctx ref w₁ = .ok (r, s') w' ∧
+        (∀ t : LBTerm, Erases env Us Γ Δ' efin t →
+           Erases env Us Γ Δ e
+             (mkLambdas (ys.map fun y => nameToBinder ((ctx'.lctx.fvarIdToDecl.find! y).userName))
+               (closeAlt ys t))) := by
+  intro n
+  induction n with
+  | zero =>
+    intro e ty Δ K s ctx w r s' w' hrun hinv _ hsupp hex _
+    exact ⟨[], e, Δ, ctx, w, rfl, NameGenerator.LE.rfl, hinv, hsupp, hex,
+      fun _ _ => rfl, hrun, fun _ het => het⟩
+  | succ n ih =>
+    intro e ty Δ K s ctx w r s' w' hrun hinv hlam hsupp hex hfml
+    cases e with
+    | lam nm A b bi =>
+      cases ty with
+      | forallE nm' A' Cc bi' =>
+        obtain ⟨rfl, rfl, hfml'⟩ := hfml
+        have hlam' : IsLamTelescope n b := hlam
+        simp only [Erasure.lambdaOrIntroToArity, Erasure.lambdaMonocularOrIntro,
+          Erasure.forallMonocular] at hrun
+        unfold Erasure.withLocalDecl at hrun
+        rw [run_bind_ok] at hrun
+        obtain ⟨x, s₁, w₁, hfresh, hk⟩ := hrun
+        obtain ⟨hs₁, hnres, hres, hle₁, hkres⟩ := H.fresh_run _ _ _ _ _ _ _ _ hfresh
+        subst hs₁
+        rw [run_withReader] at hk
+        simp only [] at hk
+        obtain ⟨ve, hve⟩ := hex
+        cases hve with
+        | lam hty' hty hbody =>
+        have hx : x ∉ Δ.fvars := fun hmem => hnres (hinv.reserved x hmem)
+        have hfind : ctx.lctx.find? x = none := hinv.trlctx.find?_eq_none.mpr hx
+        have hΔ' := LeanToLambdaBox.TrLCtx.mkLocalDecl (n := nm') (bi := bi')
+          hinv.trlctx hfind hty hty'
+        have hinv' := hinv.mkLocalDecl (n := nm') (bi := bi') hty hty' hx hle₁ hres hkres
+        rw [Lean.Expr.instantiate1_eq, Lean.Expr.instantiate1_eq] at hk
+        have hbext := TrExprS.inst_fvar henv hΔ'.wf hbody
+        obtain ⟨ys, efin, Δ'', ctx'', w₂, hlen, hle₂, hinv'', hsupp'', hex'', hext'', hK,
+          hclose⟩ :=
+          ih (b.instantiate1' (.fvar x)) (Cc.instantiate1' (.fvar x)) _
+            (fun e' fvs => K e' (x :: fvs)) _ _ _ _ _ _ hk hinv'
+            (hlam'.instantiate1' 0) (hsupp.lam_inv.instantiate1' x 0) ⟨_, hbext⟩
+            (ForallMatchesLam.instantiate1' x hfml' 0)
+        have hNx : ctx''.lctx.fvarIdToDecl.find! x
+            = .cdecl ctx.lctx.decls.size x nm' A' bi' .default := by
+          rw [hext'' x (by simp)]
+          exact LocalContext.fvarIdToDecl_find!_of_find?
+            (LocalContext.find?_mkLocalDecl_self hinv.trlctx.1 hfind)
+        refine ⟨x :: ys, efin, Δ'', ctx'', w₂, by simp [hlen],
+          NameGenerator.LE.trans hle₁ hle₂, hinv'', hsupp'', hex'', ?_, hK, ?_⟩
+        · intro y hy
+          rw [hext'' y (by simpa using Or.inr hy)]
+          exact LocalContext.fvarIdToDecl_find!_congr
+            (LocalContext.find?_mkLocalDecl_of_ne hinv.trlctx.1 hfind
+              (fun h => hx (h ▸ hy)))
+        · intro t het
+          rw [List.map_cons, mkLambdas_closeAlt_cons _ _ _ _ _ (by simp), hNx]
+          exact bridge_lam_case hinv.trlctx.2.noBV hty hbody hx (hclose t het)
+      | _ => exact absurd hfml id
+    | _ => exact absurd hlam id
+
 /-! ## The main induction -/
 
 set_option maxHeartbeats 1000000 in
@@ -859,11 +1026,9 @@ set_option maxHeartbeats 1000000 in
 18 (`visitAlt`); the remaining ones carry `True` conclusions in canonical run-ok
 shape (their branches are unreachable from the supported fragment).
 
-The ι motives are stated at *flat* alternatives (`nfs[j] = 0`, motive 18's
-`nf = 0`): with zero retained fields `lambdaOrIntroToArity` opens no binder, so
-the alternative telescope degenerates and no `inferType` *spec* is needed — only
-its monotonicity. Lifting that restriction (ι-T4b) relaxes motive 18 and uses
-`CasesBridgeHyps.infer_lam_run`; nothing else in the induction changes. -/
+Motive 18 opens the alternative's full λ-telescope (`bridge_alt_telescope`),
+so `Erases.cases`' `harity` premise is met at each constructor's real field
+count. -/
 theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -946,7 +1111,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         e.getAppFn = .const con us →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ e.getAppArgs.size →
@@ -958,7 +1122,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         BridgeInv env Us known Γ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ args.size →
@@ -970,7 +1133,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         BridgeInv env Us known Γ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ args.size →
@@ -979,7 +1141,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (∀ nf mask e s ctx cctx ref w r s' w',
       visitAlt nf mask e s ctx cctx ref w = .ok (r, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
-        mask = Array.replicate nf .keep → nf = 0 →
+        mask = Array.replicate nf .keep →
         IsLamTelescope nf e → Supported known Γ e →
         (∃ ve, TrExprS env Us Δ e ve) →
         r.1.length = nf ∧ Erases env Us Γ Δ e (mkLambdas r.1 r.2) ∧
@@ -1069,7 +1231,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         e.getAppFn = .const con us →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ e.getAppArgs.size →
@@ -1081,7 +1242,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         BridgeInv env Us known Γ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ args.size →
@@ -1093,7 +1253,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         BridgeInv env Us known Γ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
-        (∀ j (h : j < nfs.length), nfs[j] = 0) →
         CasesInfoAgrees ci con dp nfs →
         con.getPrefix ≠ ``Nat → con.getPrefix ≠ ``Int →
         dp + 1 + nfs.length ≤ args.size →
@@ -1102,7 +1261,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_18 := fun f => ∀ nf mask e s ctx cctx ref w r s' w',
       f nf mask e s ctx cctx ref w = .ok (r, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
-        mask = Array.replicate nf .keep → nf = 0 →
+        mask = Array.replicate nf .keep →
         IsLamTelescope nf e → Supported known Γ e →
         (∃ ve, TrExprS env Us Δ e ve) →
         r.1.length = nf ∧ Erases env Us Γ Δ e (mkLambdas r.1 r.2) ∧
@@ -1179,12 +1338,12 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         obtain ⟨er, hs, hle₂⟩ := ih8 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           n ty _ _ nd rfl (.letE n ty nd hv hb) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
-      | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hflat hnat hint
+      | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
           hdiscr hlam hminors =>
         -- a `casesOn` spine; always nonempty (it contains the discriminant), so
         -- `visitExpr` dispatches to `visitApp` and motive 11 handles it.
         have hsupp' : Supported known Γ ((pre ++ discr :: minors).foldl Expr.app (.const con us)) :=
-          .casesApp hc hdp hnfs hpre hsat hflat hnat hint hdiscr hlam hminors
+          .casesApp hc hdp hnfs hpre hsat hnat hint hdiscr hlam hminors
         obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
           (args := pre ++ discr :: minors) (by simp)
         rw [hga] at hk hsupp' hex ⊢
@@ -1466,13 +1625,13 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       -- CASES path: `getCasesInfo?` is positive and agrees with `Γ`; `visitCasesEta`
       -- handles the spine.
       obtain ⟨iid, np⟩ := p
-      obtain ⟨dp, nfs, hdp, hnfs, hflat, hnat, hint, hlesat, hfacts⟩ :=
+      obtain ⟨dp, nfs, hdp, hnfs, hnat, hint, hlesat, hfacts⟩ :=
         casesApp_spine_facts hsupp hex hfn hcasesons
       obtain ⟨hle₁', ci, rfl, hagree⟩ :=
         C.cases_run_pos cn iid np dp nfs cctx ref w o w₁ hcasesons hdp hnfs hcs
       simp only [] at hk
       obtain ⟨erap, hs', hle₂⟩ := ih15 _ _ _ _ _ _ _ _ _ _ hk Δ cn us iid np dp nfs
-        (hinv.mono hle₁) hfn hcasesons hdp hnfs hflat hagree hnat hint hlesat hfacts
+        (hinv.mono hle₁) hfn hcasesons hdp hnfs hagree hnat hint hlesat hfacts
       exact ⟨erap, hs', NameGenerator.LE.trans hle₁ hle₂⟩
     | none =>
     cases hctors : Γ.ctors cn with
@@ -1560,7 +1719,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   -- `visitCasesEtaGo`. Mirrors step 13.
   · intro vCasesEtaGo ih16
     intro ci e s ctx cctx ref w t s' w' hrun Δ con us iid np dp nfs hinv hfn hcs hdp hnfs
-      hflat hagree hnat hint hle hfacts
+      hagree hnat hint hle hfacts
     simp only [] at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨type, s₁, w₁, hinfer, hk⟩ := hrun
@@ -1569,7 +1728,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     subst hs₁
     rw [expr_withApp_eq] at hk
     obtain ⟨erap, hs', hle₂⟩ := ih16 _ _ _ _ _ _ _ _ _ _ _ _ hk Δ con us iid np dp nfs
-      (hinv.mono hlem) hcs hdp hnfs hflat hagree hnat hint hle hfacts
+      (hinv.mono hlem) hcs hdp hnfs hagree hnat hint hle hfacts
     have hspine : e.getAppArgs.foldl Expr.app (.const con us) = e := by
       rw [← hfn]; exact getAppArgs_spine' e
     rw [hspine] at erap
@@ -1579,15 +1738,15 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   -- η-expansion branch is dead. Mirrors step 14.
   · intro vCasesEtaGo vCases _ih16 ih17
     intro ci ty fe args s ctx cctx ref w t s' w' hrun Δ con us iid np dp nfs hinv hcs hdp
-      hnfs hflat hagree hnat hint hle hfacts
+      hnfs hagree hnat hint hle hfacts
     simp only [] at hrun
     rw [if_pos (show ci.arity ≤ args.size by rw [hagree.arity]; exact hle)] at hrun
-    exact ih17 _ _ _ _ _ _ _ _ _ _ hrun Δ con us iid np dp nfs hinv hcs hdp hnfs hflat
+    exact ih17 _ _ _ _ _ _ _ _ _ _ hrun Δ con us iid np dp nfs hinv hcs hdp hnfs
       hagree hnat hint hle hfacts
   -- Step 17: visitCases — the workhorse.
   · intro vE vAlt ih1 ih18
     intro ci args s ctx cctx ref w t s' w' hrun Δ con us iid np dp nfs hinv hcs hdp hnfs
-      hflat hagree hnat hint hle hfacts
+      hagree hnat hint hle hfacts
     obtain ⟨hfd, hfm, hfx⟩ := hfacts
     have hdplt : dp < args.size := by omega
     simp only [] at hrun
@@ -1645,7 +1804,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         acc.2.1.array = ci.altNumParams ∧ acc.2.1.start = pre.length ∧
         acc.2.1.stop = ci.altNumParams.size ∧ acc.2.2 = argmasks.drop pre.length ∧
         ∀ j (hj : j < acc.1.size),
-          (acc.1[j]'hj).1.length = 0 ∧
+          (acc.1[j]'hj).1.length = nfs[j]! ∧
           Erases env Us Γ Δ (args[dp + 1 + j]!)
             (mkLambdas (acc.1[j]'hj).1 (acc.1[j]'hj).2))
       ⟨rfl, hle₆, rfl, toStream_array_array _, toStream_array_start _,
@@ -1693,25 +1852,26 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                 Array.getElem?_eq_getElem hna2] at h?
               exact Option.some.inj h?
             obtain ⟨cnm, hcnm⟩ := hagree.alts pre.length hLlen
-            rw [getElem!_pos ci.altNumParams pre.length hna2, hflat pre.length hLlen] at hcnm
-            have haltInfo : altInfo = .ctor cnm 0 := by rw [hv, hai, hcnm]
+            rw [getElem!_pos ci.altNumParams pre.length hna2] at hcnm
+            have haltInfo : altInfo = .ctor cnm (nfs[pre.length]'hLlen) := by
+              rw [hv, hai, hcnm]
             subst haltInfo
             simp only [] at hbody
             -- the argmask: `register_inductive` produced a trivial one
             have hml : pre.length < argmasks.length := by rw [hmlen]; exact hLlen
             rw [List.drop_eq_getElem_cons hml] at hsm
             injection hsm with hy hrest
-            have hmy : y = Array.replicate 0 (ConstructorArgRelevance.keep) := by
-              rw [hy, ← getElem!_pos argmasks pre.length hml, hmask pre.length hLlen,
-                hflat pre.length hLlen]
+            have hmy : y = Array.replicate (nfs[pre.length]'hLlen)
+                (ConstructorArgRelevance.keep) := by
+              rw [hy, ← getElem!_pos argmasks pre.length hml, hmask pre.length hLlen]
             -- the minor itself
             rw [getElem!_pos args (dp + 1 + pre.length) hxlt] at hbody
             rw [run_bind_ok] at hbody
             obtain ⟨alt, s₉, w₉, halt, hp2⟩ := hbody
             obtain ⟨hlamj, hsuppj, hexj⟩ := hfm pre.length hLlen hxlt
             obtain ⟨hlen0, eralt, rfl, hle₉⟩ :=
-              ih18 0 y _ _ ctx cctx ref w₇ alt s₉ w₉ halt Δ (hinv.mono hlew) hmy rfl
-                trivial hsuppj hexj
+              ih18 (nfs[pre.length]'hLlen) y _ _ ctx cctx ref w₇ alt s₉ w₉ halt Δ
+                (hinv.mono hlew) hmy hlamj hsuppj hexj
             rw [run_pure] at hp2
             cases hp2
             refine ⟨rfl, NameGenerator.LE.trans hlew hle₉, by simp [hsz], by rw [harr', harr],
@@ -1723,9 +1883,10 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
             · have hjeq : j = alts.size := by omega
               subst hjeq
               rw [Array.getElem_push_eq]
-              refine ⟨hlen0, ?_⟩
-              rw [hsz, getElem!_pos args (dp + 1 + pre.length) hxlt]
-              exact eralt)
+              refine ⟨?_, ?_⟩
+              · rw [hsz, getElem!_pos nfs pre.length hLlen]; exact hlen0
+              · rw [hsz, getElem!_pos args (dp + 1 + pre.length) hxlt]
+                exact eralt)
       -- the `done` step: both `Std.Stream` early exits are refuted by the invariant
       (fun pre x post acc s₇ w₇ bacc s₈ w₈ hL hP hbody => by
         obtain ⟨alts, sAlt, sMask⟩ := acc
@@ -1772,8 +1933,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         (by rw [hAlen]; exact hdp) hnfs hd (by rw [hMlen, haltsl]) (by rw [haltsl])
         (fun j hj => ?_) (fun j hj => ?_)
       · have hj' : j < nfs.length := by rw [haltsl] at hj; exact hj
-        rw [hflat j hj', Array.getElem_toList]
-        exact (hpjfin j (by rw [hsize]; exact hj')).1
+        rw [Array.getElem_toList]
+        have := (hpjfin j (by rw [hsize]; exact hj')).1
+        rwa [getElem!_pos nfs j hj'] at this
       · have hj' : j < nfs.length := by rw [hMlen] at hj; exact hj
         have hxlt : dp + 1 + j < args.size := by omega
         have hmg : ((args.toList.drop (dp + 1)).take nfs.length)[j]'hj
@@ -1848,22 +2010,26 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   -- `filter` is the identity on `#[]` (for *any* argmask), and `mkAlt [] t = ([], t)`,
   -- so the alternative's telescope degenerates and `mkLambdas [] t = t`.
   · intro vE ih1
-    intro nf mask e s ctx cctx ref w r s' w' hrun Δ hinv _hmask hnf _hlam hsupp hex
-    subst hnf
+    intro nf mask e s ctx cctx ref w r s' w' hrun Δ hinv hmask hlam hsupp hex
     simp only [] at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨ty, s₁, w₁, hinfer, hk⟩ := hrun
     have hs₁ : s₁ = s := run_liftMetaM_state _ _ _ _ _ hinfer
-    have hlem := HD.infer_run e s ctx cctx ref w ty s₁ w₁ hinfer
     subst hs₁
-    simp only [Erasure.lambdaOrIntroToArity, filter_nil_toList] at hk
-    rw [run_bind_ok] at hk
-    obtain ⟨tb, s₂, w₂, hvb, hm⟩ := hk
-    obtain ⟨erb, hs₂, hle₂⟩ := ih1 _ _ _ _ _ _ _ _ _ hvb Δ (hinv.mono hlem) hsupp hex
+    obtain ⟨hlem, hfml⟩ := C.infer_lam_run e _ ctx cctx ref w ty _ w₁ hinfer
+    obtain ⟨ys, efin, Δ', ctx', w₂, hlen, hle₂, hinv', hsupp', hex', _hext, hK, hclose⟩ :=
+      bridge_alt_telescope H henv cctx ref nf e ty Δ _ _ ctx w₁ r s' w' hk
+        (hinv.mono hlem) hlam hsupp hex hfml
+    rw [hmask, filter_replicate_keep nf ys.toArray (by simp [hlen]),
+      List.toList_toArray] at hK
+    rw [run_bind_ok] at hK
+    obtain ⟨tb, s₂, w₃, hvb, hm⟩ := hK
+    obtain ⟨erb, hs₂, hle₃⟩ := ih1 _ _ _ _ _ _ _ _ _ hvb Δ' hinv' hsupp' hex'
     subst hs₂
-    rw [run_mkAlt_nil] at hm
+    rw [run_mkAlt] at hm
     cases hm
-    exact ⟨rfl, erb, rfl, NameGenerator.LE.trans hlem hle₂⟩
+    exact ⟨by simp [hlen], hclose tb erb, rfl,
+      NameGenerator.LE.trans hlem (NameGenerator.LE.trans hle₂ hle₃)⟩
 
 /-! ## The exported theorem -/
 
