@@ -347,9 +347,46 @@ theorem expr_getAppFn_foldl (f : Expr) (args : List Expr) :
   | nil => rfl
   | cons a as ih => rw [List.foldl_cons, ih]; rfl
 
+/-- The argument list of a source application spine, in order — the `Expr` mirror of
+`LBTerm.spineArgs`. Together with `expr_getAppFn_foldl` it gives injectivity of a
+`.const`-headed `foldl` spine (`foldl_app_const_inj`), which is what lets the `cases`
+rule's own `pre ++ discr :: minors` decomposition be matched against an ambient
+positional one. -/
+def exprSpineArgs : Expr → List Expr
+  | .app f a => exprSpineArgs f ++ [a]
+  | _ => []
+
+theorem exprSpineArgs_foldl (f : Expr) : ∀ (l : List Expr),
+    exprSpineArgs (l.foldl Expr.app f) = exprSpineArgs f ++ l := by
+  intro l
+  induction l generalizing f with
+  | nil => simp
+  | cons a as ih => simp only [List.foldl_cons, ih (f.app a), exprSpineArgs]; simp
+
+/-- **Injectivity of a `.const`-headed application spine.** Two `foldl` spines over
+constant heads are equal only if head, universes and argument list all agree. -/
+theorem foldl_app_const_inj {c₁ c₂ : Name} {u₁ u₂ : List Level} {l₁ l₂ : List Expr}
+    (h : l₁.foldl Expr.app (.const c₁ u₁) = l₂.foldl Expr.app (.const c₂ u₂)) :
+    c₁ = c₂ ∧ u₁ = u₂ ∧ l₁ = l₂ := by
+  have hl : l₁ = l₂ := by
+    have := congrArg exprSpineArgs h
+    simpa only [exprSpineArgs_foldl, exprSpineArgs, List.nil_append] using this
+  subst hl
+  have hfn := congrArg Expr.getAppFn h
+  rw [expr_getAppFn_foldl, expr_getAppFn_foldl] at hfn
+  simp only [Expr.getAppFn] at hfn
+  injection hfn with h1 h2
+  exact ⟨h1, h2, rfl⟩
+
 /-- **t-preserving inversion of `Erases` on an application node.** Unlike
 `Erases.app_inv`, the block-`ctor` and `cases` disjuncts retain the target `t`
-(needed by A6 to detect the block form). -/
+(needed by A6 to detect the block form).
+
+The `cases` disjunct returns the rule's **full** payload — the three T1 arity pins
+(`hpre`/`hnfs`+`hnlen`/`harity`), the discriminant erasure and the per-minor erasures —
+not just the head registration. `Erases.cases_spine_inv` (A6ι) needs every one of them
+to reconstruct a positional split of the spine; the earlier weak form discarded exactly
+the data T1 landed. -/
 theorem Erases.app_inv_t {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {f a : Expr} {t : LBTerm} (h : Erases env Us Γ Δ (.app f a) t) :
     (∃ ve, TrExprS env Us Δ (.app f a) ve ∧
@@ -362,34 +399,44 @@ theorem Erases.app_inv_t {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
         t = .construct iid cidx args') ∨
     (∃ (con : Name) (us : List Level) (pre : List Expr) (discr : Expr) (minors : List Expr)
         (iid : InductiveId) (np : Nat) (discr' : LBTerm)
-        (alts' : List (List BinderName × LBTerm)),
+        (alts' : List (List BinderName × LBTerm)) (nfs : List Nat),
         Expr.app f a = (discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us)) ∧
-        Γ.casesOns con = some (iid, np) ∧ t = .case (iid, np) discr' alts') := by
+        Γ.casesOns con = some (iid, np) ∧
+        Γ.casesDiscrPos con = some pre.length ∧
+        Γ.ctorFields iid = some nfs ∧
+        Erases env Us Γ Δ discr discr' ∧
+        ∃ (hlen : minors.length = alts'.length) (hnlen : alts'.length = nfs.length),
+          (∀ j (hj : j < alts'.length), (alts'[j]'hj).1.length = nfs[j]'(hnlen ▸ hj)) ∧
+          (∀ j (hj : j < minors.length), Erases env Us Γ Δ minors[j]
+              (mkLambdas (alts'[j]'(hlen ▸ hj)).1 (alts'[j]'(hlen ▸ hj)).2)) ∧
+          t = .case (iid, np) discr' alts') := by
   generalize he : (Expr.app f a) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
   | app hf ha => cases he; exact .inr (.inl ⟨_, _, hf, ha, rfl⟩)
   | @ctor _ cn us iid cidx args args' hc hlen _ _ =>
       exact .inr (.inr (.inl ⟨cn, us, args, iid, cidx, args', rfl, hc, hlen, rfl⟩))
-  | @cases _ con us iid np pre discr discr' minors alts' _ hcase _ _ _ _ _ _ =>
-      exact .inr (.inr (.inr ⟨con, us, pre, discr, minors, iid, np, discr', alts',
-        rfl, hcase, rfl⟩))
+  | @cases _ con us iid np pre discr discr' minors alts' nfs hcase hpre hnfs hd
+      hlen hnlen harity halts _ _ =>
+      exact .inr (.inr (.inr ⟨con, us, pre, discr, minors, iid, np, discr', alts', nfs,
+        rfl, hcase, hpre, hnfs, hd, hlen, hnlen, harity, halts, rfl⟩))
   | _ => exact absurd he (by simp)
 
-/-- **`.const`-source inversion keeping the `ctors = none` witness** (which
+/-- **`.const`-source inversion keeping the `ctors`/`casesOns = none` witnesses** (which
 `const_inv` discards) — needed to exclude the plain-`const` rule on a registered
-constructor head. -/
+constructor head (`ctors`) or a registered `casesOn` head (`casesOns`, the base case of
+`Erases.cases_spine_inv`). -/
 theorem Erases.const_inv_full {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {us : List Level} {t : LBTerm} (h : Erases env Us Γ Δ (.const n us) t) :
     (∃ ve, TrExprS env Us Δ (.const n us) ve ∧
         Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
-    (∃ kn, Γ.constants n = kn ∧ Γ.ctors n = none ∧ t = .const kn) ∨
+    (∃ kn, Γ.constants n = kn ∧ Γ.ctors n = none ∧ Γ.casesOns n = none ∧ t = .const kn) ∨
     (∃ (iid : InductiveId) (cidx : Nat), Γ.ctors n = some (iid, cidx) ∧
         t = .construct iid cidx []) := by
   generalize he : (Expr.const n us) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
-  | const m ms kn hkn hctor _ => cases he; exact .inr (.inl ⟨_, hkn, hctor, rfl⟩)
+  | const m ms kn hkn hctor hcases => cases he; exact .inr (.inl ⟨_, hkn, hctor, hcases, rfl⟩)
   | ctor_head cn cus iid cidx hc => cases he; exact .inr (.inr ⟨iid, cidx, hc, rfl⟩)
   | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
       rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
@@ -436,7 +483,7 @@ theorem Erases.ctor_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
     rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
     · -- base: args = []
       simp only [List.foldl] at htr her
-      rcases her.const_inv_full with ⟨ve', htr', her', rfl⟩ | ⟨kn, _, hctor, rfl⟩
+      rcases her.const_inv_full with ⟨ve', htr', her', rfl⟩ | ⟨kn, _, hctor, _, rfl⟩
         | ⟨iid2, cidx2, hc2, rfl⟩
       · refine .inl ⟨?_, [], rfl, by simp⟩
         exact her'.defeq henv hΓ
@@ -456,7 +503,8 @@ theorem Erases.ctor_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
           ⟨ve', htr'app, her'box, rfl⟩ |
           ⟨f', last', hf', hlast', rfl⟩ |
           ⟨cn2, us2, args2, iid2, cidx2, args'', hsrc, hc2, hlen2, rfl⟩ |
-          ⟨con, us2, pre, discr, minors, iid2, np, discr', alts', hsrc, hcase2, rfl⟩
+          ⟨con, us2, pre, discr, minors, iid2, np, discr', alts', nfs2, hsrc, hcase2,
+            _, _, _, _, _, _, _, rfl⟩
         · -- box on the whole current spine
           refine .inl ⟨?_, [], rfl, by simp⟩
           exact her'box.defeq henv hΓ
@@ -515,6 +563,249 @@ theorem Erases.ctor_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
             rw [hsrc]; rw [expr_getAppFn_foldl, expr_getAppFn_foldl]; rfl
           rw [hfn] at hfn2; injection hfn2 with hcncon
           rw [← hcncon, hcas] at hcase2; exact absurd hcase2 (by simp)
+
+/-! ## A6ι: classifying the erasure of a `casesOn` application spine
+
+`Erases.cases_spine_inv` is the `casesOn` counterpart of `ctor_spine_inv`, and the
+inversion the ι forward simulation (`ErasesCorrectIota.lean`) runs on its redex. It is
+formulated **positionally** — every payload is indexed off the ambient `args` list rather
+than off a rule-supplied `pre`/`discr`/`minors` decomposition — deliberately mirroring
+T4's `Supported.casesApp_inv`, so that the shipping-side and relation-side inversions
+index the same spine the same way and their composition (Task 5) is mechanical. -/
+
+/-- `List.eq_nil_or_concat` with the tail spelled as an append: rewriting a `concat`
+under a dependent `getElem` proof breaks the motive, and `cases_spine_inv`'s payload is
+position-indexed throughout. (T4's `list_eq_nil_or_append_singleton` is the same lemma;
+duplicated rather than imported because `VisitExprRefines` sits far downstream of this
+file.) -/
+theorem list_nil_or_snoc {α : Type _} (l : List α) :
+    l = [] ∨ ∃ (init : List α) (last : α), l = init ++ [last] := by
+  rcases List.eq_nil_or_concat l with rfl | ⟨init, last, rfl⟩
+  · exact .inl rfl
+  · exact .inr ⟨init, last, by rw [List.concat_eq_append]⟩
+
+/-- **A6ι — classification of a `casesOn`-spine erasure.** Under a registered `casesOn`
+head `con` (with `Γ.ctors con = none` by disjointness), the erasure of
+`args.foldl Expr.app (.const con us)` is one of:
+
+* **box cut at `k`** — the length-`k` prefix is `Erasable` and the remaining arguments
+  are applied to `box`: `t = mkApps .box args'`; the whole spine is `Erasable` too
+  (propagated with `Erasable.app`). `k = args.length` is the ordinary "the match is a
+  proof" case (`args' = []`, `t = .box`); `k < args.length` is the derivation the
+  shipping eraser never emits and that `IotaRelevant` excludes.
+* **cases cut** — the rule fired at its pinned split (`dp` dropped arguments, the
+  discriminant, one minor per constructor), with any surplus applied on top:
+  `t = mkApps (.case (iid, np) discr' alts') rest'`. Note the cut is impossible below
+  full arity, which is what `hsat` records.
+* **block junk** — `¬ NoBlock t`, discharged by the caller's `NoBlock` premise. -/
+theorem Erases.cases_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Γ : ErasureCtx} {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {con : Name} {us : List Level} {iid : InductiveId} {np dp : Nat} {nfs : List Nat}
+    (hc : Γ.casesOns con = some (iid, np))
+    (hdp : Γ.casesDiscrPos con = some dp)
+    (hnfs : Γ.ctorFields iid = some nfs)
+    (hctors : Γ.ctors con = none) :
+    ∀ (m : Nat) (args : List Expr), args.length = m → ∀ {ve : VExpr} {t : LBTerm},
+      TrExprS env Us Δ (args.foldl Expr.app (.const con us)) ve →
+      Erases env Us Γ Δ (args.foldl Expr.app (.const con us)) t →
+      (∃ (k : Nat) (hk : k ≤ args.length) (vk : VExpr) (args' : List LBTerm)
+          (hl : args.length - k = args'.length),
+          TrExprS env Us Δ ((args.take k).foldl Expr.app (.const con us)) vk ∧
+          Erasable env Us.length Δ.toCtx vk ∧
+          Erasable env Us.length Δ.toCtx ve ∧
+          (∀ i (h : i < args'.length),
+             Erases env Us Γ Δ (args[k + i]'(by omega)) (args'[i]'h)) ∧
+          t = LBTerm.mkApps .box args') ∨
+      (∃ (discr' : LBTerm) (alts' : List (List BinderName × LBTerm)) (rest' : List LBTerm)
+          (hsat : dp + 1 + nfs.length ≤ args.length)
+          (hlen : alts'.length = nfs.length)
+          (hrl : args.length - (dp + 1 + nfs.length) = rest'.length),
+          Erases env Us Γ Δ (args[dp]'(by omega)) discr' ∧
+          (∀ j (h : j < alts'.length), (alts'[j]'h).1.length = nfs[j]'(hlen ▸ h)) ∧
+          (∀ j (h : j < alts'.length), Erases env Us Γ Δ (args[dp + 1 + j]'(by omega))
+             (mkLambdas (alts'[j]'h).1 (alts'[j]'h).2)) ∧
+          (∀ i (h : i < rest'.length),
+             Erases env Us Γ Δ (args[dp + 1 + nfs.length + i]'(by omega)) (rest'[i]'h)) ∧
+          t = LBTerm.mkApps (.case (iid, np) discr' alts') rest') ∨
+      ¬ NoBlock t := by
+  have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+  intro m
+  induction m using Nat.strongRecOn with
+  | ind m ih =>
+    intro args hm ve t htr her
+    rcases list_nil_or_snoc args with rfl | ⟨init, last, rfl⟩
+    · -- base: args = []; only `const_inv_full`'s three shapes are available
+      simp only [List.foldl] at htr her
+      rcases her.const_inv_full with ⟨ve', htr', her', rfl⟩ | ⟨kn, _, _, hcs, rfl⟩
+        | ⟨iid2, cidx2, hc2, rfl⟩
+      · refine .inl ⟨0, by simp, ve', [], by simp, htr', her', ?_, by simp, by simp⟩
+        exact her'.defeq henv hΓ
+          (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htr' htr)
+      · rw [hc] at hcs; exact absurd hcs (by simp)
+      · rw [hctors] at hc2; exact absurd hc2 (by simp)
+    · -- step: args = init ++ [last]
+      have hspine : (init ++ [last]).foldl Expr.app (.const con us)
+          = Expr.app (init.foldl Expr.app (.const con us)) last := by
+        rw [List.foldl_append, List.foldl_cons, List.foldl_nil]
+      have hlenargs : (init ++ [last]).length = init.length + 1 := by simp
+      rw [hspine] at htr her
+      cases htr with
+      | @app fve A B lastve _ _ _ hTf hTa htrf htrlast =>
+        rcases her.app_inv_t with
+          ⟨ve', htr'app, her'box, rfl⟩ |
+          ⟨f', last', hf', hlast', rfl⟩ |
+          ⟨cn2, us2, args2, iid2, cidx2, args'', hsrc, hc2, hlen2, rfl⟩ |
+          ⟨con2, us2, pre2, discr2, minors2, iid2, np2, discr', alts', nfs2, hsrc,
+            hcase2, hpre2, hnfs2, hd2, hlen2, hnlen2, harity2, halts2, rfl⟩
+        · -- box on the whole current spine: cut at `k = args.length`
+          have herve := her'box.defeq henv hΓ
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ)
+              htr'app (.app hTf hTa htrf htrlast))
+          refine .inl ⟨(init ++ [last]).length, Nat.le_refl _, _, [], by simp, ?_,
+            herve, herve, by simp, by simp⟩
+          rw [List.take_length, hspine]
+          exact .app hTf hTa htrf htrlast
+        · -- structural application: recurse on the init spine
+          have hlt : init.length < m := by rw [← hm, hlenargs]; omega
+          rcases ih init.length hlt init rfl htrf hf' with
+            ⟨k, hk, vk, args'', hl, htrk, herk, herinit, hcorr, rfl⟩ |
+            ⟨discr', alts', rest', hsat, hlen', hrl, hd, harity, halts, hrest, rfl⟩ | hnb
+          · -- box cut for init → same cut for the whole spine (one more argument)
+            refine .inl ⟨k, by simp; omega, vk, args'' ++ [last'], by simp; omega, ?_,
+              herk, herinit.app henv hΓ hTf hTa, ?_, by rw [LBTerm.mkApps_concat]⟩
+            · rwa [List.take_append_of_le_length hk]
+            · intro i hi
+              simp only [List.length_append, List.length_cons, List.length_nil] at hi
+              by_cases hii : i < args''.length
+              · rw [List.getElem_append_left (show k + i < init.length by omega),
+                  List.getElem_append_left hii]
+                exact hcorr i hii
+              · have hieq : i = args''.length := by omega
+                subst hieq
+                have hki : k + args''.length = init.length := by omega
+                simp only [hki, List.getElem_append_right, Nat.le_refl, Nat.sub_self,
+                  List.getElem_cons_zero]
+                simpa using hlast'
+          · -- cases cut for init → same cut, one more surplus argument
+            refine .inr (.inl ⟨discr', alts', rest' ++ [last'], by simp; omega, hlen',
+              by simp; omega, ?_, harity, ?_, ?_, by rw [LBTerm.mkApps_concat]⟩)
+            · rw [List.getElem_append_left (show dp < init.length by omega)]
+              exact hd
+            · intro j hj
+              rw [List.getElem_append_left (show dp + 1 + j < init.length by omega)]
+              exact halts j hj
+            · intro i hi
+              simp only [List.length_append, List.length_cons, List.length_nil] at hi
+              by_cases hii : i < rest'.length
+              · rw [List.getElem_append_left
+                  (show dp + 1 + nfs.length + i < init.length by omega),
+                  List.getElem_append_left hii]
+                exact hrest i hii
+              · have hieq : i = rest'.length := by omega
+                subst hieq
+                have hki : dp + 1 + nfs.length + rest'.length = init.length := by omega
+                simp only [hki, List.getElem_append_right, Nat.le_refl, Nat.sub_self,
+                  List.getElem_cons_zero]
+                simpa using hlast'
+          · exact .inr (.inr (fun hnbt => hnb hnbt.1))
+        · -- block ctor rule on a `casesOn` head: contradicts ctors-disjointness
+          exfalso
+          have hfn : (Expr.app (init.foldl Expr.app (.const con us)) last).getAppFn
+              = Expr.const con us := by
+            rw [← hspine]; rw [expr_getAppFn_foldl]; rfl
+          have hfn2 : (Expr.app (init.foldl Expr.app (.const con us)) last).getAppFn
+              = Expr.const cn2 us2 := by
+            rw [hsrc]; rw [expr_getAppFn_foldl]; rfl
+          rw [hfn] at hfn2; injection hfn2 with hcncon
+          rw [← hcncon, hctors] at hc2; exact absurd hc2 (by simp)
+        · -- the rule fires on the whole current spine: exact-arity cases cut
+          have hsrc' : (init ++ [last]).foldl Expr.app (.const con us)
+              = (pre2 ++ discr2 :: minors2).foldl Expr.app (.const con2 us2) := by
+            rw [hspine, hsrc, List.foldl_append]
+          obtain ⟨rfl, rfl, hargeq⟩ := foldl_app_const_inj hsrc'
+          obtain ⟨rfl, rfl⟩ : iid2 = iid ∧ np2 = np := by
+            rw [hc] at hcase2; simpa using hcase2.symm
+          obtain rfl : pre2.length = dp := by rw [hdp] at hpre2; simpa using hpre2.symm
+          obtain rfl : nfs2 = nfs := by rw [hnfs] at hnfs2; simpa using hnfs2.symm
+          have hmin : minors2.length = nfs2.length := by omega
+          rw [hargeq]
+          refine .inr (.inl ⟨discr', alts', [], by simp; omega, hnlen2, by simp; omega,
+            ?_, harity2, ?_, by simp, by simp⟩)
+          · simp only [List.getElem_append_right, Nat.le_refl, Nat.sub_self,
+              List.getElem_cons_zero]
+            exact hd2
+          · intro j hj
+            have hidx : pre2.length + 1 + j - pre2.length = j + 1 := by omega
+            simp only [List.getElem_append_right
+                (show pre2.length ≤ pre2.length + 1 + j by omega), hidx,
+              List.getElem_cons_succ]
+            exact halts2 j (by omega)
+
+/-- **The ι redex's erasure, at exact arity.** With the source-side split pinned
+(`pre.length = dp`, `minors.length = nfs.length`) and prefix-relevance assumed
+(`hrel`), an ι redex erases either to `.box` — the whole match is irrelevant — or to a
+`.case` whose split coincides, argument for argument, with the source split.
+
+`hrel` is the specialisation of `IotaRelevant.partialCases` the ι simulation supplies:
+it rules out the `Erases` derivations that box a *proper* prefix of the redex, which the
+shipping eraser never emits (it boxes the whole application or none of it) but the
+relation permits, and under which the target `.case` is stuck. Without it the box cut
+could land at `k < args.length` and the reduct would carry unevaluated arguments no IH
+covers. -/
+theorem Erases.iota_redex_inv {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Γ : ErasureCtx} {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {con : Name} {us : List Level} {iid : InductiveId} {np : Nat} {nfs : List Nat}
+    {pre minors : List Expr} {discr : Expr}
+    (hc : Γ.casesOns con = some (iid, np))
+    (hdp : Γ.casesDiscrPos con = some pre.length)
+    (hnfs : Γ.ctorFields iid = some nfs)
+    (hctors : Γ.ctors con = none)
+    (hmin : minors.length = nfs.length)
+    {ve : VExpr} {t : LBTerm}
+    (hrel : ∀ k, k < pre.length + 1 + nfs.length → ∀ {vk : VExpr},
+        TrExprS env Us Δ (((pre ++ discr :: minors).take k).foldl Expr.app (.const con us)) vk →
+        ¬ Erasable env Us.length Δ.toCtx vk)
+    (htr : TrExprS env Us Δ
+      ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))) ve)
+    (her : Erases env Us Γ Δ
+      ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))) t)
+    (hnb : NoBlock t) :
+    (Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
+    (∃ (discr' : LBTerm) (alts' : List (List BinderName × LBTerm))
+        (hlen : alts'.length = nfs.length),
+      t = .case (iid, np) discr' alts' ∧
+      Erases env Us Γ Δ discr discr' ∧
+      (∀ j (h : j < alts'.length), (alts'[j]'h).1.length = nfs[j]'(hlen ▸ h)) ∧
+      (∀ j (h : j < alts'.length), Erases env Us Γ Δ (minors[j]'(by omega))
+         (mkLambdas (alts'[j]'h).1 (alts'[j]'h).2))) := by
+  have hspine : (discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))
+      = (pre ++ discr :: minors).foldl Expr.app (.const con us) := by
+    rw [List.foldl_append]
+  rw [hspine] at htr her
+  have hlenargs : (pre ++ discr :: minors).length = pre.length + 1 + nfs.length := by
+    simp only [List.length_append, List.length_cons]; omega
+  rcases Erases.cases_spine_inv henv hΔ hc hdp hnfs hctors
+      (pre ++ discr :: minors).length (pre ++ discr :: minors) rfl htr her with
+    ⟨k, hk, vk, args', hl, htrk, herk, herve, hcorr, rfl⟩ |
+    ⟨discr', alts', rest', hsat, hlen, hrl, hd, harity, halts, hrest, rfl⟩ | hnbt
+  · -- box cut: prefix-relevance forces it to the full length, so `args' = []`
+    have hkeq : k = (pre ++ discr :: minors).length := by
+      by_contra hne
+      exact hrel k (by omega) htrk herk
+    subst hkeq
+    obtain rfl : args' = [] := List.eq_nil_of_length_eq_zero (by omega)
+    exact .inl ⟨herve, by simp⟩
+  · -- cases cut: `hsat` is an equality, so there is no surplus
+    obtain rfl : rest' = [] := List.eq_nil_of_length_eq_zero (by omega)
+    refine .inr ⟨discr', alts', hlen, by simp, ?_, harity, ?_⟩
+    · simpa only [List.getElem_append_right, Nat.le_refl, Nat.sub_self,
+        List.getElem_cons_zero] using hd
+    · intro j hj
+      have hidx : pre.length + 1 + j - pre.length = j + 1 := by omega
+      simpa only [List.getElem_append_right
+          (show pre.length ≤ pre.length + 1 + j by omega), hidx,
+        List.getElem_cons_succ] using halts j hj
+  · exact absurd hnb hnbt
 
 /-! ## A7: forward simulation for the data fragment (`erases_correct_data`)
 
