@@ -247,6 +247,24 @@ def IotaConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (ia : IotaAri
     ∃ bve, TrExprS env Us Δ ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx)) bve ∧
       env.IsDefEqU Us.length Δ.toCtx ve bve
 
+/-- **`Γ`-internal constructor-arity coherence.** The per-name `ctorArities` (MetaRocq's
+full `cstr_arity`) decomposes as `numParams + nfields`, with the field count read off the
+per-inductive `ctorFields` list. This is the datum the ι simulation needs to turn
+`(cargs.drop np).length` into the selected alternative's binder count: the source rule
+pins `cargs.length = ar` while the erasure pins the alternative's telescope to
+`nfs[cidx]`, and only this decomposition links them.
+
+Kept *outside* the `Erases.cases` rule deliberately — `Erases.ctor` says nothing about
+arity either; `ErasesEnvCtor` carries that link and `erases_correct_data` threads it.
+`erases_correct_dataι` threads this one identically. Discharged at registration by
+`ctorFieldsCoherent_of_registered` (`EnvErasureNonrec.lean`). -/
+def CtorFieldsCoherent (Γ : ErasureCtx) : Prop :=
+  ∀ {con cn : Name} {iid : InductiveId} {np cidx : Nat} {nfs : List Nat},
+    Γ.casesOns con = some (iid, np) → Γ.ctorFields iid = some nfs →
+    Γ.ctors cn = some (iid, cidx) →
+    ∃ (h : cidx < nfs.length), Γ.ctorArities cn = some (np + nfs[cidx])
+
+
 /-- **`IotaArities` ↔ `ErasureCtx` coherence.** `SEvalDataι.iota` pins its redex
 *arithmetically*, through `ia` (`pre.length = np + nmot + nidx`, `minors.length = nmin`);
 `Erases.cases` pins the same spine *through `Γ`* (`Γ.casesDiscrPos con = some pre.length`,
@@ -268,16 +286,14 @@ def IotaArityCoherent (Γ : ErasureCtx) (ia : IotaArities) : Prop :=
     Γ.casesDiscrPos con = some (np + nmot + nidx) ∧
     ∃ nfs, Γ.ctorFields iid = some nfs ∧ nfs.length = nmin
 
-/-! ### C2/C3 — subject reduction and the ι-simulation (remaining, documented).
+/-! ### C2/C3 — where the ι theorems live.
 
-`SEvalDataι_defeq` (subject reduction over `SEvalDataι`) and the ι case of the
-data-fragment forward simulation reuse the β+ζ+δ chain for the non-ι rules; the ι case
-is discharged **only** through `IotaConsistent` (the fork's ι-defeq route exists but is
-not yet chainable, as documented above). Mechanising them additionally needs a
-`casesOn`-spine translation
-inversion (to expose the evaluated scrutinee's ctor-spine translation) and a
-`β`-chain ↔ `iota_red`-substitution bridge over the P0-corrected reversing `iota_red`.
-These are the remaining C2/C3 pieces; the corrected relation `SEvalDataι` and the honest
-`IotaConsistent` premise (C1) are in place and supersede `SEvalβζδι`. -/
+Subject reduction over `SEvalDataι` is `SEvalDataι_defeq` (`SubjectReductionIota.lean`),
+with `IotaConsistent` discharged by `SEvalDataι_defeq_of_shape`; the ι forward simulation
+is `erases_correct_dataι` (`ErasesCorrectIota.lean`), which additionally consumes the
+`casesOn`-spine erasure inversion (`Erases.cases_spine_inv` / `Erases.iota_redex_inv`,
+`ErasesCorrectData.lean`) and — for field-carrying inductives — the β-chain ↔
+reversing-`iota_red` bridge over the P0-corrected `iota_red`. The corrected relation
+`SEvalDataι` (C1) supersedes `SEvalβζδι`. -/
 
 end LeanToLambdaBox

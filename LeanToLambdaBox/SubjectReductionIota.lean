@@ -70,6 +70,56 @@ open Lean Lean4Lean
 
 /-! ## C2 — subject reduction as definitional equality over `SEvalDataι`. -/
 
+/-- **The ι redex is definitionally equal to its source reduct, and the reduct is
+translatable.** Two steps: the congruence that replaces the discriminant by its
+constructor-spine value inside the outer spine (`SEvalβζδ_defeq_spine` used as pure head
+congruence), then one application of `IotaConsistent`.
+
+The discriminant's subject reduction arrives as the *function* `hdiscr` rather than as an
+`SEvalDataι` derivation, so this lemma is usable both from `SEvalDataι_defeq`'s own ι arm
+(passing its induction hypothesis) and from `erases_correct_dataι`'s ι case (passing
+`SEvalDataι_defeq` itself) — with no circularity in either direction. -/
+theorem SEvalDataι_iota_reduct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
+    (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities}
+    (hiota : IotaConsistent env Us Γ ia)
+    {con ctor : Name} {us cus : List Level} {pre minors cargs : List Expr}
+    {discr : Expr} {iid : InductiveId} {np cidx nmot nidx nmin ar : Nat} {ve : VExpr}
+    (hcases : Γ.casesOns con = some (iid, np))
+    (hctor : Γ.ctors ctor = some (iid, cidx))
+    (hia : ia con = some (nmot, nidx, nmin))
+    (har : Γ.ctorArities ctor = some ar)
+    (hpre : pre.length = np + nmot + nidx) (hmin : minors.length = nmin)
+    (hcargs : cargs.length = ar) (hidx : cidx < minors.length)
+    (hdiscr : ∀ {dve : VExpr}, TrExprS env Us Δ discr dve →
+      ∃ cve, TrExprS env Us Δ (cargs.foldl Expr.app (.const ctor cus)) cve ∧
+        env.IsDefEqU Us.length Δ.toCtx dve cve)
+    (htr : TrExprS env Us Δ
+      ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))) ve) :
+    ∃ bve, TrExprS env Us Δ ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx)) bve ∧
+      env.IsDefEqU Us.length Δ.toCtx ve bve := by
+  have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+  obtain ⟨hveHEAD, htrHEAD⟩ := TrExprS_spine_head (discr :: minors) htr
+  -- congruence: replace `discr` by its constructor-spine value inside the outer spine
+  obtain ⟨vve1, htr_replaced, hdef1⟩ :=
+    SEvalβζδ_defeq_spine henv hΔ
+      (fun e v => ∀ {ev}, TrExprS env Us Δ e ev →
+        ∃ vv, TrExprS env Us Δ v vv ∧ env.IsDefEqU Us.length Δ.toCtx ev vv)
+      (fun htr p => p htr)
+      (discr :: minors).length (discr :: minors)
+      ((cargs.foldl Expr.app (.const ctor cus)) :: minors)
+      (pre.foldl Expr.app (.const con us)) (pre.foldl Expr.app (.const con us))
+      hveHEAD hveHEAD rfl (by simp) htrHEAD htrHEAD
+      (VEnv.IsDefEqU.refl (htrHEAD.wf henv.ordered hΔ))
+      (fun i h h2 => by
+        cases i with
+        | zero => exact fun htr => hdiscr htr
+        | succ j => exact fun htr => ⟨_, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩)
+      htr
+  -- IotaConsistent: the replaced casesOn spine is defeq to the branch reduct
+  obtain ⟨bve, htr_branch, hdef2⟩ :=
+    hiota hΔ hcases hctor hia har hpre hmin hcargs hidx htr_replaced
+  exact ⟨bve, htr_branch, VEnv.IsDefEqU.trans henv hΓ hdef1 hdef2⟩
+
 /-- **Subject reduction as definitional equality (β + δ + saturated constructors + ι).**
 
 If `e` translates to `ve` and `e` evaluates to `v` under `SEvalDataι`, then `v` translates
@@ -140,30 +190,11 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
         (fun i h h2 => ihargs i h hΔ) htr
   | @iota con us cus pre minors cargs discr ctor iid np cidx nmot nidx nmin ar r
         hcases hctor hia har hpre hmin hcargs hdiscr hidx hbranch ihdiscr ihbranch =>
-      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
-      obtain ⟨hveHEAD, htrHEAD⟩ := TrExprS_spine_head (discr :: minors) htr
-      -- congruence: replace `discr` by its constructor-spine value inside the outer spine
-      obtain ⟨vve1, htr_replaced, hdef1⟩ :=
-        SEvalβζδ_defeq_spine henv hΔ
-          (fun e v => ∀ {ev}, TrExprS env Us Δ e ev →
-            ∃ vv, TrExprS env Us Δ v vv ∧ env.IsDefEqU Us.length Δ.toCtx ev vv)
-          (fun htr p => p htr)
-          (discr :: minors).length (discr :: minors)
-          ((cargs.foldl Expr.app (.const ctor cus)) :: minors)
-          (pre.foldl Expr.app (.const con us)) (pre.foldl Expr.app (.const con us))
-          hveHEAD hveHEAD rfl (by simp) htrHEAD htrHEAD
-          (VEnv.IsDefEqU.refl (htrHEAD.wf henv.ordered hΔ))
-          (fun i h h2 => by
-            cases i with
-            | zero => exact fun htr => ihdiscr hΔ htr
-            | succ j => exact fun htr => ⟨_, htr, VEnv.IsDefEqU.refl (htr.wf henv.ordered hΔ)⟩)
-          htr
-      -- IotaConsistent: the replaced casesOn spine is defeq to the branch reduct
-      obtain ⟨bve, htr_branch, hdef2⟩ :=
-        hiota hΔ hcases hctor hia har hpre hmin hcargs hidx htr_replaced
+      obtain ⟨bve, htr_branch, hdef12⟩ :=
+        SEvalDataι_iota_reduct henv hΔ hiota hcases hctor hia har hpre hmin hcargs hidx
+          (fun htr => ihdiscr hΔ htr) htr
       obtain ⟨rvv, htr_r, hdef3⟩ := ihbranch hΔ htr_branch
-      exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΓ hdef1
-        (VEnv.IsDefEqU.trans henv hΓ hdef2 hdef3)⟩
+      exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΔ.toCtx hdef12 hdef3⟩
 
 /-- **`SEvalDataι_defeq`, with `IotaConsistent` discharged.** The ι premise is no longer
 assumed: it is derived from the fork's rule lookup (`PatsIotaSpec`), the δ facts the

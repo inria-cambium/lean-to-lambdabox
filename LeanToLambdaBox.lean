@@ -89,6 +89,11 @@ import LeanToLambdaBox.SubjectReductionIota
 -- constructed non-vacuity guard and the accounting of the remaining chain.
 import LeanToLambdaBox.IotaPattern
 import LeanToLambdaBox.IotaDischarge
+-- ι Task 3: the ι forward simulation `erases_correct_dataι` on the flat fragment —
+-- the ι counterpart of `erases_correct_data`, consuming the `casesOn`-spine erasure
+-- inversion (`Erases.cases_spine_inv`/`iota_redex_inv`), the `LBClosed` thread, the
+-- relevance guard `IotaRelevant` and the two Γ/`ia` coherence predicates.
+import LeanToLambdaBox.ErasesCorrectIota
 -- The shipping eraser is correct on the data fragment (β+δ+saturated constructors)
 -- at MetaRocq's non-block `appliedFlags` (`shipping_visitExpr_correct_data`, A9), and
 -- the first-order capstone (`shipping_erase_correct_firstorder`, D3): the shipping
