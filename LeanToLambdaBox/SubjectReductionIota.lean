@@ -289,8 +289,9 @@ the record of *why* the three pins exist.
 
 The ι forward simulation itself is `erases_correct_dataι` (`ErasesCorrectIota.lean`),
 proved on the **flat** fragment (every constructor of the eliminated inductive has zero
-retained fields — `Bool`, `Ordering`, enums), which is exactly the region the shipping
-bridge's `Supported.casesApp` and the landed `IotaShape` certificate also cover. Three
+retained fields — `Bool`, `Ordering`, enums). That restriction is *simulation-side only*:
+the shipping bridge's `Supported.casesApp` (λ-telescope minors, T4b) and the two-stage
+`IotaShape` certificate (T3g) both cover field-carrying constructors already. Three
 further obstructions surfaced while proving it, all of them recorded on the declarations
 that carry them:
 

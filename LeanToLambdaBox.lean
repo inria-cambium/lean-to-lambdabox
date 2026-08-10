@@ -109,3 +109,8 @@ import LeanToLambdaBox.FirstOrderShipping
 -- DAG registration behind clean `Prop` hypotheses for P3-v2b.
 import LeanToLambdaBox.PrepareHyps
 import LeanToLambdaBox.EnvErasureNonrec
+-- ι Task 5: the ι capstone (D3ι) — `shipping_erase_correct_firstorderι` plus its
+-- `_of_shape` / `_registered` twins, composing the T4b bridge, the flat-fragment ι
+-- forward simulation and D1 uniqueness over `SEvalDataι`, with the whole `Γ`/`E`
+-- certificate block constructed jointly at a registered flat inductive.
+import LeanToLambdaBox.FirstOrderShippingIota

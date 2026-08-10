@@ -352,3 +352,75 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gΓflat_ctorFieldsCoherent
 #print axioms LeanToLambdaBox.gΓflat_iotaArityCoherent
 #print axioms LeanToLambdaBox.gEcl_closedEnv
+
+-- ============================================================================
+-- ι Task 5: the ι capstone (`FirstOrderShippingIota.lean`) — D3 over `SEvalDataι`.
+--
+-- Three declarations, in the repo's interface/implementation shape:
+--
+--   * `shipping_erase_correct_firstorderι`          — `IotaConsistent` as the interface
+--                                                     premise (as `SEvalDataι_defeq`);
+--   * `shipping_erase_correct_firstorderι_of_shape` — with it DISCHARGED from
+--                                                     `PatsIotaSpec + SEnvConsistent +
+--                                                     IotaShape`;
+--   * `shipping_erase_correct_firstorderι_registered` — every Γ/E env-consistency
+--                                                     premise sourced from the
+--                                                     registration records.
+--
+-- AXIOM EXPECTATION (measured, 2026-08-10):
+--
+--   `…firstorderι` and `…firstorderι_registered` print the axiom set of
+--   `shipping_erase_correct_firstorder` **verbatim** — 4 standard + the 4 lean4lean
+--   `Lean.Expr`/`PersistentHashMap` modelling axioms. The ι machinery contributes
+--   nothing: `erases_correct_dataι` is [propext, sorryAx, Classical.choice, Quot.sound],
+--   and every ι side condition (`IotaConsistent`, `IotaRelevant`, `IotaShape`,
+--   `FlatCaseFields`, `IotaArityCoherent`, `CtorFieldsCoherent`, `ClosedEnv`,
+--   `ErasesEnvCases(ι)`, `PatsIotaSpec`) is a `Prop` HYPOTHESIS, never an axiom.
+--
+--   `…firstorderι_of_shape` prints those EIGHT MORE, and only these eight:
+--
+--     Lean.Expr.mkAppData_eq, Lean.Expr.mkData_eq, Lean.Expr.replace_eq,
+--     Lean.Level.hasMVar_eq, Lean.Level.hasParam_eq, Lean.Level.instLawfulBEqLevel,
+--     Lean.Expr.mkData_flags._native.bv_decide.ax_1_12,
+--     Lean.Expr.Data.looseBVarRange_le._native.bv_decide.ax_1_7
+--
+--   They enter through `iotaConsistent_of_shape` → `TrExprS.instL` (level-instantiating
+--   a polymorphic recursor rule) and are lean4lean's own `Lean.Expr`/`Lean.Level`
+--   implementation-model axioms plus its two `bv_decide` SAT certificates. They are NOT
+--   new: this eight-element set is a strict SUBSET of the already-committed
+--   `shipping_visitExpr_correct'`'s (printed above). NO AXIOM OF OURS, anywhere.
+--
+--   Note the earlier T2 note is about `iotaConsistent_of_shape` vs
+--   `shipping_visitExpr_correct'` (the *primed* theorem, the executable-checker
+--   cluster) — NOT vs `shipping_erase_correct_firstorder`, whose set is much smaller.
+--   Hence the eight-axiom delta on the `_of_shape` form is expected, not a regression.
+--
+-- The Γ/E certificate block guards must be **sorryAx-free**: they are pure
+-- `ErasureCtx`/`GlobalDeclarations` computations, with no `Erases`/`TrExprS` content.
+-- `envFO_foC_ι` inherits `sorryAx` via `TrExprS`, as `envFO_foC_d` already does.
+-- ============================================================================
+
+-- The capstone, and the non-ι one immediately before it for a direct comparison.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_registered
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_registered
+-- The discharged form: the eight-axiom delta enumerated above.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_of_shape
+
+-- The certificate block, jointly constructed at one registered *flat* inductive
+-- (`ΓFOι`/`iaFOι`/`EFOd`) — the guard the ι capstone can carry. The end-to-end guard in
+-- which the ι rule itself contracts a real pattern match is blocked by the upstream
+-- `VEnv.WF`-unconstructible-for-`pats` obstruction; see `FirstOrderShippingIota.lean`.
+#print axioms LeanToLambdaBox.ΓFOι_certificates
+#print axioms LeanToLambdaBox.ΓFOι_registeredCtors
+#print axioms LeanToLambdaBox.ΓFOι_registeredCases
+#print axioms LeanToLambdaBox.ΓFOι_registeredCtorFields
+#print axioms LeanToLambdaBox.ΓFOι_erasesEnvCtor
+#print axioms LeanToLambdaBox.ΓFOι_erasesEnvCasesι
+#print axioms LeanToLambdaBox.ΓFOι_ctorFieldsCoherent
+#print axioms LeanToLambdaBox.ΓFOι_iotaArityCoherent
+#print axioms LeanToLambdaBox.ΓFOι_flat
+#print axioms LeanToLambdaBox.EFOd_closedEnv
+#print axioms LeanToLambdaBox.EFOd_noFixEnv
+#print axioms LeanToLambdaBox.envFO_foC_ι

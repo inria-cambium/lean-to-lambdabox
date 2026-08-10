@@ -44,16 +44,19 @@ some registered `casesOn` eliminates has **zero** retained fields (`Bool`, `Orde
 enumerations). Under it `cargs.drop np = []`, `substList [] body = body`, and the whole
 reversal bridge degenerates to `rfl`.
 
-This is not an arbitrary restriction: it is exactly the region the rest of the ι stack
-covers today. The shipping-side inversion `Supported.casesApp_inv` carries the same
-zero-field condition, and the `IotaShape` certificate as landed can only be satisfied by
-zero-field constructors (Lean's generated `casesOn` η-expands every minor that takes
-fields — `Option.casesOn := fun {α} {motive} t none some => Option.rec none (fun val =>
-some val) t` — so the reduct ends in a redex `betaN` cannot contract, since it is built by
-the template's body rather than pending in the supplied argument list). Lifting the
-restriction means lifting all three together: the general bridge (needing
-`LBTerm.subst_subst`, already available in `Closed.lean`), a two-stage `IotaShape`, and
-`Supported.casesApp`'s `hflat`.
+The restriction is **simulation-side only** — this proof is the last of the three pieces
+that originally carried it. The shipping-side bridge is already general: T4b's
+`Supported.casesApp` / `Supported.casesApp_inv` pin each minor to a *manifest λ-telescope*
+of its constructor's field arity and impose no zero-field condition. So is the
+certificate: `IotaShape`'s per-constructor equation landed in **two β stages** precisely
+because Lean's generated `casesOn` η-expands every minor that takes fields —
+`Option.casesOn := fun {α} {motive} t none some => Option.rec none (fun val => some val) t`
+— so the reduct ends in a redex `betaN` cannot contract (it is built by the template's
+body rather than pending in the supplied argument list), which made the *single*-stage
+form unsatisfiable for every field-carrying inductive (`betaN_ruleTemplate_eta_guard` /
+`betaN_ruleTemplate_rec_guard`, `IotaDischarge.lean`). What remains for the general case
+is the β-chain ↔ reversing-`iota_red` bridge inside this proof, whose `LBTerm.subst_subst`
+is already available in `Closed.lean`.
 -/
 
 namespace LeanToLambdaBox
