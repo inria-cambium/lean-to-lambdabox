@@ -178,7 +178,7 @@ theorem construct_app_spine {Γ : GlobalDeclarations} {iid : InductiveId} {c ar 
           have hav : WcbvEval Γ appliedFlags a v := by
             have := hargs 0 (by simp); simpa using this
           have hbound : pre.length + as.length + 1 ≤ ar := by
-            simpa [List.length_cons] using hle
+            simp only [List.length_cons] at hle; omega
           have hlt : pre.length < ar := by omega
           have step : WcbvEval Γ appliedFlags (LBTerm.app f a)
               (LBTerm.mkApps (.construct iid c []) (pre ++ [v])) := by

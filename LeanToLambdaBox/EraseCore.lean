@@ -208,7 +208,9 @@ theorem eraseArgs_refines {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : 
       | ok a' =>
           rw [ha'] at heq
           refine ih (head.app a) (.app head' a') t
-            (fun i h => by simpa using htrs (i + 1) (by simpa using h))
+            (fun i h => by
+              have := htrs (i + 1) (by simpa using h)
+              rwa [List.getElem_cons_succ] at this)
             (.app hhead (hrec a ave a' (by simpa using htra) ha')) heq
 
 /-- `mapM` of the per-element erasure over a list yields, on success, a result list
@@ -245,7 +247,10 @@ theorem mapM_refines {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx
               simp only [pure, Except.pure] at heq
               cases heq
               obtain ⟨hlen, hpt⟩ := ih as'
-                (fun i h => by simpa using htrs (i + 1) (by simpa using h)) has'
+                (fun i h => by
+                  have := htrs (i + 1) (by simpa using h)
+                  rwa [List.getElem_cons_succ] at this)
+                has'
               refine ⟨by simp [hlen], fun i h => ?_⟩
               cases i with
               | zero => simpa using hrec a ave a' (by simpa using htra) ha'

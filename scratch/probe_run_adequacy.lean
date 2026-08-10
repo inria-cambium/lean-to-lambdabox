@@ -34,8 +34,9 @@ def kernelNGen : NameGenerator := { namePrefix := `_kernel_fresh, idx := 0 }
 `VEnvs.WF` bundle + the supplied `m.WF`; `lctx := m.lctx`, `lctx_eq := rfl`. -/
 def VContext.ofMLCtx {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (safety : DefinitionSafety := .safe) (lparams : List Name := [])
+    (fuel : FuelConfig := {})
     (m : MLCtx) (mwf : m.WF (ves.venv safety) lparams) : VContext where
-  env; safety; lparams
+  env; safety; lparams; fuel
   lctx := m.lctx
   venv := ves.venv safety
   hasPrimitives := wf.hasPrimitives
@@ -52,13 +53,13 @@ def VContext.ofMLCtx {env : Environment} {ves : VEnvs} (wf : ves.WF env)
 `hfresh` premise, and `ectx` is witnessed at `Δ' := c.vlctx` (reflexive
 `FVLift'`, empty `eqvManager`) instead of `[]`. -/
 theorem VState.WF.initial {env : Environment} {ves : VEnvs} {wf : ves.WF env}
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} {mwf : m.WF (ves.venv safety) lparams}
     (hfresh : ∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv) :
-    VState.WF (.ofMLCtx wf safety lparams m mwf) {} where
-  trctx := (VContext.ofMLCtx wf safety lparams m mwf).trlctx
+    VState.WF (.ofMLCtx wf safety lparams fuel m mwf) {} where
+  trctx := (VContext.ofMLCtx wf safety lparams fuel m mwf).trlctx
   ngen_wf := hfresh
-  ectx := ⟨_, .refl, (VContext.ofMLCtx wf safety lparams m mwf).Δwf, .refl,
+  ectx := ⟨_, .refl, (VContext.ofMLCtx wf safety lparams fuel m mwf).Δwf, .refl,
     .empty, hfresh⟩
   inferTypeI_wf := .empty
   inferTypeC_wf := .empty
@@ -70,11 +71,11 @@ theorem VState.WF.initial {env : Environment} {ves : VEnvs} {wf : ves.WF env}
 `m.lctx`. Byte-for-byte the lean4lean proof, with the initial-state witness
 `.empty` replaced by `.initial hfresh`. -/
 theorem M.WF.run' {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams)
     (hfresh : ∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv)
-    {x : M α} {Q} (H : x.WF (.ofMLCtx wf safety lparams m mwf) {} fun a _ => Q a) :
-    (M.run env safety m.lctx lparams x).WF Q := by
+    {x : M α} {Q} (H : x.WF (.ofMLCtx wf safety lparams fuel m mwf) {} fun a _ => Q a) :
+    (M.run env safety m.lctx lparams fuel x).WF Q := by
   intro a eq
   simp [M.run, Functor.map, Except.map] at eq
   split at eq <;> cases eq; rename_i eq

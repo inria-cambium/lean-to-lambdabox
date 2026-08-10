@@ -546,7 +546,7 @@ theorem envFO_wf : envFO.WF := by
       (env := (VEnv.empty.addConst `I ⟨0, .sort (.succ .zero)⟩).getD .empty)
       (uvars := 0) (Γ := []) (c := `I) (ci := ⟨0, .sort (.succ .zero)⟩)
       (ls := []) (ls' := []) env1FO_I (by simp) (by simp) (by simp) (by simp)
-    simpa [VExpr.instL] using this
+    exact this
   exact ⟨[.axiom ⟨⟨0, .const `I []⟩, `c⟩, .axiom ⟨⟨0, .sort (.succ .zero)⟩, `I⟩],
     .decl (.axiom c_wf envFO_addc) (.decl (.axiom I_wf envFO_addI) .empty)⟩
 
@@ -559,14 +559,14 @@ theorem envFO_cTypeI : envFO.HasType 0 [] (.const `c []) (.const `I []) := by
   have := VEnv.IsDefEq.constDF (env := envFO) (uvars := 0) (Γ := []) (c := `c)
     (ci := ⟨0, .const `I []⟩) (ls := []) (ls' := []) envFO_c
     (by simp) (by simp) (by simp) (by simp)
-  simpa [VExpr.instL] using this
+  exact this
 
 /-- `.const I []` (the value's type) has type `Sort 1`. -/
 theorem envFO_ITypeSort1 : envFO.HasType 0 [] (.const `I []) (.sort (.succ .zero)) := by
   have := VEnv.IsDefEq.constDF (env := envFO) (uvars := 0) (Γ := []) (c := `I)
     (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envFO_I
     (by simp) (by simp) (by simp) (by simp)
-  simpa [VExpr.instL] using this
+  exact this
 
 /-- The not-a-`Prop` half of informativeness IS dischargeable (via `sort_inv`): the
 value's type `I : Sort 1`, so it is not typed by `Sort 0`. -/

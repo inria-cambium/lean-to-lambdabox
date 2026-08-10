@@ -49,8 +49,9 @@ from a `VEnvs.WF` witness. Everything but `mlctx`/`lctx` is the `VContext.mk'`
 data; `lctx := m.lctx`, `lctx_eq := rfl`. -/
 def VContext.ofMLCtx {env : Environment} {ves : VEnvs} (wf : ves.WF env)
     (safety : DefinitionSafety := .safe) (lparams : List Name := [])
+    (fuel : FuelConfig := {})
     (m : MLCtx) (mwf : m.WF (ves.venv safety) lparams) : VContext where
-  env; safety; lparams
+  env; safety; lparams; fuel
   lctx := m.lctx
   venv := ves.venv safety
   hasPrimitives := wf.hasPrimitives
@@ -61,19 +62,19 @@ def VContext.ofMLCtx {env : Environment} {ves : VEnvs} (wf : ves.WF env)
   lctx_eq := rfl
 
 @[simp] theorem VContext.ofMLCtx_venv {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams) :
-    (VContext.ofMLCtx wf safety lparams m mwf).venv = ves.venv safety := rfl
+    (VContext.ofMLCtx wf safety lparams fuel m mwf).venv = ves.venv safety := rfl
 
 @[simp] theorem VContext.ofMLCtx_lparams {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams) :
-    (VContext.ofMLCtx wf safety lparams m mwf).lparams = lparams := rfl
+    (VContext.ofMLCtx wf safety lparams fuel m mwf).lparams = lparams := rfl
 
 @[simp] theorem VContext.ofMLCtx_vlctx {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams) :
-    (VContext.ofMLCtx wf safety lparams m mwf).vlctx = m.vlctx := rfl
+    (VContext.ofMLCtx wf safety lparams fuel m mwf).vlctx = m.vlctx := rfl
 
 /-- The initial `VState` (`{}`) is `VState.WF` at an ambient `VContext.ofMLCtx`,
 provided every ambient fvar is reserved by `kernelNGen` (the initial state's
@@ -82,13 +83,13 @@ generic `c.trlctx`, the two `Reserves` obligations become the `hfresh` premise,
 and `ectx` is witnessed at `Δ' := c.vlctx` (reflexive `FVLift'`, empty
 `eqvManager`) instead of `[]`. -/
 theorem VState.WF.initial {env : Environment} {ves : VEnvs} {wf : ves.WF env}
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} {mwf : m.WF (ves.venv safety) lparams}
     (hfresh : ∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv) :
-    VState.WF (.ofMLCtx wf safety lparams m mwf) {} where
-  trctx := (VContext.ofMLCtx wf safety lparams m mwf).trlctx
+    VState.WF (.ofMLCtx wf safety lparams fuel m mwf) {} where
+  trctx := (VContext.ofMLCtx wf safety lparams fuel m mwf).trlctx
   ngen_wf := hfresh
-  ectx := ⟨_, .refl, (VContext.ofMLCtx wf safety lparams m mwf).Δwf, .refl,
+  ectx := ⟨_, .refl, (VContext.ofMLCtx wf safety lparams fuel m mwf).Δwf, .refl,
     .empty, hfresh⟩
   inferTypeI_wf := .empty
   inferTypeC_wf := .empty
@@ -100,11 +101,11 @@ theorem VState.WF.initial {env : Environment} {ves : VEnvs} {wf : ves.WF env}
 the lean4lean proof, with the initial-state witness `.empty` replaced by
 `.initial hfresh`. -/
 theorem M.WF.run' {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams)
     (hfresh : ∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv)
-    {x : M α} {Q} (H : x.WF (.ofMLCtx wf safety lparams m mwf) {} fun a _ => Q a) :
-    (M.run env safety m.lctx lparams x).WF Q := by
+    {x : M α} {Q} (H : x.WF (.ofMLCtx wf safety lparams fuel m mwf) {} fun a _ => Q a) :
+    (M.run env safety m.lctx lparams fuel x).WF Q := by
   intro a eq
   simp [M.run, Functor.map, Except.map] at eq
   split at eq <;> cases eq; rename_i eq
@@ -118,16 +119,16 @@ returning `.ok true` on a term `e` that translates to `ve`, witnesses that `ve`
 is `Erasable`. Composition of `isErasable.WF` (soundness), `RecM.WF.run` (fuel),
 and `M.WF.run'` (run-adequacy at the ambient context). -/
 theorem kernel_isErasable_sound {env : Environment} {ves : VEnvs} (wf : ves.WF env)
-    {safety : DefinitionSafety} {lparams : List Name}
+    {safety : DefinitionSafety} {lparams : List Name} {fuel : FuelConfig}
     {m : MLCtx} (mwf : m.WF (ves.venv safety) lparams)
     (hfresh : ∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv)
     {e : Expr} {ve : VExpr}
     (he : TrExprS (ves.venv safety) lparams m.vlctx e ve)
-    (hrun : M.run env safety m.lctx lparams
+    (hrun : M.run env safety m.lctx lparams fuel
       (RecM.run (LeanToLambdaBox.isErasable e)) = .ok true) :
     Erasable (ves.venv safety) lparams.length m.vlctx.toCtx ve :=
   M.WF.run' wf mwf hfresh
-    (RecM.WF.run (LeanToLambdaBox.isErasable.WF (c := .ofMLCtx wf safety lparams m mwf) he))
+    (RecM.WF.run (LeanToLambdaBox.isErasable.WF (c := .ofMLCtx wf safety lparams fuel m mwf) he))
     true hrun rfl
 
 end Lean4Lean.TypeChecker

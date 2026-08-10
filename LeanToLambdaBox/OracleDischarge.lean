@@ -52,7 +52,7 @@ structure ResidualHyps (env₀ : Lean.Kernel.Environment) (ves : VEnvs) (Us : Li
       -- kernel reflection: the pure verified checker returned `true` at the same
       -- local context / level params, over the modelled environment `env₀`.
       (M.run env₀ .safe ctx.lctx ctx.lparams
-          (RecM.run (LeanToLambdaBox.isErasable e)) = .ok true)
+          (x := RecM.run (LeanToLambdaBox.isErasable e)) = .ok true)
       ∨
       -- `Meta` fallback: soundness assumed (no verified counterpart).
       (∀ (m : MLCtx) (ve : VExpr), m.WF (ves.venv .safe) Us → m.lctx = ctx.lctx →

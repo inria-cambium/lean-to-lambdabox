@@ -726,40 +726,25 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
           cases hfind
       | fvar x =>
         simp only [] at hk
-        rw [run_bind_ok] at hk
-        obtain ⟨u, s₂, w₂, hp1, hp2⟩ := hk
-        rw [run_pure] at hp1; cases hp1
-        rw [run_pure] at hp2; cases hp2
+        rw [run_pure] at hk; cases hk
         exact ⟨.fvar x, rfl, hle₁⟩
       | const n us hkn hctor hcases =>
         simp only [] at hk
-        rw [run_bind_ok] at hk
-        obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-        rw [run_pure] at hp1; cases hp1
         obtain ⟨er, hs, hle₂⟩ := ih11 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           (.const n us hkn hctor hcases) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
       | app hf ha =>
         simp only [] at hk
-        rw [run_bind_ok] at hk
-        obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-        rw [run_pure] at hp1; cases hp1
         obtain ⟨er, hs, hle₂⟩ := ih11 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           (.app hf ha) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
       | lam n ty bi hb =>
         simp only [] at hk
-        rw [run_bind_ok] at hk
-        obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-        rw [run_pure] at hp1; cases hp1
         obtain ⟨er, hs, hle₂⟩ := ih9 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           n ty _ bi rfl (.lam n ty bi hb) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
       | letE n ty nd hv hb =>
         simp only [] at hk
-        rw [run_bind_ok] at hk
-        obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-        rw [run_pure] at hp1; cases hp1
         obtain ⟨er, hs, hle₂⟩ := ih8 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           n ty _ _ nd rfl (.letE n ty nd hv hb) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
@@ -770,17 +755,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
           .ctorApp hc hcases har hsat hzero hsucc hargs
         rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
         · simp only [List.foldl_nil] at hk hsupp' hex ⊢
-          rw [run_bind_ok] at hk
-          obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-          rw [run_pure] at hp1; cases hp1
           obtain ⟨er, hs, hle₂⟩ := ih11 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁) hsupp' hex
           exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
         · rw [List.concat_eq_append, List.foldl_append, List.foldl_cons, List.foldl_nil]
             at hk hsupp' hex ⊢
           simp only [] at hk
-          rw [run_bind_ok] at hk
-          obtain ⟨u, s₂, w₂, hp1, hk⟩ := hk
-          rw [run_pure] at hp1; cases hp1
           obtain ⟨er, hs, hle₂⟩ := ih11 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁) hsupp' hex
           exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
   -- Step 2: visitLiteral (trivial conclusion).
@@ -821,9 +800,6 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     rw [run_read] at hread; cases hread
     -- (6) extern check is false → else branch
     simp only [hextern, Bool.false_and, Bool.false_eq_true, if_false] at hrun
-    rw [run_bind_ok] at hrun
-    obtain ⟨u, s₆, w₆, hpu, hrun⟩ := hrun
-    rw [run_pure] at hpu; cases hpu
     -- (7) read config.nat, then the `Nat`-machine match (dead for cn ≠ zero/succ);
     -- both fall-throughs go to the final `visitAppArgs`.
     rw [run_bind_ok] at hrun
@@ -836,10 +812,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       simp only [← hcidx] at hslice
       rcases hcnat : ctx.config.nat with _ | _ <;>
         simp only [hcnat] at hrun <;>
-        · rw [run_bind_ok] at hrun
-          obtain ⟨u2, s₈, w₈, hp2, hrun⟩ := hrun
-          rw [run_pure] at hp2; cases hp2
-          rw [hslice] at hrun
+        · rw [hslice] at hrun
           exact hrun
     obtain ⟨erap, hs', hle⟩ := ih7 _ _ _ _ _ _ _ _ _ _ hrun2 Δ (Expr.const cn us)
       (hinv.mono hmono)
@@ -857,10 +830,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     rw [hinv.fixvars] at hk
     simp only [Option.bind] at hk
     rw [run_bind_ok] at hk
-    obtain ⟨u, s₂, w₂, hp, hk⟩ := hk
-    rw [run_pure] at hp; cases hp
-    rw [run_bind_ok] at hk
-    obtain ⟨kn, s₃, w₃, hgck, hp2⟩ := hk
+    obtain ⟨kn, s₂, w₂, hgck, hp2⟩ := hk
     rw [run_pure] at hp2; cases hp2
     obtain ⟨hkn', hs, hle⟩ := ih5 _ _ _ _ _ _ _ _ _ hgck Δ hinv hkn
     exact ⟨.const n us kn hkn'.symm hctor hcases, hs, hle⟩

@@ -282,6 +282,11 @@ flat order, the motive holds at bottom because `EST.bot` is an `.error`. -/
 theorem est_admissible_ok {ε σ α : Type} [Nonempty ε]
     (Q : Void σ → α → Void σ → Prop) :
     admissible (α := EST ε σ α) (fun x => ∀ w a w', x w = .ok a w' → Q w a w') := by
+  -- the pi-CCPO instance is no longer found by `infer_instance` (the pointwise
+  -- `FlatOrder.instCCPO` is not synthesized under the `(w : Void σ)` binder), so
+  -- supply it explicitly; it is the instance `CCPO (EST ε σ α)` is built from.
+  letI : CCPO ((w : Void σ) → FlatOrder (EST.bot (ε := ε) (α := α) w)) :=
+    @instCCPOPi _ _ (fun _ => FlatOrder.instCCPO)
   have h : admissible (α := (w : Void σ) → FlatOrder (EST.bot (ε := ε) w))
       (fun x => ∀ w a w', x w = .ok a w' → Q w a w') := by
     apply admissible_pi_apply
@@ -291,7 +296,7 @@ theorem est_admissible_ok {ε σ α : Type} [Nonempty ε]
     apply admissible_pi; intro w'
     apply admissible_flatOrder
     intro h
-    simp [EST.bot] at h
+    simp [EST.bot, FlatOrder.mk] at h
   exact h
 
 /-- Admissibility of the run-ok motive at the `EST` leaf, with the result
@@ -300,6 +305,8 @@ theorem est_admissible_ok_pair {ε σ : Type} [Nonempty ε] {α β : Type}
     (Q : Void σ → α → β → Void σ → Prop) :
     admissible (α := EST ε σ (α × β))
       (fun x => ∀ w a b w', x w = .ok (a, b) w' → Q w a b w') := by
+  letI : CCPO ((w : Void σ) → FlatOrder (EST.bot (ε := ε) (α := α × β) w)) :=
+    @instCCPOPi _ _ (fun _ => FlatOrder.instCCPO)
   have h : admissible (α := (w : Void σ) → FlatOrder (EST.bot (ε := ε) w))
       (fun x => ∀ w a b w', x w = .ok (a, b) w' → Q w a b w') := by
     apply admissible_pi_apply
@@ -310,7 +317,7 @@ theorem est_admissible_ok_pair {ε σ : Type} [Nonempty ε] {α β : Type}
     apply admissible_pi; intro w'
     apply admissible_flatOrder
     intro h
-    simp [EST.bot] at h
+    simp [EST.bot, FlatOrder.mk] at h
   exact h
 
 /-- The canonical bridge motive is admissible for any `EraseM τ` computation:
@@ -743,9 +750,9 @@ example (f : Nat → EraseM Nat) (L : List Nat) (rs : List Nat) (s' : ErasureSta
 
 -- The parallel-`for` shape: `for x in xs, y in ys do …` elaborates to an
 -- `Array.forIn` over `xs` whose accumulator threads the `Std.Stream` state of
--- `ys` (an `MProd`, with an early `.done` when the stream runs out);
--- `run_array_forIn_ok` applies with an invariant over that accumulator.
--- Here: a pure body preserves the state.
+-- `ys` (a pair `(user accumulator, stream state)`, with an early `.done` when
+-- the stream runs out); `run_array_forIn_ok` applies with an invariant over
+-- that accumulator. Here: a pure body preserves the state.
 example (xs : Array Nat) (ys : List Nat) (r : Nat) (s' : ErasureState)
     (w' : Void IO.RealWorld)
     (h : (do
@@ -756,13 +763,13 @@ example (xs : Array Nat) (ys : List Nat) (r : Nat) (s' : ErasureState)
     s' = s := by
   rw [run_bind_ok] at h
   obtain ⟨p, s₁, w₁, hloop, hp⟩ := h
-  obtain ⟨ps, acc⟩ := p
+  obtain ⟨acc, ps⟩ := p
   replace hp : (pure acc : EraseM Nat) s₁ ctx cctx ref w₁ = .ok (r, s') w' := hp
   rw [run_pure] at hp
   cases hp
   refine run_array_forIn_ok ctx cctx ref (fun _ s₂ _ => s₂ = s) xs _ _ s w rfl ?_ _ _ _ hloop
   intro a _ acc s₂ w₂ st s₃ w₃ hP hbody
-  obtain ⟨sacc, nacc⟩ := acc
+  obtain ⟨nacc, sacc⟩ := acc
   simp only [] at hbody
   cases hnext : Std.Stream.next? sacc with
   | none =>
@@ -775,10 +782,6 @@ example (xs : Array Nat) (ys : List Nat) (r : Nat) (s' : ErasureState)
     obtain ⟨y, ps'⟩ := yp
     rw [hnext] at hbody
     simp only [] at hbody
-    rw [run_bind_ok] at hbody
-    obtain ⟨u, s₄, w₄, hy, hbody⟩ := hbody
-    rw [run_pure] at hy
-    cases hy
     rw [run_pure] at hbody
     cases hbody
     exact hP
@@ -916,11 +919,7 @@ theorem visitExpr_run_shape :
       cases hk
       exact .inl rfl
     · rw [if_neg hc] at hk
-      rw [run_bind_ok] at hk
-      obtain ⟨u, s₂, w₂, hp, hjp⟩ := hk
-      rw [run_pure] at hp
-      cases hp
-      exact .inr (ih9 _ s₁ ctx cctx ref w₁ r s' w' hjp bn ty bd bi rfl)
+      exact .inr (ih9 _ s₁ ctx cctx ref w₁ r s' w' hk bn ty bd bi rfl)
   -- Step 2: visitLiteral (trivial conclusion).
   · intros; trivial
   -- Step 3: visitConstructor (trivial conclusion).
@@ -945,11 +944,7 @@ theorem visitExpr_run_shape :
       rw [hopt] at hk
       simp only [] at hk
       rw [run_bind_ok] at hk
-      obtain ⟨u, s₂, w₂, hp, hjp⟩ := hk
-      rw [run_pure] at hp
-      cases hp
-      rw [run_bind_ok] at hjp
-      obtain ⟨kn, s₃, w₃, -, hp2⟩ := hjp
+      obtain ⟨kn, s₂, w₂, -, hp2⟩ := hk
       rw [run_pure] at hp2
       cases hp2
       exact .inr ⟨kn, rfl⟩

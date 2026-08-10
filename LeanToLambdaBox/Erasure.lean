@@ -177,7 +177,7 @@ def isErasableMeta (e : Expr) : MetaM Bool := do
 def isErasable (lparams : List Name) (e : Expr) : MetaM Bool := do
     match Lean4Lean.TypeChecker.M.run (← getEnv).toKernelEnv (safety := .safe)
         (lctx := ← getLCtx) (lparams := lparams)
-        (Lean4Lean.TypeChecker.RecM.run (LeanToLambdaBox.isErasable e)) with
+        (x := Lean4Lean.TypeChecker.RecM.run (LeanToLambdaBox.isErasable e)) with
     | .ok b => return b
     | .error _ => isErasableMeta e
 
