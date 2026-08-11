@@ -52,10 +52,10 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   trust boundary.** `BridgeHyps`, `DataBridgeHyps`, `CasesBridgeHyps` (the last one
   carries `visitCases`' `inferType` spec), plus the run/invariant premises
   `hrun`/`hinv`.
-* **`PatsIotaSpec` — the one upstream item**, the fork's strengthened rule lookup.
-  It is *not* an assumption about our code: after the fork's `pats_iota'` is pushed and
-  re-pinned it is the one-liner `⟨fun hrec hrule hsafe => TrEnv.pats_iota' H …⟩`
-  (`IotaPattern.lean` records it verbatim). Only the `_of_shape` form mentions it.
+* **`PatsIotaSpec` — the upstream item, now discharged**: the fork's strengthened rule
+  lookup. It is *not* an assumption about our code, and no longer an open obligation —
+  `PatsIotaSpec.of_trEnv` (`IotaPattern.lean`) builds it from any `TrEnv`. Only the
+  `_of_shape` form mentions it.
 * **`IotaRelevant` — a model-over-approximation guard**, the ι analogue of `NoBlock`:
   it excludes the two `Erases` derivations the relation permits, the shipping
   `visitCases` never emits, and under which the target `.case` is provably stuck
@@ -169,7 +169,7 @@ taints that route at the current pin.
 
 This is the form to quote when asking "what does the ι capstone assume": everything is
 either a `rfl`-checkable certificate, a documented runtime Hoare spec, or `PatsIotaSpec`
-(a one-liner after the re-pin). The price is eight further lean4lean **modelling**
+(discharged by `PatsIotaSpec.of_trEnv`). The price is eight further lean4lean **modelling**
 axioms, inherited from `TrExprS.instL` (level-instantiating a polymorphic recursor rule):
 `Lean.Expr.mkData_eq`, `Lean.Expr.mkAppData_eq`, `Lean.Expr.replace_eq`,
 `Lean.Level.hasMVar_eq`, `Lean.Level.hasParam_eq`, `Lean.Level.instLawfulBEqLevel`, and
@@ -177,7 +177,7 @@ lean4lean's two `bv_decide` native checks in its own `Expr.Data` bit-packing pro
 They are **not new**: the set is a strict subset of the already-committed
 `shipping_visitExpr_correct'`'s. No axiom of ours. -/
 theorem shipping_erase_correct_firstorderι_of_shape
-    {safety : DefinitionSafety} {kenv : Lean.Environment}
+    {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {ia : IotaArities}
     {Esrc : SEnv} {E : GlobalDeclarations}
@@ -290,7 +290,7 @@ pattern match — is **not** constructible at this pin, for exactly the reason r
 `PatsIotaSpec` + `IotaShape`) instantiated, hence `env.WF` for a `pats`-carrying `VEnv`,
 and `VEnv.WF` is unconstructible for one upstream (`VEnv.Ordered` has no `addPat`
 clause; `addInduct_WF` and `addDecl.WF`'s `inductDecl` case are `sorry`). `IotaShape`
-additionally requires a concrete `Lean.Environment` carrying the recursor. The halves
+additionally requires a concrete `Lean.Kernel.Environment` carrying the recursor. The halves
 are guarded where they live: `envι_iota_fires` (the ι machinery fires and yields a real
 `IsDefEqU`) and the four `betaN_*_guard`s (`IotaShape`'s `Expr` equations), all in
 `IotaDischarge.lean`.

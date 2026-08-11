@@ -213,9 +213,10 @@ fork *does* expose an ι/recursor computation rule — `IsDefEq.pat`, fed by the
 rule registry `pats`, which a real (no longer `sorry`ed) `VEnv.addInduct` populates with
 one `SimplePattern.iota` rule per recursor rule, alongside a real `VInductDecl.WF` and a
 real `Verify.AddInduct` structure. So `IotaConsistent` is **unblocked, not discharged**:
-an ambient `VEnv` can now carry ι-defeqs, but the route from a `TrEnv` to a concrete one
-is still incomplete upstream (`TrEnv.pats_iota` leaves the rule payload opaque;
-`addInduct_WF` / `Aligned.addInduct` / `addDecl.WF`'s `inductDecl` case are `sorry`) —
+an ambient `VEnv` can now carry ι-defeqs, and `TrEnv.pats_iota'` now hands back the rule
+payload named (consumed as `PatsIotaSpec`, discharged by `PatsIotaSpec.of_trEnv`), but
+the route from a `TrEnv` to a concrete `VEnv.WF` is still incomplete upstream
+(`addInduct_WF` / `Aligned.addInduct` / `addDecl.WF`'s `inductDecl` case are `sorry`) —
 see `SubjectReductionIota.lean`'s module docstring for the full accounting, and
 `IotaPattern.lean` / `IotaDischarge.lean` for how far the pinned interface *does* reach.
 It is stated as an explicit **hypothesis**, never an axiom.

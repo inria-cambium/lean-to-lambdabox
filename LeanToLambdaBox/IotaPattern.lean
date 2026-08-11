@@ -38,8 +38,9 @@ file provides them:
 * **`TrExprS.mkApps_inv`** — full spine inversion for `TrExprS`
   (`TrExprS_spine_head` in `SubjectReductionFull.lean` returns only the head).
 
-On top of those, `PatsIotaSpec` names the *strengthened* rule-lookup lemma the fork
-still owes us, and `iota_defeq_spine` is the payoff: on a translated exact-arity
+On top of those, `PatsIotaSpec` names the fork's *strengthened* rule-lookup lemma —
+discharged for any translated environment by `PatsIotaSpec.of_trEnv` — and
+`iota_defeq_spine` is the payoff: on a translated exact-arity
 recursor-applied-to-constructor redex, the ι rule **fires**.
 -/
 
@@ -381,7 +382,7 @@ fork's own proof does know the witness — its `induct` case ends in
 of already-proved content.
 
 `PatsIotaSpec` states that strengthened lemma **verbatim as it landed on the fork's
-`iota-consume` branch**, as a hypothesis structure in the repo's `BridgeHyps` /
+`iota` branch**, as a hypothesis structure in the repo's `BridgeHyps` /
 `DataBridgeHyps` / `ResidualHyps` idiom. It bundles three fixes:
 
 * **the witness is named** (`SimplePattern.iotaRHS …, .true`), so `iota_defeq` can be
@@ -395,24 +396,29 @@ of already-proved content.
   the "a pattern determines its reduct" fact that would recover it
   (`VEnv.toParams.pat_uniq`) is not only `sorry` upstream but *documented as false*.
 
-**Discharge.** This is not an axiom and not a `sorry`: once the fork's `pats_iota'`
-is pushed and re-pinned, the whole structure is
+**Discharge.** This is not an axiom and not a `sorry`, and as of the `1a1ebe8` pin it
+is not an open obligation either: `PatsIotaSpec.of_trEnv` (below) builds the structure
+from any `TrEnv` in one line, off the fork's `TrEnv.pats_iota'`. The structure stays as
+the *interface* the ι capstone consumes — same precedent as `ErasesEnvCtor`, which
+remains a premise of `erases_correct_data` even though it is provable — so a consumer
+that has a `TrEnv` in hand supplies it with `.of_trEnv`, and one that reasons about a
+bare `VEnv` still needs nothing more than the field.
 
-```lean
-theorem PatsIotaSpec.of_trEnv (H : TrEnv safety kenv venv) : PatsIotaSpec safety kenv venv :=
-  ⟨fun hrec hrule hsafe => TrEnv.pats_iota' H hrec hrule hsafe⟩
-```
-
-and nothing else in this development changes. The field below is stated at the
-*current* pin's types (`SimplePattern.iota` / `iotaRHS` / `VEnv.pats` all exist at
-`7c5e652`; only the primed lemma is missing), so it elaborates today.
+The discharge is what fixes `kenv`'s type. It is a `Lean.Kernel.Environment` — the
+type `TrEnv` and `Kernel.Environment.find?` are stated at, and the one the rest of this
+development already uses for the modelled environment (`ResidualHyps`,
+`CheckerAdequacy`, `ShippingCorrect`). An elaborator `Lean.Environment` would not do:
+`Environment.find?` consults the async-constant table, so it is not the kernel lookup
+and is not related to `(·.toKernelEnv.find?)` by any provable equation. The same
+retyping applies to `IotaShape` and every `_of_shape` consumer, `kenv` being a pure
+parameter that both premises only ever use through `find?`.
 
 **Safety.** `TrEnv'.induct` fires only at `.safe`, and the lookup needs
 `hsafe : safety ≤ (recInfo rval).safety`; anything built at another safety level
 silently has no ι rules (`DefinitionSafety.le_safe` discharges it for safe
 declarations). -/
-structure PatsIotaSpec (safety : DefinitionSafety) (kenv : Lean.Environment) (venv : VEnv) :
-    Prop where
+structure PatsIotaSpec (safety : DefinitionSafety) (kenv : Lean.Kernel.Environment)
+    (venv : VEnv) : Prop where
   /-- The ι rule of a recursor rule resolvable in `kenv` is registered in `venv.pats`,
   **with its payload named**: the reduct is `SimplePattern.iotaRHS` over a closed
   translation `rhs` of the *kernel* rule's template `rule.rhs`, at the kernel's own
@@ -431,6 +437,21 @@ structure PatsIotaSpec (safety : DefinitionSafety) (kenv : Lean.Environment) (ve
         (SimplePattern.iotaRHS recName cName rval.numParams rval.numMotives rval.numMinors
           rval.numIndices rule.nfields rhs hc, .true)
 
+/-- **`PatsIotaSpec` is discharged for translated environments.** Any `TrEnv` — the
+relation saying `venv` is the model of the kernel environment `kenv` — satisfies the
+spec, by the fork's `TrEnv.pats_iota'`. The field is that lemma's statement verbatim,
+so the proof is the eta-expansion.
+
+This closes the one upstream item the ι capstone was carrying. It does **not** remove
+the structure from the capstone signatures: those stay stated over an ambient `VEnv`
+with `PatsIotaSpec` as an explicit premise, and a `TrEnv`-holding caller discharges it
+here. Its axiom set is `pats_iota'`'s, i.e. `sorryAx` via the `TrProj` placeholder
+carried in `TrExprS` (the rule template's translation) — the development's pre-existing
+lean4lean boundary, no new gap. -/
+theorem PatsIotaSpec.of_trEnv {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
+    {venv : VEnv} (H : TrEnv safety kenv venv) : PatsIotaSpec safety kenv venv :=
+  ⟨fun hrec hrule hsafe => TrEnv.pats_iota' H hrec hrule hsafe⟩
+
 /-! ## The ι step: the rule fires on a translated redex -/
 
 /-- **The ι rule fires.** Given the named spec, a translated **exact-arity** redex
@@ -444,8 +465,8 @@ Everything on the right-hand side is *named*: `rhs` is the translation of
 arguments. The `hty` premise of `iota_defeq` comes from `TrExprS.wf`; the
 `Realizes`/side-condition premises are discharged at `chk := []` because the
 registered check is the literal `Pattern.Check.true`. -/
-theorem iota_defeq_spine {safety : DefinitionSafety} {kenv : Lean.Environment} {venv : VEnv}
-    (hspec : PatsIotaSpec safety kenv venv) (henv : venv.WF)
+theorem iota_defeq_spine {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
+    {venv : VEnv} (hspec : PatsIotaSpec safety kenv venv) (henv : venv.WF)
     {Us : List Name} {Δ : VLCtx} (hΔ : VLCtx.WF venv Us.length Δ)
     {recName cName : Name} {rval : RecursorVal} {rule : RecursorRule}
     (hrec : kenv.find? recName = some (.recInfo rval))

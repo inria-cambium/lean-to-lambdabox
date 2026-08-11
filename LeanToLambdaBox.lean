@@ -84,7 +84,8 @@ import LeanToLambdaBox.Optimize
 import LeanToLambdaBox.SubjectReductionIota
 -- ι Task 2: the pattern-side core of the pinned fork's ι interface — `Pattern.Matches`
 -- introduction for spines, the `SimplePattern.iotaRHS` reduct calculation (`take`/`drop`
--- conventions), `TrExprS` spine inversion, the named upstream spec `PatsIotaSpec`, and
+-- conventions), `TrExprS` spine inversion, the named upstream spec `PatsIotaSpec` with
+-- its discharge `PatsIotaSpec.of_trEnv`, and
 -- `iota_defeq_spine` (the ι rule fires on a translated exact-arity redex); plus the
 -- constructed non-vacuity guard and the accounting of the remaining chain.
 import LeanToLambdaBox.IotaPattern

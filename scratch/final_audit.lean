@@ -1,7 +1,8 @@
 import LeanToLambdaBox
 /-! Final axiom audit for the dev/verify verification stack (2026-07-07;
-re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork
-`7c5e652`).
+re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork,
+re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork's
+`iota` branch).
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -28,6 +29,21 @@ was sorryAx-free before is still sorryAx-free. The lean4lean modeling set moved:
   items: `Aligned.addInduct`, `addInduct_WF`, the `IsDefEq`/`IsDefEqStrong` `pat`
   inversion cases, …). This widens the *inherited* trust boundary but does not
   reach any result here that was previously clean.
+
+## The 2026-08-11 re-pin to the reviewed ι interface (`1a1ebe8`)
+
+The fork's ι-witness commit was reviewed and landed as `1a1ebe8`; the statement of
+`TrEnv.pats_iota'` — which `PatsIotaSpec` copies verbatim — is unchanged, and no
+audited axiom set below moves. Two review-side facts worth recording:
+
+* The reviewer **kept `TrEnv'.of_value` routed through `Aligned`** (rejecting the
+  proposed `map_wf → constMap_wf` de-tainting), so `of_value` still inherits the
+  `Aligned.addInduct` `sorry`. Nothing here uses it: the ι chain's δ step goes through
+  `SEnvConsistent`. Same taint as at the previous pin, no drift.
+* The fork's `sorry` count is unchanged (`Aligned.addInduct` and
+  `VInductDecl.WF`'s inductive lemma remain), so the inherited boundary is the same.
+
+New entry: `PatsIotaSpec.of_trEnv`, the discharge of `PatsIotaSpec` from a `TrEnv`.
 -/
 
 open LeanToLambdaBox
@@ -232,8 +248,16 @@ open LeanToLambdaBox
 -- only `Pattern`/`VExpr`, never `TrExprS`. `TrExprS.mkApps_inv` and
 -- `iota_defeq_spine` inherit `sorryAx` from lean4lean's `TrProj` placeholder carried
 -- in `TrExprS` — the pre-existing boundary, no new gap. `PatsIotaSpec` is a
--- HYPOTHESIS structure (discharged by `TrEnv.pats_iota'` after the fork re-pin),
--- never an axiom, so it adds nothing to any axiom set.
+-- HYPOTHESIS structure, never an axiom, so it adds nothing to any axiom set; since the
+-- `1a1ebe8` re-pin it is also DISCHARGED, by `PatsIotaSpec.of_trEnv` off the fork's
+-- `TrEnv.pats_iota'`. That discharge inherits `sorryAx` through the `TrExprS` in
+-- `pats_iota'`'s conclusion (`TrProj`) — the same boundary as `iota_defeq_spine` — plus
+-- lean4lean's three `PersistentHashMap` `ConstMap` modelling axioms
+-- (`findAux_isSome`, `WF.find?_eq`, `WF.toList'_insert`), which come in through the
+-- `constMap_wf`/`find?_insert` steps of `pats_iota'`'s induction over `TrEnv'`. Its set
+-- is a strict SUBSET of `shipping_visitExpr_correct'`'s, so nothing here is new. It does
+-- NOT pick up `Aligned.addInduct`: `pats_iota'` is routed through `TrEnv'.constMap_wf`,
+-- not `map_wf`.
 --
 -- The constructed guard `envι_iota_fires` must be **sorryAx-free**: it builds its
 -- `VEnv` with `VEnv.addPat` directly and applies `VEnv.IsDefEq.pat`, neither of which
@@ -245,6 +269,7 @@ open LeanToLambdaBox
 #print axioms Lean4Lean.Pattern.matches_iota
 #print axioms Lean4Lean.SimplePattern.iotaRHS_apply
 #print axioms Lean4Lean.TrExprS.mkApps_inv
+#print axioms LeanToLambdaBox.PatsIotaSpec.of_trEnv
 #print axioms LeanToLambdaBox.iota_defeq_spine
 #print axioms LeanToLambdaBox.envι_iota_fires
 -- The β-normalisation engine for steps (2)/(4)/(5). A β step builds its reduct's

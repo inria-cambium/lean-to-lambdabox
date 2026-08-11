@@ -37,9 +37,10 @@ step (1) reuses it. That is not just economical: `TrEnv.of_value` routes through
 `Aligned.addInduct`, an IOTA-TODO `sorry` at the current pin — so the `of_value` route
 *would* inherit a gap that `pats_iota` (deliberately routed through the
 `Aligned`-free `TrEnv'.constMap_wf`) does not. This contradicts the handoff note's
-"you inherit no new gap", which is accurate for `pats_iota` alone. The fork's
-`iota-consume` branch de-taints `of_value` by swapping `map_wf → constMap_wf`; we
-neither rely on it nor work around it.
+"you inherit no new gap", which is accurate for `pats_iota` alone. A de-tainting of
+`of_value` (swapping `map_wf → constMap_wf`) was proposed on the fork and **rejected in
+review**, so `of_value` stays `Aligned`-routed at the `1a1ebe8` pin; we neither rely on
+it nor work around it.
 
 ## `TrExprS` for the ι *reduct* spine
 
@@ -59,8 +60,8 @@ committed development, so this adds no sorry-carrying declaration.
 
 ## What is assumed
 
-* **`PatsIotaSpec`** — the one named hypothesis structure: the fork's strengthened
-  rule lookup, dischargeable by `exact TrEnv.pats_iota' …` after the re-pin.
+* **`PatsIotaSpec`** — the named interface structure: the fork's strengthened rule
+  lookup, discharged for any translated environment by `PatsIotaSpec.of_trEnv`.
 * **`SEnvConsistent`** — already an accepted premise of the surrounding development.
 * **`IotaShape`** — the per-`casesOn` certificate: kernel lookups plus `Expr`
   equations, `rfl`/`decide`-checkable for any concrete inductive. Nothing in it is a
@@ -258,7 +259,7 @@ The two β equations are exactly steps (2) and (4)/(5) of the chain:
   itself, `ihs = []`, and stage two is `rfl`. -/
 
 /-- **Per-`casesOn` shape certificate** (see the section docstring). -/
-structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Environment)
+structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Kernel.Environment)
     (Γ : ErasureCtx) (ia : IotaArities) (Esrc : SEnv) : Prop where
   shape : ∀ {con : Name} {iid : InductiveId} {np nmot nidx nmin : Nat},
     Γ.casesOns con = some (iid, np) → ia con = some (nmot, nidx, nmin) →
@@ -295,7 +296,8 @@ structure IotaShape (safety : DefinitionSafety) (kenv : Lean.Environment)
 
 /-- **`IotaConsistent` is derivable** from
 
-* `PatsIotaSpec` — the one named hypothesis, the fork's strengthened rule lookup;
+* `PatsIotaSpec` — the fork's strengthened rule lookup, itself discharged from a
+  `TrEnv` by `PatsIotaSpec.of_trEnv`;
 * `SEnvConsistent` — the δ facts, already a premise of `SEvalDataι_defeq` (this is
   *not* `TrEnv.of_value`, and therefore does **not** inherit the `Aligned.addInduct`
   `sorry` that taints that route at the current pin);
@@ -307,7 +309,7 @@ recursor redex, (3) `iota_defeq_spine` fires the rule, (4)(5) `TrExprS.instL_wea
 `trExprS_betaN` normalises it to the branch applied to the fields. The reduct spine's
 `TrExprS` — the step that needs application generation — is built by
 `TrExprS.mkApps`. -/
-theorem iotaConsistent_of_shape {safety : DefinitionSafety} {kenv : Lean.Environment}
+theorem iotaConsistent_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : ErasureCtx} {ia : IotaArities}
     {Esrc : SEnv}
     (hspec : PatsIotaSpec safety kenv env)

@@ -34,8 +34,9 @@ What that leaves. The ι fragment now rests on exactly three named things, none 
 an axiom of ours:
 
 * **`PatsIotaSpec`** (`IotaPattern.lean`) — the fork's *strengthened* rule lookup
-  (`pats_iota'`). A `Prop` structure, dischargeable by `exact TrEnv.pats_iota' …` once
-  the fork branch is pushed and re-pinned; `IotaPattern.lean` records the one-line proof.
+  (`pats_iota'`). A `Prop` structure, and no longer an obligation: `PatsIotaSpec.of_trEnv`
+  discharges it for every `TrEnv`-translated environment. It stays a premise here for the
+  same reason `ErasesEnvCtor` does — it is the interface, not the assumption.
 * **`IotaShape`** (`IotaDischarge.lean`) — the per-`casesOn` kernel-shape certificate:
   two kernel lookups plus closed `Expr` equations, `rfl`-checkable per inductive. It is
   **not** derivable from lean4lean by that development's own admission (`VInductDecl.WF`'s
@@ -205,7 +206,7 @@ certificate (`IotaShape`) — see `IotaDischarge.lean`.
 is the *interface*, `PatsIotaSpec + IotaShape` is one (currently the only)
 *implementation*, and threading `safety`/`kenv` through every downstream ι statement
 would pollute them with kernel-environment data they never use. -/
-theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Environment}
+theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
     (hspec : PatsIotaSpec safety kenv env)
