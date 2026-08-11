@@ -608,3 +608,53 @@ theorem LBTerm.subst_subst (s t u : LBTerm) (d : Nat) :
     LBTerm.subst s d (LBTerm.subst t 0 u)
       = LBTerm.subst (LBTerm.subst s d t) 0 (LBTerm.subst s (d + 1) u) :=
   LBTerm.subst_subst_gen s t d 0 d (by omega) u
+
+/-! ## Part 4 — `substList` over a reversed list, and the closedness proviso
+
+`substList ss t` sequences `subst1`s left to right (`Semantics/Substitution.lean`), so a
+list appended on the right substitutes **last**. The one law the ι reversal bridge needs
+is `substList_reverse_subst`: a substitution sitting *under* `rest.length` binders can be
+pulled out through `substList rest.reverse`, at the price of requiring the terms in
+`rest` to be de-Bruijn closed.
+
+The proviso is not slack. Unfolded at `rest = [g]`, the law says
+`subst1 g (subst f 1 u) = subst f 0 (subst1 g u)`, and `subst_subst` turns the right-hand
+side into `subst (subst f 0 g) 0 (subst f 1 u)`: the two agree exactly when
+`subst f 0 g = g`, i.e. when the *later* field `g` has no loose `bvar 0`. With, say,
+`u = .bvar 0` and `g = .lambda n (.bvar 1)` they genuinely differ — the counterexample
+recorded at `wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`), and the reason
+MetaRocq's `eval` carries `closedn 0` side conditions throughout. -/
+
+/-- `substList` of a concatenation is the composition of the two, in order. -/
+theorem LBTerm.substList_append (l₁ l₂ : List LBTerm) (t : LBTerm) :
+    LBTerm.substList (l₁ ++ l₂) t = LBTerm.substList l₂ (LBTerm.substList l₁ t) := by
+  simp only [LBTerm.substList, List.foldl_append]
+
+/-- A term appended on the right of a `substList` substitutes last, at index 0. -/
+theorem LBTerm.substList_concat (l : List LBTerm) (x t : LBTerm) :
+    LBTerm.substList (l ++ [x]) t = LBTerm.subst1 x (LBTerm.substList l t) := by
+  rw [LBTerm.substList_append]; rfl
+
+/-- **Pushing a depth-`|rest|` substitution out through `substList rest.reverse`.**
+Substituting `f` under the `rest.length` binders that `substList rest.reverse` is about
+to fill is the same as filling them first and substituting `f` at depth `0` — provided
+every term in `rest` is closed (see the section docstring for the counterexample without
+that hypothesis). -/
+theorem LBTerm.substList_reverse_subst (f : LBTerm) :
+    ∀ (rest : List LBTerm), (∀ a ∈ rest, LBClosed a 0) → ∀ (d : Nat) (u : LBTerm),
+      LBTerm.substList rest.reverse (LBTerm.subst f (d + rest.length) u)
+        = LBTerm.subst f d (LBTerm.substList rest.reverse u) := by
+  intro rest
+  induction rest with
+  | nil => intro _ d u; simp only [List.reverse_nil, LBTerm.substList, List.foldl_nil,
+      List.length_nil, Nat.add_zero]
+  | cons g rest ih =>
+      intro hcl d u
+      have hg : LBClosed g 0 := hcl g (List.mem_cons_self ..)
+      have hrest : ∀ a ∈ rest, LBClosed a 0 := fun a ha => hcl a (List.mem_cons_of_mem _ ha)
+      have hlen : d + (g :: rest).length = (d + 1) + rest.length := by
+        simp only [List.length_cons]; omega
+      rw [List.reverse_cons, LBTerm.substList_concat, LBTerm.substList_concat, hlen,
+        ih hrest (d + 1) u]
+      simp only [LBTerm.subst1]
+      rw [LBTerm.subst_subst f g _ d, hg.subst_eq (Nat.zero_le d) f]

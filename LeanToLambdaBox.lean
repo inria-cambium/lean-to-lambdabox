@@ -90,6 +90,10 @@ import LeanToLambdaBox.SubjectReductionIota
 -- constructed non-vacuity guard and the accounting of the remaining chain.
 import LeanToLambdaBox.IotaPattern
 import LeanToLambdaBox.IotaDischarge
+-- The ι reversal bridge: a β chain over an erased minor's λ-telescope has the same
+-- evaluations as the target ι rule's one-shot `substList (fields.reverse) body`, for
+-- closed field values (`wcbvEval_mkApps_mkLambdas_substList`).
+import LeanToLambdaBox.IotaBridge
 -- ι Task 3: the ι forward simulation `erases_correct_dataι` on the flat fragment —
 -- the ι counterpart of `erases_correct_data`, consuming the `casesOn`-spine erasure
 -- inversion (`Erases.cases_spine_inv`/`iota_redex_inv`), the `LBClosed` thread, the
