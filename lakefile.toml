@@ -8,10 +8,15 @@ defaultTargets = ["LeanToLambdaBox"]
 # Pinned to the `iota` branch of the barabbs/lean4lean fork, which extends
 # upstream (digama0/lean4lean) with ι-reduction support. On the v4.33.0-rc2
 # toolchain (matches lean-toolchain); pulls batteries v4.33.0-rc2 transitively.
+#
+# The pinned revision carries the reviewed ι interface: `TrEnv.pats_iota'` names
+# the registered rule payload (`SimplePattern.iotaRHS …, .true`) and ties it to the
+# kernel rule's reduct, which is what `PatsIotaSpec` (`IotaPattern.lean`) consumes
+# and `PatsIotaSpec.of_trEnv` discharges.
 [[require]]
 name = "lean4lean"
 git = "https://github.com/barabbs/lean4lean"
-rev = "7c5e652ad07e213dd3b276316894a1caaf77040c"
+rev = "1a1ebe8b72c22e0bf6b4a670a6787bdb70c0a3f9"
 
 [[lean_lib]]
 name = "LeanToLambdaBox"
