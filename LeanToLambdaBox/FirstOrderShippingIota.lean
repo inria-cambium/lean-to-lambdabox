@@ -15,7 +15,7 @@ changes.
 ```
  visitExpr_refines_erases      (T4b bridge, `Supported.casesApp` = λ-telescope minors)
    ⟶ Erases env Us Γ [] e t
- erases_correct_dataι          (T3 forward simulation, flat fragment)
+ erases_correct_dataι          (T3 forward simulation, any constructor arity)
    ⟶ WcbvEval E appliedFlags t t'  ∧  Erases … v t' ∧ NoBlock t' ∧ LBClosed t' 0
  firstOrder_value_erases_unique (D1)
    ⟶ t' is *the* applied-form erasure of v
@@ -43,7 +43,7 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
 * **Certificates — `rfl`/`decide`-checkable data about a concrete inductive, carrying no
   typing or translation content.** `IotaShape` (kernel lookups plus closed `Expr`
   equations; guards `betaN_casesOn_guard` / `betaN_ruleTemplate_{,eta_,rec_}guard`),
-  `IotaArityCoherent`, `CtorFieldsCoherent`, `FlatCaseFields`, `ErasesEnvCases`
+  `IotaArityCoherent`, `CtorFieldsCoherent`, `ErasesEnvCases`
   (hence `ErasesEnvCasesι`, via `ErasesEnvCases.nonProp`), `ErasesEnvCtor`, `ClosedEnv`,
   `NoFixEnv`, and the constructor/`casesOn` disjointness `hcc`. In the `_registered`
   form all of the `Γ`/`E` ones are *derived* from the registration records. All of them
@@ -68,21 +68,24 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   `ErasesCorrectIota.lean` for the two-field counterexample that forces it. The
   conclusion correspondingly *gains* `LBClosed t' 0`.
 
-## Scope: the flat-fields restriction is simulation-side only
+## Scope: no arity restriction
 
-`FlatCaseFields Γ` (every constructor of an eliminated inductive retains zero fields —
-`Bool`, `Ordering`, enumerations) is inherited from `erases_correct_dataι`, and only from
-there. The **bridge is already general**: T4b's `Supported.casesApp` pins each minor to a
-manifest λ-telescope of its constructor's field arity and carries no zero-field
-condition, and `Supported.casesApp_inv` likewise. Lifting the restriction (S4b) is
-therefore a change to the simulation alone: the general β-chain ↔ reversing-`iota_red`
-bridge (whose `LBTerm.subst_subst` is already available in `Closed.lean`) plus the
-two-stage `IotaShape` (already landed). Nothing here or in `Bridge.lean` moves.
+D3ι covers constructors of **any** arity. The three pieces it composes are each general:
+T4b's `Supported.casesApp` / `casesApp_inv` pin every minor to a manifest λ-telescope of
+its constructor's field arity, `IotaShape`'s per-constructor equation is two-stage (so it
+certifies the η-expanded minors Lean's `casesOn` generates for field-taking
+constructors), and `erases_correct_dataι` reconciles the erased minor's β chain with the
+target ι rule's one-shot `substList` through `wcbvEval_mkApps_mkLambdas_substList`
+(`IotaBridge.lean`). The earlier `FlatCaseFields` premise is gone; the predicate survives
+only as the measure of what that lift bought (`gΓfield_not_flat`,
+`ErasesCorrectIota.lean`).
+
+What the bridge charges for it is the closedness thread below, not an arity bound.
 
 ## Non-vacuity
 
 See the guard section at the bottom: the whole `Γ`/`E` certificate block is constructed
-at one genuinely registered, non-propositional, flat inductive, and D3ι *fires* there.
+at one genuinely registered, non-propositional inductive, and D3ι *fires* there.
 The end-to-end guard in which the ι rule itself reduces a real pattern match is **not
 constructible at this pin** — the same `VEnv.WF`-unconstructible-for-`pats` obstruction
 that already blocks a guard for `iotaConsistent_of_shape` / `SEvalDataι_defeq`
@@ -125,7 +128,6 @@ theorem shipping_erase_correct_firstorderι
     (hcasesenv : ErasesEnvCases Γ E)
     (hcoh : CtorFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
-    (hflat : FlatCaseFields Γ)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
@@ -151,7 +153,7 @@ theorem shipping_erase_correct_firstorderι
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv, _, hclv⟩ :=
     erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
-      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hflat hrel hcc hnfenv hclenv hev htr
+      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hnfenv hclenv hev htr
       (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
         [] hinv hsup ⟨ve, htr⟩).1
       hnb hnfx hcl
@@ -189,7 +191,6 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hcasesenv : ErasesEnvCases Γ E)
     (hcoh : CtorFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
-    (hflat : FlatCaseFields Γ)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
@@ -215,7 +216,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
     (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hflat hrel hcc hnfenv hclenv H HD C
+    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hnfenv hclenv H HD C
     hrun hinv hsup htr hnb hnfx hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
@@ -235,8 +236,8 @@ constructor, `casesOn` and field-count records jointly, so leaving one of them a
 direct env premise would buy nothing.
 
 What is **not** registration-derived, by nature: `IotaArityCoherent` (a fact about
-`CasesInfo`, i.e. the `casesOn`'s telescope, not about the target env), `FlatCaseFields`
-(the scope restriction), `ClosedEnv`/`NoFixEnv` (target-body facts), the disjointness
+`CasesInfo`, i.e. the `casesOn`'s telescope, not about the target env),
+`ClosedEnv`/`NoFixEnv` (target-body facts), the disjointness
 `hcc`, and the ι interface premise. -/
 theorem shipping_erase_correct_firstorderι_registered
     {env : VEnv} (henv : env.WF) {Us : List Name}
@@ -249,7 +250,6 @@ theorem shipping_erase_correct_firstorderι_registered
     (hregcases : RegisteredCases Γ E)
     (hregfields : RegisteredCtorFieldsAll Γ E)
     (hiacoh : IotaArityCoherent Γ ia)
-    (hflat : FlatCaseFields Γ)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
@@ -278,7 +278,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
-    hiacoh hflat hrel hcc hnfenv hclenv H HD C hrun hinv hsup htr hnb hnfx hcl hev hfo
+    hiacoh hrel hcc hnfenv hclenv H HD C hrun hinv hsup htr hnb hnfx hcl hev hfo
 
 /-! ## Non-vacuity guards
 
@@ -296,12 +296,14 @@ are guarded where they live: `envι_iota_fires` (the ι machinery fires and yiel
 `IotaDischarge.lean`.
 
 What **is** constructible, and is built here, is the whole `Γ`/`E` **certificate block**
-at a single genuinely registered inductive — which no existing guard does: the ι
-coherence guards live at `gΓι` (`EnvErasureNonrec.lean`, a *field-carrying* `AC`, hence
-not flat) and the flatness guards at `gΓflat` (`ErasesCorrectIota.lean`, whose `Γ` is not
-backed by registration records). `ΓFOι`/`EFOd` below is both: registered *and* flat, so
-every certificate premise of D3ι holds at one and the same `(Γ, ia, E)`, and D3ι *fires*
-there, on the nullary first-order constructor `c`.
+at a single genuinely *registered* inductive — which no other guard does: the ι coherence
+guards live at `gΓι` (`EnvErasureNonrec.lean`) and `gΓfield`/`gΓflat`
+(`ErasesCorrectIota.lean`), none of whose `Γ`s is backed by the registration records that
+`shipping_erase_correct_firstorderι_registered` consumes. `ΓFOι`/`EFOd` below is: every
+certificate premise of D3ι holds at one and the same `(Γ, ia, E)`, and D3ι *fires* there,
+on the first-order constructor `c`. That `c` happens to be nullary is now incidental —
+no premise of D3ι bounds the arity — and the field-carrying half of the certificate
+block is guarded at `gΓfield_certificates` (`ErasesCorrectIota.lean`).
 
 Left hypothetical, matching the D3 guard's own discipline: the run `hrun`/`hinv`/`hsup`
 and the three runtime bundles `H`/`HD`/`C` (opaque primitives), plus the two ι trust
@@ -394,14 +396,6 @@ theorem ΓFOι_iotaArityCoherent : IotaArityCoherent ΓFOι iaFOι := by
     exact ⟨by simp [ΓFOι], [0], rfl, rfl⟩
   · simp [ΓFOι, if_neg h] at hcases
 
-/-- `FlatCaseFields`: the eliminated inductive's only constructor retains no fields. -/
-theorem ΓFOι_flat : FlatCaseFields ΓFOι := by
-  intro con iid np nfs hcases hnfs j hj
-  simp only [ΓFOι] at hnfs
-  obtain rfl : nfs = [0] := (Option.some.inj hnfs).symm
-  match j, hj with
-  | 0, _ => rfl
-
 /-- `ClosedEnv EFOd` — the guard env declares an inductive and no constant body. -/
 theorem EFOd_closedEnv : ClosedEnv EFOd := by
   intro kn body h
@@ -423,21 +417,20 @@ theorem envFO_foC_ι (harity : ¬ IsArityUpTo envFO 0 [] (.const `I [])) :
   exact .ctor `c [] ⟨toKername `I, 0⟩ 0 ΓFOι_ctorsC ΓFOι_casesC
     (by simpa using envFO_informativeC harity) (fun i h => absurd h (by simp))
 
-/-- **The certificate block is jointly satisfiable at one registered, flat inductive.**
+/-- **The certificate block is jointly satisfiable at one registered inductive.**
 Every `Γ`/`E`-level premise of D3ι, at `(ΓFOι, iaFOι, EFOd)` — all of them *derived* from
 the registration records where a discharge exists. This is the guard the ι capstone can
 actually carry; see the section docstring for the one that it cannot. -/
 theorem ΓFOι_certificates :
     ErasesEnvCtor ΓFOι EFOd ∧ ErasesEnvCases ΓFOι EFOd ∧ ErasesEnvCasesι ΓFOι EFOd ∧
-      CtorFieldsCoherent ΓFOι ∧ IotaArityCoherent ΓFOι iaFOι ∧ FlatCaseFields ΓFOι ∧
+      CtorFieldsCoherent ΓFOι ∧ IotaArityCoherent ΓFOι iaFOι ∧
       NoFixEnv EFOd ∧ ClosedEnv EFOd ∧
       (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
         ΓFOι.ctors cn = some (iid, cidx) → ΓFOι.casesOns cn = none) :=
   ⟨ΓFOι_erasesEnvCtor, ΓFOι_erasesEnvCases, ΓFOι_erasesEnvCasesι, ΓFOι_ctorFieldsCoherent,
-    ΓFOι_iotaArityCoherent, ΓFOι_flat, EFOd_noFixEnv, EFOd_closedEnv, ΓFOι_cc⟩
+    ΓFOι_iotaArityCoherent, EFOd_noFixEnv, EFOd_closedEnv, ΓFOι_cc⟩
 
-/-- **D3ι fires.** On the nullary first-order constructor `c` at the registered flat
-inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
+/-- **D3ι fires.** On the first-order constructor `c` at the registered inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
 certificate block is `ΓFOι_certificates`, the source `c` `SEvalDataι`-evaluates to
 itself, and the theorem produces `t'` together with its uniqueness. Hypothetical: the run
 (`hrun`/`hinv`/`hsup`), the three runtime bundles, the target-side structural facts about
@@ -462,7 +455,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
-    ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent ΓFOι_flat hrel ΓFOι_cc
+    ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
     EFOd_noFixEnv EFOd_closedEnv H HD C hrun hinv hsup envFO_trC hnb hnfx hcl ?_
     (envFO_foC_ι harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous

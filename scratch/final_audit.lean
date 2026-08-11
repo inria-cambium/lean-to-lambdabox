@@ -316,9 +316,11 @@ open LeanToLambdaBox
 -- placeholder — the pre-existing boundary, no new gap.
 --
 -- `IotaConsistent`, `PatsIotaSpec`, `IotaShape`, `IotaRelevant`, `ClosedEnv`,
--- `ErasesEnvCasesι`, `FlatCaseFields`, `CtorFieldsCoherent`, `IotaArityCoherent` are all
--- HYPOTHESES (Props with constructed guards where constructible), never axioms, so they
--- add nothing to any axiom set below.
+-- `ErasesEnvCasesι`, `CtorFieldsCoherent`, `IotaArityCoherent` are all HYPOTHESES (Props
+-- with constructed guards where constructible), never axioms, so they add nothing to any
+-- axiom set below. `FlatCaseFields` is no longer a premise of anything (ι-S4b lifted the
+-- flat-fields restriction); it survives only as the measure of that lift, guarded from
+-- both sides by `gΓflat_flat` and `gΓfield_not_flat`.
 -- ============================================================================
 
 -- The de Bruijn / closedness kit: pure LBTerm, must be sorryAx-free.
@@ -334,6 +336,19 @@ open LeanToLambdaBox
 #print axioms LBTerm.subst_shift_cancel
 #print axioms LBTerm.subst_shift_comm
 #print axioms LBTerm.subst_subst
+#print axioms LBTerm.substList_append
+#print axioms LBTerm.substList_concat
+#print axioms LBTerm.substList_reverse_subst
+
+-- ι-S4b: the reversal bridge (`IotaBridge.lean`). Pure LBTerm + `WcbvEval` — no
+-- `Erases`, no `TrExprS`, no lean4lean — so the whole module must be sorryAx-free,
+-- including the two-field non-vacuity guard.
+#print axioms LeanToLambdaBox.wcbvEval_mkApps_head_congr
+#print axioms LeanToLambdaBox.value_mkApps_construct_args
+#print axioms LeanToLambdaBox.wcbvEval_mkApps_mkLambdas_substList
+#print axioms LeanToLambdaBox.wcbvEval_mkApps_mkLambdas_substList_fires
+#print axioms LeanToLambdaBox.noBlock_mkLambdas
+#print axioms LeanToLambdaBox.noFix_mkLambdas
 
 -- `NoBlock`/`NoFix` now traverse `.case`; their shift/subst preservation must stay
 -- sorryAx-free (pure LBTerm).
@@ -359,8 +374,8 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.betaN_ruleTemplate_eta_guard
 #print axioms LeanToLambdaBox.betaN_ruleTemplate_rec_guard
 
--- C3: the ι forward simulation on the flat fragment, and the source-side elimination
--- it rests on. No axiom of ours.
+-- C3: the ι forward simulation (any constructor arity, since ι-S4b), and the
+-- source-side elimination it rests on. No axiom of ours.
 #print axioms LeanToLambdaBox.SEvalDataι_partial_cases_lam_elim
 #print axioms LeanToLambdaBox.erases_correct_dataι
 
@@ -377,6 +392,14 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gΓflat_ctorFieldsCoherent
 #print axioms LeanToLambdaBox.gΓflat_iotaArityCoherent
 #print axioms LeanToLambdaBox.gEcl_closedEnv
+
+-- ι-S4b: the same certificate block at a FIELD-CARRYING `Γ` (`AC`, one parameter and
+-- one field), i.e. outside the lifted flat restriction.
+#print axioms LeanToLambdaBox.gΓfield_not_flat
+#print axioms LeanToLambdaBox.gΓfield_erasesEnvCasesι
+#print axioms LeanToLambdaBox.gΓfield_ctorFieldsCoherent
+#print axioms LeanToLambdaBox.gΓfield_iotaArityCoherent
+#print axioms LeanToLambdaBox.gΓfield_certificates
 
 -- ============================================================================
 -- ι Task 5: the ι capstone (`FirstOrderShippingIota.lean`) — D3 over `SEvalDataι`.
@@ -399,8 +422,9 @@ open LeanToLambdaBox
 --   `Lean.Expr`/`PersistentHashMap` modelling axioms. The ι machinery contributes
 --   nothing: `erases_correct_dataι` is [propext, sorryAx, Classical.choice, Quot.sound],
 --   and every ι side condition (`IotaConsistent`, `IotaRelevant`, `IotaShape`,
---   `FlatCaseFields`, `IotaArityCoherent`, `CtorFieldsCoherent`, `ClosedEnv`,
---   `ErasesEnvCases(ι)`, `PatsIotaSpec`) is a `Prop` HYPOTHESIS, never an axiom.
+--   `IotaArityCoherent`, `CtorFieldsCoherent`, `ClosedEnv`, `ErasesEnvCases(ι)`,
+--   `PatsIotaSpec`) is a `Prop` HYPOTHESIS, never an axiom. (`FlatCaseFields` was one
+--   too, and is gone from the capstones entirely since ι-S4b.)
 --
 --   `…firstorderι_of_shape` prints those EIGHT MORE, and only these eight:
 --
@@ -445,7 +469,6 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.ΓFOι_erasesEnvCasesι
 #print axioms LeanToLambdaBox.ΓFOι_ctorFieldsCoherent
 #print axioms LeanToLambdaBox.ΓFOι_iotaArityCoherent
-#print axioms LeanToLambdaBox.ΓFOι_flat
 #print axioms LeanToLambdaBox.EFOd_closedEnv
 #print axioms LeanToLambdaBox.EFOd_noFixEnv
 #print axioms LeanToLambdaBox.envFO_foC_ι

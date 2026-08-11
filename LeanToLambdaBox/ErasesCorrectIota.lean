@@ -1,5 +1,6 @@
 import LeanToLambdaBox.SubjectReductionIota
 import LeanToLambdaBox.Closed
+import LeanToLambdaBox.IotaBridge
 
 /-!
 # Erasure correctness for the ι (`casesOn`) fragment — the forward simulation
@@ -26,7 +27,9 @@ carries it:
   `subst f₀ 0 (subst f₁ 0 body)`, and these agree only when `subst f₀ 0 f₁ = f₁`. This is
   MetaRocq's own `closedn 0` convention (its `eval`/`erases_correct` carry it everywhere),
   not a modelling shortcut. `ClosedEnv` is the environment-level counterpart, parallel to
-  `NoFixEnv`.
+  `NoFixEnv`. The thread is *ι-specific*: it exists only to feed the bridge, which is why
+  no other forward simulation in the development carries it. The full counterexample is
+  recorded on `wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`).
 * **Relevance side conditions** (`IotaRelevant`, `SubjectReductionIota.lean`): the model
   permits `Erases` derivations that box a *proper prefix* of an ι redex, or box the
   scrutinee's constructor value; both leave the target `.case` stuck, so both must be
@@ -37,26 +40,30 @@ carries it:
   `CtorFieldsCoherent` turns the constructor's full arity into `numParams + nfields` — the
   step that converts `(cargs.drop np).length` into the selected alternative's binder count.
 
-## Scope: the flat fragment (`FlatCaseFields`)
+## Scope: field-carrying constructors are covered
 
-The simulation is proved under `FlatCaseFields Γ` — every constructor of an inductive that
-some registered `casesOn` eliminates has **zero** retained fields (`Bool`, `Ordering`,
-enumerations). Under it `cargs.drop np = []`, `substList [] body = body`, and the whole
-reversal bridge degenerates to `rfl`.
+The simulation carries **no** zero-field restriction. Every constructor arity is in
+scope: the ι case builds the erased reduct as the minor's λ-telescope applied to the
+constructor's field values, `mkApps (mkLambdas names body) fields`, and
+`wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`) turns the resulting β chain
+into the target rule's one-shot `substList (fields.reverse) body`. The zero-field regime
+that the earlier `FlatCaseFields` slice covered is the bridge's `fields = []` base case,
+where it degenerates to `rfl`.
 
-The restriction is **simulation-side only** — this proof is the last of the three pieces
-that originally carried it. The shipping-side bridge is already general: T4b's
-`Supported.casesApp` / `Supported.casesApp_inv` pin each minor to a *manifest λ-telescope*
-of its constructor's field arity and impose no zero-field condition. So is the
-certificate: `IotaShape`'s per-constructor equation landed in **two β stages** precisely
-because Lean's generated `casesOn` η-expands every minor that takes fields —
+The other two pieces of the ι stack were already general, which is why the lift is
+confined to this file: T4b's `Supported.casesApp` / `Supported.casesApp_inv` pin each
+minor to a *manifest λ-telescope* of its constructor's field arity, and `IotaShape`'s
+per-constructor equation landed in **two β stages** precisely because Lean's generated
+`casesOn` η-expands every minor that takes fields —
 `Option.casesOn := fun {α} {motive} t none some => Option.rec none (fun val => some val) t`
 — so the reduct ends in a redex `betaN` cannot contract (it is built by the template's
 body rather than pending in the supplied argument list), which made the *single*-stage
 form unsatisfiable for every field-carrying inductive (`betaN_ruleTemplate_eta_guard` /
-`betaN_ruleTemplate_rec_guard`, `IotaDischarge.lean`). What remains for the general case
-is the β-chain ↔ reversing-`iota_red` bridge inside this proof, whose `LBTerm.subst_subst`
-is already available in `Closed.lean`.
+`betaN_ruleTemplate_rec_guard`, `IotaDischarge.lean`).
+
+`FlatCaseFields` survives only as the *measure* of what was lifted: `gΓflat_flat` and
+`gΓfield_not_flat` below exhibit a `Γ` inside it and a field-carrying `Γ` outside it, at
+which the simulation's certificate block is still constructed.
 -/
 
 namespace LeanToLambdaBox
@@ -92,12 +99,35 @@ def ErasesEnvCasesι (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
     Γ.casesOns con = some (iid, numParams) → isPropositionalInductive E iid = false
 
 /-- **The flat fragment.** Every constructor of an inductive eliminated by some registered
-`casesOn` has zero retained fields. See the module docstring for why this is the region
-the whole ι stack currently covers, and what lifting it requires. -/
+`casesOn` has zero retained fields (`Bool`, `Ordering`, enumerations).
+
+This is **no longer a hypothesis of anything.** It was the scope restriction the ι
+simulation carried while the reversal bridge was missing, and it is retained purely as
+the *measure* of the region S4b lifted: `gΓflat_flat` exhibits a `Γ` inside it,
+`gΓfield_not_flat` a field-carrying `Γ` outside it — and `erases_correct_dataι` now
+covers both. -/
 def FlatCaseFields (Γ : ErasureCtx) : Prop :=
   ∀ {con : Name} {iid : InductiveId} {np : Nat} {nfs : List Nat},
     Γ.casesOns con = some (iid, np) → Γ.ctorFields iid = some nfs →
     ∀ j (h : j < nfs.length), nfs[j] = 0
+
+/-! ## `NoBlock`/`NoFix` under a λ-telescope
+
+The two structural predicates pass through `mkLambdas` unchanged (`LBClosed` does not —
+a telescope *closes* `names.length` levels, which is `LBClosed.mkLambdas`). The ι case
+needs all three to feed the branch IH on `mkApps (mkLambdas names body) fields`. -/
+
+theorem noBlock_mkLambdas {names : List BinderName} {body : LBTerm} (h : NoBlock body) :
+    NoBlock (mkLambdas names body) := by
+  induction names with
+  | nil => exact h
+  | cons n ns ih => exact ih
+
+theorem noFix_mkLambdas {names : List BinderName} {body : LBTerm} (h : NoFix body) :
+    NoFix (mkLambdas names body) := by
+  induction names with
+  | nil => exact h
+  | cons n ns ih => exact ih
 
 /-! ## A partial `casesOn` spine never evaluates to a λ
 
@@ -175,11 +205,14 @@ theorem SEvalDataι_partial_cases_lam_elim {Γ : ErasureCtx} {ia : IotaArities} 
 /-! ## The ι forward simulation -/
 
 /-- **Erasure correctness — forward simulation, β + δ + saturated constructors + ι, at
-MetaRocq's non-block `appliedFlags`, on the flat fragment.**
+MetaRocq's non-block `appliedFlags`.**
 
 The ι counterpart of `erases_correct_data`: same conclusion shape, over `SEvalDataι`
 (which has no `zeta` rule), plus the `LBClosed` thread and the ι-specific side conditions
 documented in the module header. Additive — `erases_correct_data`'s signature is untouched.
+Constructors of **any** arity are covered; the reversal bridge
+(`wcbvEval_mkApps_mkLambdas_substList`) is what reconciles the β chain the erased minor
+produces with the one-shot `substList` of the target ι rule.
 
 The ported β/δ/ctor cases differ from `erases_correct_data`'s only in that `SEvalDataι`
 has no forgetful map to `SEvalβζδ` (ι is not in that fragment), so every
@@ -198,7 +231,6 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
     (hcasesenv : ErasesEnvCasesι Γ E)
     (hcoh : CtorFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
-    (hflat : FlatCaseFields Γ)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
@@ -468,60 +500,74 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           ⟨hercv, cargs', rfl, _⟩ | ⟨cargs', hclen, rfl, hccorr⟩ | hnbt
         · exact absurd hercv (informativeType_not_erasable henv hΔ
             (hrel.ctorValue hctor ⟨con, np, hcases⟩ htrdv) htrdv)
-        · -- (5) arity arithmetic: flatness collapses the field list
+        · -- (5) arity arithmetic: the constructor's field block *is* the selected
+          --     alternative's λ-telescope (`CtorFieldsCoherent` links the two arities)
           obtain ⟨hcidx, harc⟩ := hcoh hcases hnfs hctor
-          have hzero : nfs[cidx]'hcidx = 0 := hflat hcases hnfs cidx hcidx
-          have harnp : ar = np := by
-            rw [har] at harc; simp only [Option.some.injEq] at harc
-            omega
-          have hcargsnp : cargs.length = np := by omega
+          have harnf : ar = np + nfs[cidx]'hcidx := by rw [har] at harc; exact Option.some.inj harc
           have hcidxa : cidx < alts'.length := by omega
-          have hnames : (alts'[cidx]'hcidxa).1.length = 0 := by
-            rw [harity cidx hcidxa]; simpa using hzero
-          obtain hnamesnil : (alts'[cidx]'hcidxa).1 = [] :=
-            List.eq_nil_of_length_eq_zero hnames
-          have hdropc : cargs.drop np = [] := by
-            apply List.eq_nil_of_length_eq_zero; simp; omega
-          have hdropc' : cargs'.drop np = [] := by
-            apply List.eq_nil_of_length_eq_zero; simp; omega
-          -- (6) the reduct's erasure: the branch body itself (flat regime)
+          have hnames : (alts'[cidx]'hcidxa).1.length = nfs[cidx]'hcidx := harity cidx hcidxa
+          have hdropl : (cargs.drop np).length = nfs[cidx]'hcidx := by
+            simp only [List.length_drop]; omega
+          have hdropl' : (cargs'.drop np).length = nfs[cidx]'hcidx := by
+            simp only [List.length_drop]; omega
+          -- (6) the reduct's erasure: the minor's λ-telescope applied to the field values
+          have hfields : ∀ i (h : i < (cargs.drop np).length),
+              Erases env Us Γ Δ ((cargs.drop np)[i]'h) ((cargs'.drop np)[i]'(by omega)) := by
+            intro i h
+            have hi : np + i < cargs'.length := by
+              simp only [List.length_drop] at h; omega
+            simpa only [List.getElem_drop] using hccorr (np + i) hi
           have herbranch : Erases env Us Γ Δ
               ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx))
-              (alts'[cidx]'hcidxa).2 := by
-            rw [hdropc, List.foldl_nil]
-            have := halts cidx hcidxa
-            rw [hnamesnil] at this
-            simpa [mkLambdas] using this
+              (LBTerm.mkApps (mkLambdas (alts'[cidx]'hcidxa).1 (alts'[cidx]'hcidxa).2)
+                (cargs'.drop np)) :=
+            erases_app_spine (halts cidx hcidxa) (cargs.drop np) (cargs'.drop np)
+              (by omega) hfields
           -- (7) the reduct's translation, from `IotaConsistent`
           obtain ⟨bve, htrbranch, hdefb⟩ :=
             SEvalDataι_iota_reduct henv hΔ hiota hcases hctor hia har hpre hmin hcargs hidx
               (fun htrx => SEvalDataι_defeq henv hΔ hcon hiota htrx hdiscr) htr
-          -- (8) the branch IH
-          have hnbb : NoBlock (alts'[cidx]'hcidxa).2 :=
-            hnb.2 _ (List.getElem_mem hcidxa)
-          have hnfb : NoFix (alts'[cidx]'hcidxa).2 :=
-            hnfx.2 _ (List.getElem_mem hcidxa)
-          have hclb : LBClosed (alts'[cidx]'hcidxa).2 0 := by
-            have := hcl.2 _ (List.getElem_mem hcidxa)
-            rw [hnamesnil] at this; simpa using this
+          -- (8) the branch IH, on the applied telescope
+          have hfieldnb : ∀ x ∈ cargs'.drop np, NoBlock x :=
+            fun x hx => noBlock_mkApps_inv hnbd x (List.mem_of_mem_drop hx)
+          have hfieldnf : ∀ x ∈ cargs'.drop np, NoFix x :=
+            fun x hx => noFix_mkApps_inv hnfd x (List.mem_of_mem_drop hx)
+          have hfieldcl : ∀ x ∈ cargs'.drop np, LBClosed x 0 :=
+            fun x hx => LBClosed.mkApps_inv hcld x (List.mem_of_mem_drop hx)
+          have hnbb := noBlock_mkApps
+            (noBlock_mkLambdas (names := (alts'[cidx]'hcidxa).1)
+              (hnb.2 _ (List.getElem_mem hcidxa))) hfieldnb
+          have hnfb := noFix_mkApps
+            (noFix_mkLambdas (names := (alts'[cidx]'hcidxa).1)
+              (hnfx.2 _ (List.getElem_mem hcidxa))) hfieldnf
+          have hclb := LBClosed.mkApps
+            (LBClosed.mkLambdas (hcl.2 _ (List.getElem_mem hcidxa))) hfieldcl
           obtain ⟨t', vve, hEbranch, htrr, herr, hnbt', hnft', hclt'⟩ :=
             ihbranch htrbranch herbranch hnbb hnfb hclb
-          -- (9)/(10) fire the target ι rule; the reversal bridge is `rfl` here
+          -- (9) the constructor's field values are closed *values* — the bridge's proviso
+          have hfieldval : ∀ x ∈ cargs'.drop np, WcbvEval E appliedFlags x x :=
+            fun x hx => value_final (value_mkApps_construct_args _ rfl (eval_to_value hEd)
+              x (List.mem_of_mem_drop hx))
+          -- (10) fire the target ι rule, through the reversal bridge
           refine ⟨t', vve, ?_, htrr, herr, hnbt', hnft', hclt'⟩
           refine WcbvEval.iota (names := (alts'[cidx]'hcidxa).1)
             (body := (alts'[cidx]'hcidxa).2) rfl (hcasesenv hcases) hEd ?_ ?_ ?_
           · rw [List.getElem?_eq_getElem hcidxa]
-          · rw [hdropc']; simp only [List.length_nil]; exact hnames.symm
-          · rw [hdropc']
-            simpa [LBTerm.substList] using hEbranch
+          · rw [hdropl', hnames]
+          · exact wcbvEval_mkApps_mkLambdas_substList (cargs'.drop np) _ _
+              (by rw [hnames, hdropl']) hfieldval hfieldcl hEbranch
         · exact absurd hnbd hnbt
 
 /-! ## Non-vacuity guards for the ι side conditions
 
-Constructed witnesses for the four side conditions this file introduces, at a genuinely
-*registered* flat inductive `Flat` (one nullary constructor `c`, no parameters, not
-propositional) with a `casesOn` head `con` at `discrPos = 1` — so none of the `Γ` maps is
-the all-`none` function and none of the guards is vacuous.
+Constructed witnesses for the side conditions this file introduces, at **two** pins:
+
+* `gΓflat` — a genuinely registered *flat* inductive `Flat` (one nullary constructor `c`,
+  no parameters, not propositional) with a `casesOn` head `con` at `discrPos = 1`, so
+  none of the `Γ` maps is the all-`none` function and none of the guards is vacuous;
+* `gΓfield` — the *field-carrying* pin (§"the second pin" below), at which
+  `FlatCaseFields` provably **fails** and the same certificate block still holds. That
+  pair is what makes the S4b lift checkable rather than merely asserted.
 
 `IotaRelevant` is **not** guarded here: exhibiting it needs a `VEnv` in which every
 translatable partial `casesOn` spine and every constructor value is informatively typed,
@@ -554,7 +600,8 @@ private def gΓflat : ErasureCtx where
 /-- The matching `IotaArities`: `numMotives = 1`, `numIndices = 0`, `numMinors = 1`. -/
 private def gIAflat : IotaArities := fun n => if n = `con then some (1, 0, 1) else none
 
-/-- Non-vacuity: `FlatCaseFields` holds at a `Γ` that really does register a `casesOn`. -/
+/-- One half of the S4b coverage measure: `FlatCaseFields` holds at a `Γ` that really
+does register a `casesOn` (`gΓfield_not_flat` is the other half). -/
 theorem gΓflat_flat : FlatCaseFields gΓflat := by
   intro con iid np nfs hcases hnfs j hj
   simp only [gΓflat] at hnfs
@@ -616,5 +663,104 @@ theorem gEcl_closedEnv : ClosedEnv gEcl := by
     obtain rfl : body = .box := (Option.some.inj h).symm
     trivial
   · exact absurd h (by simp)
+
+/-! ### The second pin: a field-carrying `Γ`, outside `FlatCaseFields`
+
+The pin the flat slice could not reach. `AC`/`mk` (`Semantics/Metatheory.lean`) is a
+genuinely registered, non-propositional inductive with **one parameter and one field**,
+so `ctorArities mk = npars 1 + nfields 1 = 2` decomposes non-degenerately and the
+`casesOn` head sits at `discrPos = np + nmot + nidx = 1 + 1 + 0 = 2`. Every certificate
+premise of `erases_correct_dataι` holds here exactly as at `gΓflat`, and
+`gΓfield_not_flat` records that the old scope restriction does **not**.
+
+What is *not* constructible at this pin is the same thing that is not constructible at
+`gΓflat`: an end-to-end run of the simulation, which needs `IotaConsistent` (hence
+`env.WF` for a `pats`-carrying `VEnv`, `sorry` upstream) and `IotaRelevant`. The ι step's
+target half — the reversal bridge on a genuinely multi-field constructor — *is* guarded,
+at `wcbvEval_mkApps_mkLambdas_substList_fires` (`IotaBridge.lean`), where a two-field
+telescope β-reduces and the bridge turns that into the ι rule's own `substList` reduct. -/
+
+/-- A field-carrying `Γ`: `AC.mk` as constructor `(acIid, 0)` of arity `2`, and an
+`AC.casesOn` head `con` at `(acIid, 1)`, with field-count list `[1]` and `discrPos = 2`.
+(The same shape as `EnvErasureNonrec`'s `gΓι`, re-declared because importing the shipping
+bridge here would drag it into the forward simulation's dependency cone.) -/
+private def gΓfield : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => default
+  ctors := fun n => if n = `mk then some (acIid, 0) else none
+  ctorArities := fun n => if n = `mk then some 2 else none
+  casesOns := fun n => if n = `con then some (acIid, 1) else none
+  ctorFields := fun _ => some [1]
+  casesDiscrPos := fun n => if n = `con then some 2 else none
+
+/-- The matching `IotaArities`: `numMotives = 1`, `numIndices = 0`, `numMinors = 1`. -/
+private def gIAfield : IotaArities := fun n => if n = `con then some (1, 0, 1) else none
+
+/-- **The lift is real**: the field-carrying pin is outside the old flat fragment, and
+`erases_correct_dataι` covers it all the same. -/
+theorem gΓfield_not_flat : ¬ FlatCaseFields gΓfield := by
+  intro h
+  have h0 := h (con := `con) (iid := acIid) (np := 1) (nfs := [1])
+    (by simp [gΓfield]) rfl 0 (by simp)
+  simp at h0
+
+/-- Non-vacuity at the field-carrying pin: `ErasesEnvCasesι` fires — `AC` is registered
+non-propositional. -/
+theorem gΓfield_erasesEnvCasesι : ErasesEnvCasesι gΓfield acΓ := by
+  intro con iid numParams hcases
+  by_cases h : con = `con
+  · subst h
+    simp only [gΓfield] at hcases
+    obtain ⟨rfl, _⟩ := hcases
+    rfl
+  · simp [gΓfield, if_neg h] at hcases
+
+/-- Non-vacuity at the field-carrying pin: `CtorFieldsCoherent` — `ctorArities mk = 2`
+decomposes as `npars 1 + nfs[0] 1`, i.e. with a **non-zero** field count. -/
+theorem gΓfield_ctorFieldsCoherent : CtorFieldsCoherent gΓfield := by
+  intro con cn iid np cidx nfs hcases hnfs hctors
+  by_cases h : cn = `mk
+  · subst h
+    simp only [gΓfield] at hctors
+    obtain ⟨_, rfl⟩ := hctors
+    by_cases hc2 : con = `con
+    · subst hc2
+      simp only [gΓfield] at hcases
+      obtain ⟨_, rfl⟩ := hcases
+      obtain rfl : nfs = [1] := (Option.some.inj hnfs).symm
+      exact ⟨by simp, by simp [gΓfield]⟩
+    · simp [gΓfield, if_neg hc2] at hcases
+  · simp [gΓfield, if_neg h] at hctors
+
+/-- Non-vacuity at the field-carrying pin: `IotaArityCoherent` — `discrPos = 2 =
+np + nmot + nidx` with `np = 1`, and the constructor count `|[1]| = 1 = numMinors`. -/
+theorem gΓfield_iotaArityCoherent : IotaArityCoherent gΓfield gIAfield := by
+  intro con iid np nmot nidx nmin hcases hia
+  by_cases h : con = `con
+  · subst h
+    simp only [gΓfield, gIAfield] at hcases hia
+    obtain ⟨rfl, rfl⟩ := hcases
+    obtain ⟨rfl, rfl, rfl⟩ := hia
+    exact ⟨by simp [gΓfield], [1], rfl, rfl⟩
+  · simp [gΓfield, if_neg h] at hcases
+
+/-- Non-vacuity at the field-carrying pin: the constructor/`casesOn` disjointness `hcc`. -/
+theorem gΓfield_cc {cn : Name} {iid : InductiveId} {cidx : Nat} :
+    gΓfield.ctors cn = some (iid, cidx) → gΓfield.casesOns cn = none := by
+  intro hc
+  by_cases h : cn = `mk
+  · subst h; simp [gΓfield]
+  · simp [gΓfield, if_neg h] at hc
+
+/-- **The certificate block of `erases_correct_dataι`, at a field-carrying `Γ`.** Every
+`Γ`/`E`-level side condition of the simulation holds at `(gΓfield, gIAfield, acΓ)` —
+which `FlatCaseFields` does not. -/
+theorem gΓfield_certificates :
+    ErasesEnvCasesι gΓfield acΓ ∧ CtorFieldsCoherent gΓfield ∧
+      IotaArityCoherent gΓfield gIAfield ∧ ¬ FlatCaseFields gΓfield ∧
+      (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
+        gΓfield.ctors cn = some (iid, cidx) → gΓfield.casesOns cn = none) :=
+  ⟨gΓfield_erasesEnvCasesι, gΓfield_ctorFieldsCoherent, gΓfield_iotaArityCoherent,
+    gΓfield_not_flat, gΓfield_cc⟩
 
 end LeanToLambdaBox

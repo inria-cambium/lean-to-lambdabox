@@ -13,11 +13,13 @@ import LeanToLambdaBox.IotaDischarge
 * `SEvalDataι_defeq` — subject-reduction-as-defeq over `SEvalDataι` (C2), mirroring
   `SEvalβζδ_defeq` for the non-ι rules and discharging the ι case **only** through the
   `IotaConsistent` hypothesis; and
-* the ι-reduct correspondence (C3 core) `erases_iota_reduct`: the source ι reduct (the
-  minor applied to the constructor fields *in order*, `(cargs.drop np).foldl Expr.app
-  (minors[cidx])`) erases to the target `iota_red` (the field-substituted alternative
-  body, in **reverse**: `substList ((args.drop np).reverse) body`) — the β-chain ↔
-  reversing-`iota_red` bridge, built by iterating `lam_inv` and a `β`-step lemma.
+* the ι-relevance side conditions `IotaRelevant` and the C3 analysis that motivates
+  them. The ι-reduct correspondence itself — the source ι reduct (the minor applied to
+  the constructor fields *in order*, `(cargs.drop np).foldl Expr.app (minors[cidx])`)
+  against the target `iota_red` (the field-substituted alternative body, in **reverse**:
+  `substList ((args.drop np).reverse) body`) — is the β-chain ↔ reversing-`iota_red`
+  bridge `wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`), consumed by
+  `erases_correct_dataι`.
 
 ## The ι trust ledger (REQUIRED, precise)
 
@@ -277,7 +279,7 @@ structure IotaRelevant (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop wh
 
 /-! ## C3 — the ι forward simulation: a raised implementation finding
 
-**Status: fixed, and the simulation is proved on the flat fragment.** `Erases.cases` now
+**Status: fixed, and the simulation is proved.** `Erases.cases` now
 carries three arity pins — `hpre` (`Γ.casesDiscrPos con = some pre.length`), `hnfs` +
 `hnlen` (one alternative per constructor, from `Γ.ctorFields`) and `harity` (alternative
 `j` binds exactly constructor `j`'s fields) — which make the model's parse of a `casesOn`
@@ -289,12 +291,11 @@ below was required: without `hpre` the counterexample survives in shifted form, 
 the record of *why* the three pins exist.
 
 The ι forward simulation itself is `erases_correct_dataι` (`ErasesCorrectIota.lean`),
-proved on the **flat** fragment (every constructor of the eliminated inductive has zero
-retained fields — `Bool`, `Ordering`, enums). That restriction is *simulation-side only*:
-the shipping bridge's `Supported.casesApp` (λ-telescope minors, T4b) and the two-stage
-`IotaShape` certificate (T3g) both cover field-carrying constructors already. Three
-further obstructions surfaced while proving it, all of them recorded on the declarations
-that carry them:
+proved for constructors of **any** arity: the shipping bridge's `Supported.casesApp`
+(λ-telescope minors, T4b), the two-stage `IotaShape` certificate (T3g) and the reversal
+bridge (`IotaBridge.lean`) all cover field-carrying constructors. Three further
+obstructions surfaced while proving it, all of them recorded on the declarations that
+carry them:
 
 * **`NoBlock`/`NoFix` were opaque on `.case`** (a `| _ => True` catch-all), so inverting a
   target `.case` could not deliver `NoBlock discr'` to the discriminant IH. Both now
@@ -306,12 +307,14 @@ that carry them:
   `subst f₀ 0 (subst f₁ 0 body)`, which coincide iff `subst f₀ 0 f₁ = f₁`. With
   `body = .bvar 0` and `f₁ = .lambda n (.bvar 1)` — a legal `WcbvEval` value at nonempty
   `Δ` — the two genuinely differ. This is MetaRocq's own `closedn 0` convention, not a
-  modelling shortcut, and it is why `erases_correct_dataι` threads `LBClosed t 0`. (On the
-  flat fragment the field list is empty and the bridge degenerates to `rfl`.)
+  modelling shortcut, and it is why `erases_correct_dataι` threads `LBClosed t 0`. The
+  bridge is `wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`), over
+  `LBTerm.substList_reverse_subst` (`Closed.lean`); at zero fields it degenerates to
+  `rfl`.
 * **`IotaRelevant`** (above) — the two relevance side conditions.
 
 **A general `erases_correct_dataι` (ι forward simulation matching `erases_correct_data_zeta`'s
-generality) is FALSE against the then-current `Erases.cases` relation, and the obstruction is a
+generality) was FALSE against the then-current `Erases.cases` relation, and the obstruction was a
 genuine under-constraint of that relation** — reported here (not silently patched;
 `Erases.lean` is out of scope) per the project's "raise implementation issues" discipline.
 
@@ -341,12 +344,13 @@ the source relation `SEvalDataι` was given matching arithmetic pins (ι T2) and
 parses reconciled by `IotaArityCoherent` (`SourceEvalData.lean`), and the inversion that
 consumes all of it is `Erases.cases_spine_inv` / `Erases.iota_redex_inv`
 (`ErasesCorrectData.lean`). The **β-chain ↔ reversing-`iota_red` bridge** named here is
-still the remaining piece for *field-carrying* inductives: `mkApps (mkLambdas names body)
-fields` and `substList fields.reverse body` evaluate identically when
-`names.length = fields.length`, the fields are values **and the fields are de-Bruijn
-closed** (the closedness is not slack — see the worked counterexample in the status note
-above). On the flat fragment `fields = []` and the bridge is `rfl`, which is what
-`erases_correct_dataι` currently exploits. D3's ι variant composes `SEvalDataι_defeq` with
+`wcbvEval_mkApps_mkLambdas_substList` (`IotaBridge.lean`), which closes the
+*field-carrying* case: `mkApps (mkLambdas names body) fields` and
+`substList fields.reverse body` evaluate identically when `names.length = fields.length`,
+the fields are values **and the fields are de-Bruijn closed** (the closedness is not
+slack — see the worked counterexample in the status note above). At `fields = []` it is
+`rfl`, the regime the first slice of the simulation was restricted to. D3's ι variant
+composes `SEvalDataι_defeq` with
 `erases_correct_dataι`; for first-order values there is no over-application (a `casesOn`
 returns data, never a further-applied function), so the saturation constraint holds
 automatically.
