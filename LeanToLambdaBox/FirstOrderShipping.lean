@@ -96,8 +96,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => True) ΓFOd (gw w) ctx s [])
-    (hsup : Supported (fun _ => True) ΓFOd (.const `c []))
+    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd (gw w) ctx s [])
+    (hsup : Supported (fun _ => False) ΓFOd (.const `c []))
     (hnb : NoBlock t) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧

@@ -136,7 +136,8 @@ taken as inputs (the documented trust boundary); everything else is
 supported source term `fun (a : Sort 0) => a` that `SEvalβδ`-evaluates (to
 itself, as a value), its `TrExprS` witness, and a concrete `BridgeInv` at
 `Δ = []`. -/
-example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none) (cfg : ErasureConfig)
+example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
+    (hkn : ∀ n : Name, Γ.constants n = toKername n) (cfg : ErasureConfig)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
@@ -168,7 +169,9 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none) (cfg : Erasure
       kfresh := fun _ h => nomatch h
       fixvars := rfl
       reserved := fun _ h => nomatch h
-      consts := fun _ h => h.elim }
+      knames := hkn
+      consts := by intro n k hk; simp at hk
+      known_dom := fun _ h => h.elim }
     (.lam _ _ _ (.bvar 0)) htr (.lam `a (.sort .zero) (.bvar 0) .default)
 
 end LeanToLambdaBox

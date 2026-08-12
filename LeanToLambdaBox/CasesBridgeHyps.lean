@@ -28,12 +28,11 @@ are usable directly inside the fixpoint induction.
   twin, exactly as `DataBridgeHyps.ctor_run` is the positive twin of
   `BridgeHyps.ctor_run`).
 * `casesind_run` — `getConstInfo con.getPrefix` returns the `casesOn`'s inductive,
-  whose `numParams` matches `Γ.casesOns`. Monotone, state-preserving.
+  whose `numParams` matches `Γ.casesOns`. Monotone.
 * `casesreg_run` — `register_inductive` on that inductive returns `Γ`'s
   `InductiveId` and one **trivial** argmask per constructor, of the declared field
   width (the same assumption `DataBridgeHyps.reg_run` makes on the constructor
-  path: relevant fields, default `remove_irrel_constr_args := false`,
-  pre-registered inductive). State-preserving, monotone.
+  path: relevant fields, default `remove_irrel_constr_args := false`). Monotone.
 * `infer_lam_run` — the `Meta.inferType` spec: on a manifest λ-telescope it
   returns a `∀`-telescope matching it binder-for-binder (same binder **name**,
   same **domain**). Purely syntactic — no typing content, no `whnf`, no defeq;
@@ -55,6 +54,17 @@ need; the general-alternative slice (ι-T4b) uses it to open each minor's binder
 through the inferred type. All the *typing* data that opening needs
 (`TrExprS`/`IsType` for the domain) still comes from inverting the minor's own
 `TrExprS.lam`, which is why `infer_lam_run` stays purely syntactic.
+
+## Trust-surface reductions (cold-start S2)
+
+Both state clauses this bundle carried are gone, neither replaced:
+
+* `casesind_run`'s `s = s₁` — *provable*, `Erasure.run_getConstInfo_state`;
+* `casesreg_run`'s `s = s₁` — **it was false**, for the reason spelled out in
+  `DataBridgeHyps`' module docstring (its docstring here even said "State-preserving
+  (the inductive is pre-registered)" — the intent was documented but never encoded as a
+  premise, and `s` was universally quantified). The bridge now threads the *proved*
+  state effect, `Erasure.run_register_inductive_runConcl`.
 -/
 
 namespace LeanToLambdaBox
@@ -204,19 +214,23 @@ structure CasesBridgeHyps (Γ : ErasureCtx) (gw : Void IO.RealWorld → NameGene
     getCasesInfo? con cctx ref w = .ok r w₁ →
     gw w ≤ gw w₁ ∧ ∃ ci, r = some ci ∧ CasesInfoAgrees ci con dp nfs
   /-- `getConstInfo con.getPrefix` returns the `casesOn`'s inductive, whose
-  `numParams` matches `Γ.casesOns`. Monotone, state-preserving. -/
+  `numParams` matches `Γ.casesOns`. Monotone (state-preservation is the theorem
+  `Erasure.run_getConstInfo_state`). -/
   casesind_run : ∀ (con : Name) (iid : InductiveId) (np : Nat)
     (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) (ci : ConstantInfo)
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
     Γ.casesOns con = some (iid, np) →
     (getConstInfo con.getPrefix : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s₁) w₁ →
-    gw w ≤ gw w₁ ∧ s = s₁ ∧
+    gw w ≤ gw w₁ ∧
       ∃ indVal : InductiveVal, ci = .inductInfo indVal ∧ indVal.numParams = np ∧
         indVal.name = con.getPrefix
   /-- `register_inductive` on that inductive returns `Γ`'s `InductiveId` and one
   **trivial** argmask per constructor, of the declared field width.
-  State-preserving (the inductive is pre-registered). -/
+
+  **No state clause** — the `s = s₁` this field used to assert is false about the real
+  `register_inductive` (module docstring); the bridge threads
+  `Erasure.run_register_inductive_runConcl` instead. -/
   casesreg_run : ∀ (indVal : InductiveVal) (con : Name) (iid : InductiveId) (np : Nat)
     (nfs : List Nat) (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld)
@@ -224,7 +238,7 @@ structure CasesBridgeHyps (Γ : ErasureCtx) (gw : Void IO.RealWorld → NameGene
     Γ.casesOns con = some (iid, np) → Γ.ctorFields iid = some nfs →
     indVal.name = con.getPrefix →
     register_inductive indVal s ctx cctx ref w = .ok (r, s₁) w₁ →
-    gw w ≤ gw w₁ ∧ s = s₁ ∧ r.1 = iid ∧ r.2.length = nfs.length ∧
+    gw w ≤ gw w₁ ∧ r.1 = iid ∧ r.2.length = nfs.length ∧
       ∀ j (h : j < nfs.length), r.2[j]! = Array.replicate (nfs[j]'h) .keep
   /-- **The `inferType` spec.** `Meta.inferType` returns a `∀`-telescope matching
   its argument's λ-telescope binder-for-binder (same binder name, same domain).

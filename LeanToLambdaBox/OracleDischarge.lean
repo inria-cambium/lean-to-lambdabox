@@ -63,7 +63,7 @@ structure ResidualHyps (env₀ : Lean.Kernel.Environment) (ves : VEnvs) (Us : Li
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) (x : FVarId)
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
     (mkFreshFVarId : EraseM FVarId) s ctx cctx ref w = .ok (x, s₁) w₁ →
-    s₁ = s ∧ ¬ (gw w).Reserves x ∧ (gw w₁).Reserves x ∧ gw w ≤ gw w₁ ∧
+    ¬ (gw w).Reserves x ∧ (gw w₁).Reserves x ∧ gw w ≤ gw w₁ ∧
     kernelNGen.Reserves x
   cases_run : ∀ (n : Name) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w : Void IO.RealWorld) (r : Option CasesInfo) (w₁ : Void IO.RealWorld),

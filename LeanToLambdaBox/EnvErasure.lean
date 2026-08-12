@@ -35,11 +35,15 @@ remaining gap:
 
 * **DAG cold-start registration (P3.13, deferred).** The registration hypotheses
   (`RegisteredClosureData`/`RegisteredCtors`/…) are here *assumed* about the run's output
-  env `E`. A well-founded recursion over the acyclic cross-block dependency graph
-  (relaxing `VisitExprRefines.BridgeInv.consts`, which currently forbids the cold-start
-  `get_constant_kername` miss branch) would *prove* them from the actual `visitMutual`
-  registration. This also supplies the top-level term bridge (`hrun`/`hinv`), which is why
-  the subject here is still `visitExpr e` under a registered state, not cold-start `erase`.
+  env `E`; `ColdStartShape`/`ColdStartInduction` (slice S1) prove the *shape* half of them
+  from a real run, and slice S2 widened the bridge's conclusion from `s' = s` to
+  `Erasure.RunConcl` so the two can be composed at a growing state. What is still open is
+  the `get_constant_kername` **miss** branch: `VisitExprRefines.BridgeInv.consts` is now
+  soundness-flavoured, but its `known_dom` residue still forces the hit branch, because
+  discharging the miss branch needs facts about `Compiler.LCNF.getDeclInfo?` that belong
+  to the entry slice's `RegBridgeHyps` (see the note at motive 5). That branch is also
+  what would supply the top-level term bridge (`hrun`/`hinv`), which is why the subject
+  here is still `visitExpr e` under a registered state, not cold-start `erase`.
 * **`visitConst`-fixvar bridge (P3.12, deferred).** The recursive discharge's `hbodies`
   (each opened sibling body erases) is a bridge fact the fixvar branch of
   `visitExpr_refines_erases` would supply; it is folded into `RegisteredClosureRec`.
@@ -122,8 +126,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => True) ΓFOd (gw w) ctx s [])
-    (hsup : Supported (fun _ => True) ΓFOd (.const `c []))
+    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd (gw w) ctx s [])
+    (hsup : Supported (fun _ => False) ΓFOd (.const `c []))
     (hnb : NoBlock t) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧

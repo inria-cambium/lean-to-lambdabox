@@ -88,8 +88,8 @@ example (gw : Void IO.RealWorld → NameGenerator)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => True) ΓFOd (gw w) ctx s [])
-    (hsup : Supported (fun _ => True) ΓFOd (.const `c []))
+    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd (gw w) ctx s [])
+    (hsup : Supported (fun _ => False) ΓFOd (.const `c []))
     (htr : TrExprS envFO [] [] (.const `c []) (.const `c []))
     (hnb : NoBlock t) :
     ∃ t' vve, WcbvEval EFOd appliedFlags t t' ∧ TrExprS envFO [] [] (.const `c []) vve ∧

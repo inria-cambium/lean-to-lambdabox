@@ -431,26 +431,39 @@ theorem ΓFOι_certificates :
 /-- **D3ι fires.** On the first-order constructor `c` at the registered inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
 certificate block is `ΓFOι_certificates`, the source `c` `SEvalDataι`-evaluates to
 itself, and the theorem produces `t'` together with its uniqueness. Hypothetical: the run
-(`hrun`/`hinv`/`hsup`), the three runtime bundles, the target-side structural facts about
+(`hrun`/`hsup`), the three runtime bundles, the target-side structural facts about
 the run's output `t` (`NoBlock`/`LBClosed`), and the two ι trust items
-(`IotaConsistent`, `IotaRelevant`). -/
+(`IotaConsistent`, `IotaRelevant`).
+
+Cold-start S2 tightened this guard twice: the run is now taken at the **empty state and
+empty context** (`Erasure.run`'s own initial configuration) rather than an abstract
+registered one, and `BridgeInv` is **constructed** there rather than assumed — the
+invariant's `consts` field became soundness-flavoured, hence vacuous at `{}`. `known` is
+`⊥` because the subject is constructor-headed and needs no δ-constant; at `⊤` the
+invariant's `known_dom` field would demand every `Name` be registered in a finite
+`Std.HashMap`, i.e. it was unsatisfiable (as was its `consts` predecessor). -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hiota : IotaConsistent envFO [] ΓFOι iaFOι)
     (hrel : IotaRelevant envFO [] ΓFOι)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw)
-    (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
+    (s' : ErasureState) (cfg : ErasureConfig) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
-    (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => True) ΓFOι (gw w) ctx s [])
-    (hsup : Supported (fun _ => True) ΓFOι (.const `c []))
+    (hrun : Erasure.visitExpr (.const `c []) {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w')
+    (hsup : Supported (fun _ => False) ΓFOι (.const `c []))
     (hnb : NoBlock t) (hcl : LBClosed t 0) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  -- cold-start S2: the bridge invariant is now *constructed* at the empty state, not
+  -- assumed — its `consts` field is soundness-flavoured (vacuous at `{}`) and its
+  -- `knames` side condition is `ΓFOι`'s own `constants := toKername`.
+  have hinv : BridgeInv envFO [] (fun _ => False) ΓFOι (gw w) ⟨{}, none, [], cfg⟩ {} [] :=
+    gBridgeInv_nil envFO [] ΓFOι (fun _ => rfl) (gw w) cfg
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc

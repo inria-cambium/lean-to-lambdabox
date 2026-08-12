@@ -414,8 +414,14 @@ theorem gErasesEnvDelta (env : VEnv) (Us : List Name) :
 /-- Non-vacuity: the `Δ = []` `BridgeInv` premise of `erases_nonrec_const_body` is
 itself realizable (the cold-start empty-context instance), so the bridge invocation's
 premise set is not vacuously unsatisfiable. Mirrors `VisitExprRefines.lean` guard (i) at
-`Δ = []`. -/
+`Δ = []`.
+
+`hkn` is the invariant's `knames` field (cold-start S2): `Γ` files every constant under
+its canonical kername. It is a side condition on `Γ` alone, satisfied by every concrete
+`Γ` in the development (`ΓFOd`/`ΓFOι` define `constants := toKername`), so it is passed
+in rather than baked into a particular `Γ` here. -/
 theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (hkn : ∀ n : Name, Γ.constants n = toKername n)
     (gen : NameGenerator) (cfg : ErasureConfig) :
     BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
@@ -423,6 +429,8 @@ theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
   kfresh := fun _ hfv => nomatch hfv
   fixvars := rfl
   reserved := fun _ hfv => nomatch hfv
-  consts := fun _ h => h.elim
+  knames := hkn
+  consts := by intro n k hk; simp at hk
+  known_dom := fun _ h => h.elim
 
 end LeanToLambdaBox
