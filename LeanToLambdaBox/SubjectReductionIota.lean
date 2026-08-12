@@ -373,17 +373,17 @@ empty `Esrc`). -/
 theorem erases_correct_data_zeta_fires :
     ∃ t' vve, WcbvEval EFOd appliedFlags (.construct ⟨toKername `I, 0⟩ 0 []) t' ∧
       TrExprS envFO [] [] (.const `c []) vve ∧
-      Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧ NoFix t' := by
+      Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' := by
   refine erases_correct_data_zeta (env := envFO) envFO_wf (Us := []) (Δ := []) trivial
-    (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ ?_
-    (v := .const `c []) ?_ envFO_trC (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial trivial
+    (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)
+    (v := .const `c []) ?_ envFO_trC (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
   · intro cn iid cidx hc
     by_cases h : cn = `c
     · subst h; rfl
     · simp [ΓFOd, if_neg h] at hc
-  · intro kn body' h; simp only [EFOd, LBTerm.envLookup] at h; split at h <;> simp_all
   · have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
     rw [heq]
     exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))

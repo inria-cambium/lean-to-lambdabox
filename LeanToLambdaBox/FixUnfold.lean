@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Closed
+import LeanToLambdaBox.Semantics.Metatheory
 
 /-!
 # `substFix`: static fix-closing inverts dynamic fix-unfolding (recursion wall, slice W0)
@@ -495,5 +496,109 @@ theorem closeFix_substList_fixSubst_fires_value (x : FVarId) :
   show substFVar x (LBTerm.fix nvDefs 0) (.fvar x) = _
   show (if x == x then LBTerm.fix nvDefs 0 else LBTerm.fvar x) = _
   simp
+
+/-! ## Part 7 — the unfolding chain (recursion wall, slice W2)
+
+Slice W1's `Erases.fix` states its bodies premise against the *one-step* unfolding
+`LBTerm.substList (LBTerm.fixSubst defs) defs[idx].body` — precisely
+`WcbvEval.fix_guarded`'s reduct. Usually one step is all the β case of a forward
+simulation needs: the unfolding of a real recursive body is `.lambda`-headed (or `.box`),
+and the target's `fix_guarded` is immediately followed by a `beta` (or an `app_box`).
+
+But a *degenerate* block can unfold to another `.fix` node — `defs[idx].body = .bvar j`
+gives `.fix defs j` back — and then the target must fire `fix_guarded` again. The number
+of such steps is not bounded by anything in the β case's induction (which is on the
+*source* derivation), so it is packaged here as its own relation: `FixUnfoldChain defs
+idx u` says `u` is reached from `.fix defs idx` by a finite, non-empty chain of one-step
+unfoldings, each of whose selected definitions has the `mkDef` default `principalArgIdx`.
+`Erases.fix_unfold` (`ErasesCorrect`) produces such a chain from a `.lam`-to-`.fix`
+erasure, by induction on the erasure derivation, with `u` guaranteed *not* to be a `.fix`;
+`FixUnfoldChain.eval` below turns it into the corresponding stack of `fix_guarded` nodes.
+-/
+
+/-- `FixUnfoldChain defs idx u`: `u` is the result of unfolding `.fix defs idx` one or
+more times, each step selecting a definition whose `principalArgIdx` is the `mkDef`
+default `0` (which is what makes the step consume exactly one argument). -/
+inductive FixUnfoldChain : List (@FixDef LBTerm) → Nat → LBTerm → Prop
+  /-- One unfolding: `.fix defs idx ↦ substList (fixSubst defs) defs[idx].body`. -/
+  | step {defs : List (@FixDef LBTerm)} {idx : Nat} (hidx : idx < defs.length)
+      (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0) :
+      FixUnfoldChain defs idx
+        (LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body)
+  /-- The unfolding is itself a `.fix` node; keep going. -/
+  | trans {defs : List (@FixDef LBTerm)} {idx : Nat}
+      {defs' : List (@FixDef LBTerm)} {idx' : Nat} {u : LBTerm}
+      (hidx : idx < defs.length) (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
+      (heq : LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body
+               = .fix defs' idx')
+      (h : FixUnfoldChain defs' idx' u) :
+      FixUnfoldChain defs idx u
+
+/-- A target term either *is* a `fix` node or is provably none — the case split
+`Erases.fix_unfold` iterates on. -/
+theorem LBTerm.fix_or_not (t : LBTerm) :
+    (∃ (defs : List (@FixDef LBTerm)) (i : Nat), t = .fix defs i) ∨
+    (∀ (defs : List (@FixDef LBTerm)) (i : Nat), t ≠ .fix defs i) := by
+  cases t with
+  | fix defs i => exact .inl ⟨defs, i, rfl⟩
+  | _ => exact .inr (fun _ _ => by simp)
+
+/-- **The chain is a stack of `fix_guarded` steps.** If the function part of an
+application evaluates to the block and the argument to `av`, then evaluating the
+application is the same as evaluating the chain's end applied to `av`. Each link is one
+`WcbvEval.fix_guarded` with an empty accumulated spine (`argsv = []`, forced by
+`principalArgIdx = 0`), so **one source β-step matches one `fix_guarded` per link plus
+the final application step**. -/
+theorem FixUnfoldChain.eval {E : GlobalDeclarations} {fl : WcbvFlags}
+    (hg : fl.with_guarded_fix = true)
+    {defs : List (@FixDef LBTerm)} {idx : Nat} {u : LBTerm}
+    (hch : FixUnfoldChain defs idx u) :
+    ∀ {f a av r : LBTerm}, WcbvEval E fl f (.fix defs idx) → WcbvEval E fl a av →
+      WcbvEval E fl (.app u av) r → WcbvEval E fl (.app f a) r := by
+  induction hch with
+  | step hidx hrarg =>
+      intro f a av r hf ha hr
+      exact .fix_guarded (argsv := []) hg hf ha (List.getElem?_eq_getElem hidx)
+        (hrarg _ (List.getElem_mem hidx)) hr
+  | trans hidx hrarg heq _ ih =>
+      intro f a av r hf ha hr
+      refine .fix_guarded (argsv := []) hg hf ha (List.getElem?_eq_getElem hidx)
+        (hrarg _ (List.getElem_mem hidx)) ?_
+      show WcbvEval E fl (.app (LBTerm.substList (LBTerm.fixSubst _) _) av) r
+      rw [heq]
+      exact ih (.fix_atom _ _) (value_final (eval_to_value ha)) hr
+
+/-- **The chain preserves closedness.** Every entry of `fixSubst defs` is a `.fix defs j`,
+which is closed exactly when the block is, and `defs[idx].body` is closed under
+`defs.length` binders — so one unfolding lands on a closed term, and the chain iterates
+it. Needed by the ι simulation, which threads `LBClosed t 0`. -/
+theorem FixUnfoldChain.lbClosed {defs : List (@FixDef LBTerm)} {idx : Nat} {u : LBTerm}
+    (hch : FixUnfoldChain defs idx u) : LBClosed (.fix defs idx) 0 → LBClosed u 0 := by
+  have hstep : ∀ (defs : List (@FixDef LBTerm)) (idx : Nat) (hidx : idx < defs.length),
+      LBClosed (LBTerm.fix defs idx) 0 →
+      LBClosed (LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body) 0 := by
+    intro defs idx hidx hcl
+    have hbody : LBClosed (defs[idx]'hidx).body (LBTerm.fixSubst defs).length := by
+      rw [LBTerm.fixSubst, List.length_map, List.length_reverse, List.length_range]
+      rw [LBClosed_fix, LBClosedDefs_iff] at hcl
+      have := hcl _ (List.getElem_mem hidx)
+      rwa [Nat.zero_add] at this
+    refine LBClosed.substList (fun s hs => ?_) hbody
+    obtain ⟨j, _, rfl⟩ := List.mem_map.mp hs
+    rw [LBClosed_fix, LBClosedDefs_iff] at hcl ⊢
+    exact hcl
+  induction hch with
+  | step hidx hrarg => exact fun hcl => hstep _ _ hidx hcl
+  | trans hidx hrarg heq _ ih => exact fun hcl => ih (heq ▸ hstep _ _ hidx hcl)
+
+/-- Non-vacuity: the self-loop block `fix f. #0` unfolds to itself, so `FixUnfoldChain`
+has derivations of every length — the situation the `trans` link exists for. -/
+theorem fixUnfoldChain_selfLoop_step :
+    FixUnfoldChain nvDefs 0 (.fix nvDefs 0) := by
+  have h : LBTerm.substList (LBTerm.fixSubst nvDefs)
+      ((nvDefs[0]'(by simp [nvDefs])).body) = .fix nvDefs 0 := by
+    simp [nvDefs, LBTerm.fixSubst, LBTerm.substList, LBTerm.subst1, LBTerm.subst,
+      LBTerm.shift, LBTerm.shiftDefs]
+  exact h ▸ FixUnfoldChain.step (by simp [nvDefs]) (by simp [nvDefs])
 
 end LeanToLambdaBox

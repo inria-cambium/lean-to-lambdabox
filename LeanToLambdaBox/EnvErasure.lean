@@ -43,16 +43,17 @@ remaining gap:
 * **`visitConst`-fixvar bridge (P3.12, deferred).** The recursive discharge's `hbodies`
   (each opened sibling body erases) is a bridge fact the fixvar branch of
   `visitExpr_refines_erases` would supply; it is folded into `RegisteredClosureRec`.
-* **`NoFixEnv` relaxation (item 2, deferred).** D3 and both forward simulations
-  (`erases_correct`, `erases_correct_data`) carry `NoFixEnv E` **and conclude `NoFix t'`**;
-  their `.lam`-source fix disjunct is discharged by `hnfx.elim`. Consuming a *recursive*
-  `.fix` constant body in the δ case requires simulating the guarded/unguarded fix
-  unfolding (`WcbvEval` `fix_guarded`/`fix_unguarded`) *and* dropping `NoFix t'` from the
-  conclusion (a fix value is not `NoFix`), which re-touches both forward sims — an XL piece
-  deferred. Hence the composition here stays in the fix-free (first-order) fragment
-  (`NoFixEnv E` retained), while the recursive env-level discharge stands ready for when
-  the forward sims are relaxed. The forward-sim byte-set / D3 axioms are therefore
-  **unchanged**.
+* **`NoFixEnv` relaxation (item 2, DONE — recursion wall, slice W2).** D3 and the forward
+  simulations no longer carry `NoFixEnv E`, and no longer conclude `NoFix t'`: they accept
+  **recursive** environments. A recursive head in the β case unfolds through
+  `erases_lam_head_step` (one source β-step ↔ the head's `WcbvEval.fix_guarded` stack + one
+  `beta`), and a recursive constant in the δ case is a value on both sides (`fix_atom`).
+  What is threaded in their place is one registration-level premise,
+  `RecEnvConsistent env Us Γ Esrc E` (`ErasesCorrect.lean`): the block `Γ` records for a
+  constant is what `E` stores, and the constant's source body erases to it. It is
+  `RegisteredClosureRec` re-keyed on `Γ.recBodies`, so the recursive env-level discharge
+  below feeds it directly — modulo the `Γ`↔`E` registration agreement the cold-start walk
+  owes (`recEnvConsistent_of_registeredClosureRec`'s `hkey`).
 
 `PrepareHyps` (csimp-off elaborator-transformation soundness) remains a `Prop` trust
 class for the eventual `erase`-level statement (it links `prepare_erasure e`'s evaluation
@@ -74,9 +75,10 @@ discharged internally by `erasesEnvDeltaData_of_registeredClosureData`.
 (`erasesEnvCtor_of_registeredCtors`/`erasesEnvCases_of_registeredCases`, `EnvErasureNonrec`);
 `hctorenv` is left as the direct env premise here so the composition stays focused on the
 δ payoff and its non-vacuity guard reuses the existing `ΓFOd_envctor`. Everything else
-(the run `hrun`, the invariant `hinv`, the trust bundles `H`/`HD`, the fix-free premise
-`NoFixEnv E`, the first-order value premise `hfo`) is threaded verbatim; the conclusion is
-D3's — `t` `WcbvEval`-uates at `appliedFlags` to the unique applied erasure of `v`. -/
+(the run `hrun`, the invariant `hinv`, the trust bundles `H`/`HD`, the recursion premise
+`RecEnvConsistent E`, the first-order value premise `hfo`) is threaded verbatim; the
+conclusion is D3's — `t` `WcbvEval`-uates at `appliedFlags` to the unique applied erasure
+of `v`. -/
 theorem shipping_erase_correct_firstorder_registered
     {env : VEnv} (henv : env.WF) {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
@@ -85,7 +87,7 @@ theorem shipping_erase_correct_firstorder_registered
     (hctorenv : ErasesEnvCtor Γ E)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
-    (hnfenv : NoFixEnv E)
+    (hrec : RecEnvConsistent env Us Γ Esrc E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -96,7 +98,6 @@ theorem shipping_erase_correct_firstorder_registered
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
-    (hnfx : NoFix t)
     (hev : SEvalDataC Γ Esrc e v)
     (hfo : FirstOrderValue env Us Γ [] v) :
     ∃ t', WcbvEval E appliedFlags t t' ∧
@@ -105,7 +106,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hnfenv H HD C hrun hinv hsup htr hnb hnfx hev hfo
+    hctorenv hcc hrec H HD C hrun hinv hsup htr hnb hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -123,14 +124,16 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
     (hinv : BridgeInv envFO [] (fun _ => True) ΓFOd (gw w) ctx s [])
     (hsup : Supported (fun _ => True) ΓFOd (.const `c []))
-    (hnb : NoBlock t) (hnfx : NoFix t) :
+    (hnb : NoBlock t) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorder_registered envFO_wf (Us := []) (Esrc := fun _ => none)
-    (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_ ?_ H HD C hrun hinv hsup envFO_trC hnb hnfx ?_
+    (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)        -- ΓFOd registers no recursion
+    H HD C hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.disj, vacuous
@@ -139,9 +142,6 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     by_cases h : cn = `c
     · subst h; rfl
     · simp [ΓFOd, if_neg h] at hc
-  · intro kn body' h                                    -- NoFixEnv EFOd, vacuous
-    simp only [EFOd, LBTerm.envLookup] at h
-    split at h <;> simp only [Option.some.injEq, reduceCtorEq] at h
   · rw [heq]                                            -- SEvalDataC c → c
     exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))
 

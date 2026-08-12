@@ -1,5 +1,6 @@
 import LeanToLambdaBox.Erases
 import LeanToLambdaBox.Eval
+import LeanToLambdaBox.FixUnfold
 import LeanToLambdaBox.SubjectReduction
 import LeanToLambdaBox.SubjectReductionFull
 
@@ -35,6 +36,167 @@ empty env `E = []`. -/
 def NoFixEnv (E : GlobalDeclarations) : Prop :=
   ∀ {kn : Kername} {body' : LBTerm},
     LBTerm.envLookup E kn = some (.constantDecl ⟨some body'⟩) → NoFix body'
+
+/-! ## Recursion: the environment-level premise that replaces `NoFixEnv`
+
+`NoFixEnv` is the *fix-free fragment*'s hypothesis: it is what let the δ case feed a
+`NoFix` body to its IH, and hence what discharged `Erases.lam_inv`'s fix disjunct
+everywhere. Dropping it (recursion wall, slice W2) leaves exactly one real obligation
+behind, and it belongs at the registration level: when `Γ` records a constant as
+recursive, the source body it records must actually erase to that block. That is
+`RecEnvConsistent`. -/
+
+/-- **Coherence of `Γ.recBodies` with both environments.** For every constant `Γ` records
+as recursive: the block is what `E` stores under its kername, the constant is neither a
+constructor nor a `casesOn`, and the source env unfolds it to a body that erases to the
+block *in any context* (constant bodies are closed, so `Erases.fix`'s free-`Δ` conclusion
+gives context-uniformity for free).
+
+This is `EnvErasureRec.RegisteredClosureRec` **re-keyed on `Γ.recBodies`** — the direction
+the δ case needs, since what it holds is the `const_fix` leaf's registration witness, not
+a source unfolding. Its only use in the forward simulations is the δ case at a recursive
+constant, where it turns the `.fix` target back into a body erasure the IH can consume;
+the target's own step is then `WcbvEval.fix_atom` (a recursive constant's value *is* its
+block), which is why the δ case needs no unfolding at all — see the β case for where the
+unfolding actually happens. -/
+structure RecEnvConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (Esrc : SEnv) (E : GlobalDeclarations) : Prop where
+  reg : ∀ {n : Name} {defs : List (@FixDef LBTerm)} {idx : Nat},
+    Γ.recBodies n = some (defs, idx) →
+      LBTerm.envLookup E (Γ.constants n)
+          = some (.constantDecl ⟨some (.fix defs idx)⟩) ∧
+      Γ.ctors n = none ∧ Γ.casesOns n = none ∧
+      ∃ body, Esrc n = some body ∧ ∀ {Δ : VLCtx}, Erases env Us Γ Δ body (.fix defs idx)
+
+/-- Trivially satisfied by a `Γ` that registers no recursion — so every fix-free
+statement keeps its old strength when the premise is added. -/
+theorem recEnvConsistent_of_noRec {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {E : GlobalDeclarations} (h : Γ.recBodies = fun _ => none) :
+    RecEnvConsistent env Us Γ Esrc E :=
+  ⟨fun hn => absurd (h ▸ hn) (by simp)⟩
+
+/-! ## The fix-unfolding chain of a recursive erasure
+
+`Erases.fix_inv` (`SubjectReduction`) hands back the *one-step* unfolding of the block,
+which is what `WcbvEval.fix_guarded` produces. For a real recursive definition that
+unfolding is already `.lambda`-headed (or `.box`), and the β case is done. A degenerate
+block can unfold to another `.fix`, though, and then the target must unfold again; the
+number of steps is not bounded by the β case's induction (which is on the *source*
+derivation), so it is collected here, by induction on the **erasure** derivation — where
+`Erases.fix`'s bodies premise is a strict sub-derivation, which is exactly what makes the
+chain finite. -/
+
+/-- One link of the chain: either the unfolding is already not a `.fix` (the chain stops
+here) or it is, and the erasure IH extends the chain through it. -/
+private theorem fixUnfold_link {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {e : Expr} {defs : List (@FixDef LBTerm)} {idx : Nat} (hidx : idx < defs.length)
+    (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
+    (hb : Erases env Us Γ Δ e
+      (LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body))
+    (ih : ∀ {d' : List (@FixDef LBTerm)} {i' : Nat},
+        LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body = .fix d' i' →
+        ∃ u, FixUnfoldChain d' i' u ∧ Erases env Us Γ Δ e u ∧ ∀ d i, u ≠ .fix d i) :
+    ∃ u, FixUnfoldChain defs idx u ∧ Erases env Us Γ Δ e u ∧ ∀ d i, u ≠ .fix d i := by
+  rcases LBTerm.fix_or_not
+      (LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body) with
+    ⟨d', i', heq⟩ | hnf
+  · obtain ⟨u, hch, heru, hnfu⟩ := ih heq
+    exact ⟨u, .trans hidx hrarg heq hch, heru, hnfu⟩
+  · exact ⟨_, .step hidx hrarg, hb, hnf⟩
+
+/-- The `∀`-form `Erases.fix_unfold` inducts on: the target equation must be universally
+quantified so the `fix` rule's bodies IH is applicable at the *nested* block, and the
+source is kept as the derivation's own index (only its `.lam`-headedness matters, and
+that is what refutes the `const_fix` leaf's `.fix` target). -/
+theorem Erases.fix_unfold_aux {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Δ : VLCtx} {e₀ : Expr} {t₀ : LBTerm} (h : Erases env Us Γ Δ e₀ t₀) :
+    (∃ (n : Name) (ty b : Expr) (bi : BinderInfo), e₀ = .lam n ty b bi) →
+    ∀ {defs : List (@FixDef LBTerm)} {idx : Nat}, t₀ = .fix defs idx →
+      ∃ u, FixUnfoldChain defs idx u ∧ Erases env Us Γ Δ e₀ u ∧
+        ∀ d' i', u ≠ .fix d' i' := by
+  induction h with
+  | @fix Δc idx₀ n₀ ty₀ b₀ bi₀ nms srcs defs₀ hidx hnlen hslen hsrc hreg hrarg
+      _ _ _ _ _ _ hbodies ihb =>
+      rintro - defs idx ht
+      injection ht with hd hi
+      subst hd; subst hi
+      rw [← hsrc]
+      exact fixUnfold_link hidx hrarg (hbodies _ hidx Δc)
+        (fun heq => ihb _ hidx Δc ⟨_, _, _, _, hsrc⟩ heq)
+  | const_fix nm us _ _ _ _ _ _ =>
+      -- The other `.fix`-target rule: its source is a `.const`, not a `.lam`.
+      rintro ⟨n, ty, b, bi, he⟩ defs idx ht; injection he
+  | _ =>
+      -- Every remaining rule has a non-`.fix` target, except `lit`, whose source is
+      -- a `.lit`.
+      rintro ⟨n, ty, b, bi, he⟩ defs idx ht
+      first
+        | injection ht
+        | injection he
+
+/-- **The unfolding chain of a recursive erasure.** A source `.lam` that erases to a
+`.fix` block also erases to a term `u` reached from the block by finitely many
+`fix_guarded` unfoldings, and `u` is *not* itself a `.fix` — so `Erases.lam_inv` on `u`
+lands in its `box` or `lambda` disjunct, and the β case proceeds exactly as in the
+non-recursive fragment, one `fix_guarded` stack richer. -/
+theorem Erases.fix_unfold {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {ty b : Expr} {bi : BinderInfo}
+    {defs : List (@FixDef LBTerm)} {idx : Nat}
+    (h : Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx)) :
+    ∃ u, FixUnfoldChain defs idx u ∧ Erases env Us Γ Δ (.lam n ty b bi) u ∧
+      ∀ d' i', u ≠ .fix d' i' :=
+  h.fix_unfold_aux ⟨n, ty, b, bi, rfl⟩ rfl
+
+/-- **The β case's head step, recursion included.** Given that the function part of a
+target application evaluates to *some* erasure `ftv` of the source λ-value, this reduces
+the target side to the two shapes the β case knows how to continue with, and hands back
+the completed target evaluation step in each:
+
+* the head is (or unfolds to) `box` — the whole application evaluates to `box`;
+* the head is (or unfolds to) a λ — the application evaluates to whatever the substituted
+  body does.
+
+The recursive case is where the work is: `Erases.fix_unfold` replaces the `.fix` head by
+the end `u` of its unfolding chain, `FixUnfoldChain.eval` turns the chain into the
+matching stack of `WcbvEval.fix_guarded` nodes (each with an empty accumulated spine,
+which is what `Erases.fix`'s `hrarg` premise buys), and the final `beta`/`app_box`
+happens against `u`. **One source β-step ↔ one `fix_guarded` per chain link + one
+`beta`.**
+
+`P` carries whatever side predicate the calling simulation threads through its induction
+(`NoBlock`, or `NoBlock ∧ LBClosed` for ι, or `fun _ => True` for the fix-free β/δ
+statement); `hPchain` is its preservation under a fix unfolding. -/
+theorem erases_lam_head_step {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {ty b : Expr} {bi : BinderInfo}
+    {E : GlobalDeclarations} {fl : WcbvFlags} (hg : fl.with_guarded_fix = true)
+    {P : LBTerm → Prop}
+    (hPchain : ∀ {defs : List (@FixDef LBTerm)} {idx : Nat} {u : LBTerm},
+        FixUnfoldChain defs idx u → P (.fix defs idx) → P u)
+    {f' a' ftv atv : LBTerm}
+    (hEf : WcbvEval E fl f' ftv) (hEa : WcbvEval E fl a' atv)
+    (her : Erases env Us Γ Δ (.lam n ty b bi) ftv) (hP : P ftv) :
+    (∃ ve, TrExprS env Us Δ (.lam n ty b bi) ve ∧
+        Erasable env Us.length Δ.toCtx ve ∧ WcbvEval E fl (.app f' a') .box) ∨
+    (∃ (ty' : VExpr) (ub : LBTerm), TrExprS env Us Δ ty ty' ∧
+        Erases env Us Γ ((none, .vlam ty') :: Δ) b ub ∧
+        P (.lambda (nameToBinder n) ub) ∧
+        ∀ {r : LBTerm}, WcbvEval E fl (LBTerm.subst1 atv ub) r →
+          WcbvEval E fl (.app f' a') r) := by
+  have hav : WcbvEval E fl atv atv := value_final (eval_to_value hEa)
+  rcases Erases.lam_inv her with ⟨ve, htr, herb, rfl⟩ | ⟨ty', ub, htrty, hb, rfl⟩
+    | ⟨defs, idx, rfl, herfix⟩
+  · exact .inl ⟨ve, htr, herb, .app_box hEf hEa⟩
+  · exact .inr ⟨ty', ub, htrty, hb, hP, fun hr => .beta hEf hEa hr⟩
+  · obtain ⟨u, hch, heru, hnfu⟩ := Erases.fix_unfold herfix
+    have hPu : P u := hPchain hch hP
+    rcases Erases.lam_inv heru with ⟨ve, htr, herb, hue⟩ | ⟨ty', ub, htrty, hb, hue⟩
+      | ⟨d', i', hue, _⟩
+    · subst hue
+      exact .inl ⟨ve, htr, herb, hch.eval hg hEf hEa (.app_box .box hav)⟩
+    · subst hue
+      exact .inr ⟨ty', ub, htrty, hb, hPu,
+        fun hr => hch.eval hg hEf hEa (.beta (.lam _ _) hav hr)⟩
+    · exact absurd hue (hnfu d' i')
 
 /-- **β-correctness (substitution form).** Erasure commutes with the body
 substitution of a β-redex: if the argument `a` (of the binder type, witnessed by
@@ -339,29 +501,36 @@ Threads two consistency hypotheses: `SEnvConsistent` (the source-env ↔ `VEnv`
 it also records that a constant with an unfolding is not a registered constructor).
 
 ζ (let) and ι (`casesOn`) are scoped out — see `SEvalβδ`. The β+ζ+δ *subject
-reduction* `SEvalβζδ_defeq` is proved separately and fully. -/
+reduction* `SEvalβζδ_defeq` is proved separately and fully.
+
+**Recursion (wall slice W2).** `NoFixEnv E` and the `NoFix t`/`NoFix t'` slots are gone:
+the statement now holds of *recursive* environments. What replaces them is one premise at
+the registration level, `RecEnvConsistent`, used in exactly one place — the δ case at a
+constant whose target erasure is its own block. The β case handles a recursive head by
+`erases_lam_head_step`: one source β-step becomes the head's `fix_guarded` unfolding
+stack followed by the ordinary `beta`. -/
 theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {Esrc : SEnv}
     {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
-    (hnfenv : NoFixEnv E)
+    (hrec : RecEnvConsistent env Us Γ Esrc E)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (her : Erases env Us Γ Δ e t)
-    (hnfx : NoFix t)
     (hev : SEvalβδ Esrc e v) :
-    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' ∧ NoFix t' := by
+    ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' := by
   induction hev generalizing ve t with
   | lam n ty b bi =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.lam_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, _, hty, hb, rfl⟩
-        | ⟨defs, idx, rfl, _⟩
+        | ⟨defs, idx, rfl, herfix⟩
       · exact ⟨.box, ve, .box, htr, .box htr
           (herbox.defeq henv hΓ
-            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)), trivial⟩
-      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb, hnfx⟩
-      · exact hnfx.elim
+            (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr))⟩
+      · exact ⟨_, ve, .lam _ _, htr, .lam hty hb⟩
+      · -- A recursive λ-value: the target block is already a value (`fix_atom`).
+        exact ⟨_, ve, .fix_atom _ _, htr, herfix⟩
   | @beta f a n ty b bi av r hf ha hbody ihf iha ihbody =>
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       rcases Erases.app_inv her with
@@ -371,14 +540,16 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
           SEvalβζδ_defeq henv hΔ hcon htr (.beta hf.toβζδ ha.toβζδ hbody.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial⟩
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef)⟩
       · -- Structural application.
         cases htr with
         | @app f' A B a'' _Δ _f _a hTf hTa htrf htra =>
-          obtain ⟨ftv, fvv, hEf, htrlam, herlam, hnfftv⟩ := ihf htrf hf' hnfx.1
-          rcases Erases.lam_inv herlam with ⟨velam, htrvelam, herlamE, rfl⟩
-            | ⟨tyE, b', htrtyE, hb', rfl⟩ | ⟨defs, idx, rfl, _⟩
-          · -- Head erased to `box` (MetaCoq's `eval_box`).
+          obtain ⟨ftv, fvv, hEf, htrlam, herlam⟩ := ihf htrf hf'
+          obtain ⟨atv, avv, hEa, htrav, herav⟩ := iha htra ha'
+          rcases erases_lam_head_step (P := fun _ => True) rfl (fun _ _ => trivial)
+              hEf hEa herlam trivial with
+            ⟨velam, htrvelam, herlamE, hEbox⟩ | ⟨tyE, b', htrtyE, hb', -, hEstep⟩
+          · -- Head erased to (or unfolded to) `box` (MetaCoq's `eval_box`).
             obtain ⟨vve, htrr, hdef⟩ :=
               SEvalβζδ_defeq henv hΔ hcon (.app hTf hTa htrf htra)
                 (.beta hf.toβζδ ha.toβζδ hbody.toβζδ)
@@ -389,15 +560,12 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
                 henv hΓ (VEnv.IsDefEqU.symm hfdef)
             have herapp : Erasable env Us.length Δ.toCtx (.app f' a'') :=
               hferase.app henv hΓ hTf hTa
-            -- `eval_box` evaluates the argument too: run the argument IH.
-            obtain ⟨_, _, hEa, _, _, _⟩ := iha htra ha' hnfx.2
-            exact ⟨.box, vve, .app_box hEf hEa, htrr,
-              .box htrr (herapp.defeq henv hΓ hdef), trivial⟩
-          · -- Head erased to a λ.
+            exact ⟨.box, vve, hEbox, htrr,
+              .box htrr (herapp.defeq henv hΓ hdef)⟩
+          · -- Head erased to (or unfolded to) a λ.
             obtain ⟨fvv0, htrlam0, hfdef⟩ := SEvalβζδ_defeq henv hΔ hcon htrf hf.toβζδ
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
-              obtain ⟨atv, avv, hEa, htrav, herav, hnfatv⟩ := iha htra ha' hnfx.2
               obtain ⟨B'', hbodyT⟩ :=
                 TrExprS.wf (Us := Us) (Δ := (none, .vlam ty') :: Δ) henv.ordered
                   ⟨hΔ, nofun, hty'⟩ htrb
@@ -423,13 +591,10 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
                 have : env.IsDefEqU Us.length Δ.toCtx tyE ty' :=
                   TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrtyE htrty
                 exact havT.defeqU_r henv hΓ (VEnv.IsDefEqU.symm this)
-              obtain ⟨t', vve, hEr, htrr, herr, hnft'⟩ := ihbody
+              obtain ⟨t', vve, hEr, htrr, herr⟩ := ihbody
                 (TrExprS.inst henv.ordered havT htrb htrav)
                 (erases_beta_struct henv.ordered htrav havTE hb' herav)
-                (noFix_subst1 hnfftv hnfatv)
-              exact ⟨t', vve, .beta hEf hEa hEr, htrr, herr, hnft'⟩
-          · -- Head erased via the env-level fix rule: excluded by `NoFix ftv`.
-            exact hnfftv.elim
+              exact ⟨t', vve, hEstep hEr, htrr, herr⟩
       · -- Const-headed spine erasure (`ctor`/`cases`): the head `cn` is a
         -- registered constructor/`casesOn` (`hmem`).  But a `β`/`δ`-evaluating
         -- const-spine is headed by a *non*-ctor/non-casesOn (`SEvalβδ` keeps the
@@ -445,18 +610,23 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
       obtain ⟨hnoctor, _, body', hlook, herbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
-        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, _, rfl⟩
+        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
-        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef), trivial⟩
-      · obtain ⟨t', vve, hEbody, htrr, herr, hnft'⟩ := ihbody htrbody herbody (hnfenv hlook)
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef)⟩
+      · obtain ⟨t', vve, hEbody, htrr, herr⟩ := ihbody htrbody herbody
         subst hkn
-        exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnft'⟩
+        exact ⟨t', vve, .delta hlook hEbody, htrr, herr⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
-      · -- `const_fix`: a registered recursive constant standing for its own block —
-        -- out of this fix-free fragment, killed by `NoFix t`.
-        exact hnfx.elim
+      · -- `const_fix`: the constant stands for its own block. `RecEnvConsistent` says
+        -- the source body it unfolds to erases to that same block, so the δ step is
+        -- *not* an unfolding on either side — the IH runs on the body against the
+        -- block, and the target's own step is `fix_atom` (delivered by the IH).
+        obtain ⟨_, _, _, body₀, hunf₀, her₀⟩ := hrec.reg hrecn
+        rw [hunf] at hunf₀
+        obtain rfl : body₀ = body := by simpa using hunf₀.symm
+        exact ihbody htrbody her₀
 
 end LeanToLambdaBox
