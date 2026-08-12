@@ -32,10 +32,10 @@ family, using the run-lemma library of `ErasureRun.lean`.
   specs and `CasesBridgeHyps` (`CasesBridgeHyps.lean`) the ι (`casesOn`) path's;
   all three are consumed by the single induction below.
 * **`BridgeInv`** — the induction invariant: the reader's `LocalContext`
-  corresponds to the typing context `Δ` (lean4lean's `TrLCtx`), no
-  `fixvars` map is installed, every fvar of `Δ` is reserved by the current
-  generator, and every `known` constant is pre-registered in the state with
-  its `Γ`-kername.
+  corresponds to the typing context `Δ` (lean4lean's `TrLCtx`), the reader's
+  block-local `fixvars` map agrees with `Γ.fixvars` (and its ids are fresh for `Δ`),
+  every fvar of `Δ` is reserved by the current generator, and every `known` constant
+  is pre-registered in the state with its `Γ`-kername.
 * **`visitExpr_refines_erases`** — the final export (motive 1 of the
   18-motive induction `visitExpr_refines_erases_core`).
 
@@ -144,7 +144,8 @@ theorem getElem_append_cons_add {α} (pre : List α) (d : α) (post : List α) (
 always contains the discriminant. -/
 theorem Supported.const_inv' {known : Name → Prop} {Γ : ErasureCtx} {cn : Name}
     {us : List Level} (h : Supported known Γ (.const cn us)) :
-    (known cn ∧ Γ.ctors cn = none ∧ Γ.casesOns cn = none) ∨ CtorSpineData known Γ cn [] := by
+    ((known cn ∨ Γ.fixvars cn ≠ none) ∧ Γ.ctors cn = none ∧ Γ.casesOns cn = none) ∨
+      CtorSpineData known Γ cn [] := by
   generalize he : (Expr.const cn us) = e at h
   cases h with
   | const n us' hk hct hcs => cases he; exact .inl ⟨hk, hct, hcs⟩
@@ -839,7 +840,22 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
   mlc : ∃ m : MLCtx, m.WF env Us ∧ m.lctx = ctx.lctx ∧ m.vlctx = Δ
   lparams : ctx.lparams = Us
   kfresh : ∀ fv ∈ Δ.fvars, kernelNGen.Reserves fv
-  fixvars : ctx.fixvars = none
+  /-- **Fixvar agreement** (recursion wall, W3.1). The run's block-local map — the
+  reader's `ErasureContext.fixvars`, installed by `visitMutual`'s `withReader` while the
+  block is being erased — and `Γ.fixvars` name the same fvar for the same sibling. This
+  *replaces* the pre-W3.1 exclusion `ctx.fixvars = none`, which is now the special case
+  `Γ.fixvars = fun _ => none` (still what every top-level entry point supplies). It is
+  exactly parallel to `consts`, and it is what turns `visitConst`'s fixvar branch — dead
+  before — into an `Erases.fixvar` derivation. -/
+  fixvars : ∀ (nm : Name) (x : FVarId),
+    ctx.fixvars.bind (fun m => m[nm]?) = some x ↔ Γ.fixvars nm = some x
+  /-- **Fixvar freshness**, the run's own discipline: `visitMutual` mints the block's
+  fvars *before* `visitExpr` opens any binder, so a fixvar is reserved by the current
+  generator and is never a `Δ` entry. The second conjunct discharges `Erases.fixvar`'s
+  `hfresh`; the first is what preserves the second across a binder (`mkLocalDecl` /
+  `mkLetDecl` extend `Δ` with an id `fresh_run` says the generator does *not* reserve). -/
+  fixfresh : ∀ (nm : Name) (x : FVarId), Γ.fixvars nm = some x →
+    gen.Reserves x ∧ x ∉ Δ.fvars
   reserved : ∀ fv ∈ Δ.fvars, gen.Reserves fv
   /-- `Γ` files every constant under its canonical kername (the design's `hknames`). -/
   knames : ∀ n : Name, Γ.constants n = toKername n
@@ -869,6 +885,7 @@ theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
   lparams := h.lparams
   kfresh := h.kfresh
   fixvars := h.fixvars
+  fixfresh := fun nm x hx => ⟨(h.fixfresh nm x hx).1.mono hle, (h.fixfresh nm x hx).2⟩
   reserved := fun fv hfv => (h.reserved fv hfv).mono hle
   knames := h.knames
   consts := h.consts
@@ -890,6 +907,7 @@ theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Pro
   lparams := h.lparams
   kfresh := h.kfresh
   fixvars := h.fixvars
+  fixfresh := h.fixfresh
   reserved := h.reserved
   knames := h.knames
   consts := by
@@ -907,7 +925,8 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
     {bi : BinderInfo}
     (hinv : BridgeInv env Us known Γ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hty' : env.IsType Us.length Δ.toCtx ty')
-    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x)
+    (hx : x ∉ Δ.fvars) (hnres : ¬ gen.Reserves x)
+    (hle : gen ≤ gen') (hres : gen'.Reserves x)
     (hkres : kernelNGen.Reserves x) :
     BridgeInv env Us known Γ gen'
       { ctx with lctx := ctx.lctx.mkLocalDecl x n ty bi } s
@@ -928,6 +947,17 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
     · exact hkres
     · exact hinv.kfresh fv hfv'
   fixvars := hinv.fixvars
+  fixfresh := by
+    -- The block's fixvars are reserved by `gen`; the binder's fvar is not (`hnres`), so
+    -- the new `Δ` entry cannot be one of them.
+    intro nm y hy
+    obtain ⟨hres_y, hΔ_y⟩ := hinv.fixfresh nm y hy
+    refine ⟨hres_y.mono hle, ?_⟩
+    intro hmem
+    have : y = x ∨ y ∈ Δ.fvars := by simpa using hmem
+    rcases this with rfl | hmem'
+    · exact hnres hres_y
+    · exact hΔ_y hmem'
   reserved := by
     intro fv hfv
     have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
@@ -948,7 +978,8 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     (hinv : BridgeInv env Us known Γ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hval : TrExprS env Us Δ v val')
     (hvt : env.HasType Us.length Δ.toCtx val' ty')
-    (hx : x ∉ Δ.fvars) (hle : gen ≤ gen') (hres : gen'.Reserves x)
+    (hx : x ∉ Δ.fvars) (hnres : ¬ gen.Reserves x)
+    (hle : gen ≤ gen') (hres : gen'.Reserves x)
     (hkres : kernelNGen.Reserves x) :
     BridgeInv env Us known Γ gen'
       { ctx with lctx := ctx.lctx.mkLetDecl x n ty v } s
@@ -971,6 +1002,17 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     · exact hkres
     · exact hinv.kfresh fv hfv'
   fixvars := hinv.fixvars
+  fixfresh := by
+    -- The block's fixvars are reserved by `gen`; the binder's fvar is not (`hnres`), so
+    -- the new `Δ` entry cannot be one of them.
+    intro nm y hy
+    obtain ⟨hres_y, hΔ_y⟩ := hinv.fixfresh nm y hy
+    refine ⟨hres_y.mono hle, ?_⟩
+    intro hmem
+    have : y = x ∨ y ∈ Δ.fvars := by simpa using hmem
+    rcases this with rfl | hmem'
+    · exact hnres hres_y
+    · exact hΔ_y hmem'
   reserved := by
     intro fv hfv
     have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
@@ -1054,7 +1096,7 @@ theorem bridge_alt_telescope {env : VEnv} {Us : List Name} {known : Name → Pro
         have hfind : ctx.lctx.find? x = none := hinv.trlctx.find?_eq_none.mpr hx
         have hΔ' := LeanToLambdaBox.TrLCtx.mkLocalDecl (n := nm') (bi := bi')
           hinv.trlctx hfind hty hty'
-        have hinv' := hinv.mkLocalDecl (n := nm') (bi := bi') hty hty' hx hle₁ hres hkres
+        have hinv' := hinv.mkLocalDecl (n := nm') (bi := bi') hty hty' hx hnres hle₁ hres hkres
         rw [Lean.Expr.instantiate1_eq, Lean.Expr.instantiate1_eq] at hk
         have hbext := TrExprS.inst_fvar henv hΔ'.wf hbody
         obtain ⟨ys, efin, Δ'', ctx'', w₂, hlen, hle₂, hinv'', hsupp'', hex'', hext'', hK,
@@ -1115,7 +1157,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) t ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
     (∀ e s ctx cctx ref w t s' w', visitConst e s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
-      ∀ n us, e = .const n us → known n → Γ.ctors n = none → Γ.casesOns n = none →
+      ∀ n us, e = .const n us → (known n ∨ Γ.fixvars n ≠ none) →
+      Γ.ctors n = none → Γ.casesOns n = none →
       Erases env Us Γ Δ e t ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
     (∀ n s ctx cctx ref w kn s' w',
       get_constant_kername n s ctx cctx ref w = .ok (kn, s') w' →
@@ -1231,7 +1274,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_4 := fun f => ∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
-      ∀ n us, e = .const n us → known n → Γ.ctors n = none → Γ.casesOns n = none →
+      ∀ n us, e = .const n us → (known n ∨ Γ.fixvars n ≠ none) →
+      Γ.ctors n = none → Γ.casesOns n = none →
       Erases env Us Γ Δ e t ∧ RunConcl s s' ∧ gw w ≤ gw w')
     (motive_5 := fun f => ∀ n s ctx cctx ref w kn s' w',
       f n s ctx cctx ref w = .ok (kn, s') w' →
@@ -1497,7 +1541,12 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       ((hinv.mono_state hrc3).mono hmono)
       (.ctor_head cn us iid info.cidx (by rw [hcidx]; exact hct)) hargfacts
     exact ⟨erap, hrc3.trans hs', NameGenerator.LE.trans hmono hle⟩
-  -- Step 4: visitConst — the fixvars branch is dead; conclude by motive 5.
+  -- Step 4: visitConst — BOTH branches (recursion wall, W3.1). The fixvar branch returns
+  -- the block's fresh fvar and is `Erases.fixvar`, against `BridgeInv`'s fixvar
+  -- agreement and freshness; the plain branch is `Erases.const` via motive 5. `hkn` is
+  -- the disjunction `Supported.const` now carries: the constant is registered, or it is
+  -- an in-block sibling — and in the latter case the agreement *forces* the fixvar
+  -- branch, which is what makes the plain branch's `known n` recoverable.
   · intro gck ih5
     intro e s ctx cctx ref w t s' w' hrun Δ hinv n us he hkn hctor hcases
     subst he
@@ -1506,13 +1555,32 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     obtain ⟨c, s₁, w₁, hrd, hk⟩ := hrun
     rw [run_read] at hrd
     cases hrd
-    rw [hinv.fixvars] at hk
-    simp only [Option.bind] at hk
-    rw [run_bind_ok] at hk
-    obtain ⟨kn, s₂, w₂, hgck, hp2⟩ := hk
-    rw [run_pure] at hp2; cases hp2
-    obtain ⟨hkn', hs, hle⟩ := ih5 _ _ _ _ _ _ _ _ _ hgck Δ hinv hkn
-    exact ⟨.const n us kn hkn'.symm hctor hcases, hs, hle⟩
+    cases hopt : ctx.fixvars.bind (fun hmap => hmap[n]?) with
+    | some id =>
+      -- The sibling branch: `return .fvar id`, pure in state and world.
+      rw [hopt] at hk
+      simp only [] at hk
+      rw [run_pure] at hk
+      cases hk
+      exact ⟨.fixvar n us id ((hinv.fixvars n id).mp hopt) hctor hcases
+          (hinv.fixfresh n id ((hinv.fixvars n id).mp hopt)).2,
+        RunConcl.rfl' _, NameGenerator.LE.rfl⟩
+    | none =>
+      -- The registered branch. `Γ.fixvars n ≠ none` is refuted here by the agreement:
+      -- it would make the run's own lookup a `some`.
+      have hkn' : known n := by
+        rcases hkn with hkn' | hfx
+        · exact hkn'
+        · obtain ⟨x, hx⟩ := Option.ne_none_iff_exists'.mp hfx
+          rw [(hinv.fixvars n x).mpr hx] at hopt
+          exact absurd hopt (by simp)
+      rw [hopt] at hk
+      simp only [] at hk
+      rw [run_bind_ok] at hk
+      obtain ⟨kn, s₂, w₂, hgck, hp2⟩ := hk
+      rw [run_pure] at hp2; cases hp2
+      obtain ⟨hknE, hs, hle⟩ := ih5 _ _ _ _ _ _ _ _ _ hgck Δ hinv hkn'
+      exact ⟨.const n us kn hknE.symm hctor hcases, hs, hle⟩
   -- Step 5: get_constant_kername — the hit branch is forced by `BridgeInv.known_dom`
   -- (the constant is already registered), and its kername is `Γ`-sound by
   -- `BridgeInv.consts`. The miss branch stays refuted rather than proved: it returns
@@ -1593,7 +1661,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     have hx : x ∉ Δ.fvars := fun hmem => hnres (hinv.reserved x hmem)
     have hΔ' := LeanToLambdaBox.TrLCtx.mkLetDecl (n := n) (nd := false) hinv.trlctx
       (hinv.trlctx.find?_eq_none.mpr hx) hty hval hvt
-    have hinv' := hinv.mkLetDecl (n := n) hty hval hvt hx hle₁ hres hkres
+    have hinv' := hinv.mkLetDecl (n := n) hty hval hvt hx hnres hle₁ hres hkres
     -- the value, in the extended context
     have hvext := hval.weakFV henv (.skip_fvar _ _ .refl) hΔ'.wf
     obtain ⟨erv, hs₂, hle₂⟩ := ih1 _ _ _ _ _ _ _ _ _ hvv _ hinv' hv ⟨_, hvext⟩
@@ -1641,7 +1709,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     have hx : x ∉ Δ.fvars := fun hmem => hnres (hinv.reserved x hmem)
     have hΔ' := LeanToLambdaBox.TrLCtx.mkLocalDecl (n := n) (bi := bi) hinv.trlctx
       (hinv.trlctx.find?_eq_none.mpr hx) hty hty'
-    have hinv' := hinv.mkLocalDecl (n := n) (bi := bi) hty hty' hx hle₁ hres hkres
+    have hinv' := hinv.mkLocalDecl (n := n) (bi := bi) hty hty' hx hnres hle₁ hres hkres
     rw [Lean.Expr.instantiate1_eq] at hvb
     have hbext := TrExprS.inst_fvar henv hΔ'.wf hbody
     obtain ⟨erb, hs₂, hle₂⟩ := ih1 _ _ _ _ _ _ _ _ _ hvb _ hinv'
@@ -2163,14 +2231,47 @@ section NonVacuity
 /-- (i) `BridgeInv` is satisfiable: the empty-context instance at `Δ = []`,
 `known := fun _ => False`, `fixvars = none`. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
-    (hkn : ∀ n : Name, Γ.constants n = toKername n) (cfg : ErasureConfig) :
+    (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
+    (cfg : ErasureConfig) :
     BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
   kfresh := fun _ hfv => nomatch hfv
-  fixvars := rfl
+  fixvars := by intro nm x; rw [hfv]; simp
+  fixfresh := by intro nm x hx; rw [hfv] at hx; simp at hx
   reserved := fun _ hfv => nomatch hfv
   knames := hkn
+  consts := by intro n k hk; simp at hk
+  known_dom := fun _ h => h.elim
+
+/-- (i') **The fixvar agreement is satisfiable at a genuinely *block-local*
+configuration** (recursion wall, W3.1) — the guard that `BridgeInv.fixvars` is a real
+agreement and not the old `ctx.fixvars = none` exclusion in disguise. The reader carries
+the one-entry map `{f ↦ x}` that `visitMutual`'s `withReader` installs, `Γ` is
+`ΓfixOpen x` (`Erases.lean`'s recursion fixture at its *open* stage), and `Δ = []` — the
+context in which `visitMutual` starts each sibling body, where the freshness field
+`fixfresh` is free. So `visitConst`'s fixvar branch is reachable under the invariant, and
+motive 4's new branch is not vacuously discharged. -/
+example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
+    (hres : gen.Reserves x) (cfg : ErasureConfig) :
+    BridgeInv env Us (fun _ => False) (ΓfixOpen x) gen
+      ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩ {} [] where
+  mlc := ⟨.nil, trivial, rfl, rfl⟩
+  lparams := rfl
+  kfresh := fun _ hfv => nomatch hfv
+  fixvars := by
+    intro nm y
+    show ((∅ : Std.HashMap Name FVarId).insert `f x)[nm]? = some y ↔ _
+    rw [Std.HashMap.getElem?_insert]
+    by_cases h : nm = `f
+    · subst h; simp [ΓfixOpen]
+    · simp [ΓfixOpen, h, Ne.symm h]
+  fixfresh := by
+    intro nm y hy
+    have : y = x := by by_cases h : nm = `f <;> simp_all [ΓfixOpen]
+    subst this; exact ⟨hres, fun hm => nomatch hm⟩
+  reserved := fun _ hfv => nomatch hfv
+  knames := fun _ => rfl
   consts := by intro n k hk; simp at hk
   known_dom := fun _ h => h.elim
 
@@ -2180,7 +2281,7 @@ assumed) and the supported term `.fvar x` satisfy every premise except the run
 itself and the trust bundle, which stay hypothetical because the primitives
 are opaque. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
-    (hkn : ∀ n : Name, Γ.constants n = toKername n)
+    (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (henv : env.Ordered)
@@ -2210,7 +2311,8 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
         rcases this with rfl | h
         · exact hkfresh
         · exact nomatch h
-      fixvars := rfl
+      fixvars := by intro nm y; rw [hfv]; simp
+      fixfresh := by intro nm y hy; rw [hfv] at hy; simp at hy
       reserved := by
         intro fv hfv
         have : fv = x ∨ fv ∈ VLCtx.fvars [] := by simpa using hfv

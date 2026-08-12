@@ -96,7 +96,13 @@ the *total* `Γ.constants` on all of `Name`, so the agreement must be scoped;
 inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
   | bvar (i : Nat) : Supported known Γ (.bvar i)
   | fvar (x : FVarId) : Supported known Γ (.fvar x)
-  | const (n : Name) (us : List Level) (hk : known n)
+  /-- A plain constant. Two ways to be usable (recursion wall, W3.1): it is already
+      *registered* (`known`, so `get_constant_kername` hits and `Erases.const` fires), or
+      it is an **in-block sibling** of the mutual block currently being erased
+      (`Γ.fixvars n ≠ none`, so `visitConst` returns the block's fresh fvar and
+      `Erases.fixvar` fires). A sibling need *not* be `known`: `visitMutual` registers the
+      block only after erasing every body. -/
+  | const (n : Name) (us : List Level) (hk : known n ∨ Γ.fixvars n ≠ none)
       (hctor : Γ.ctors n = none) (hcases : Γ.casesOns n = none) :
       Supported known Γ (.const n us)
   | app {f a : Expr} (hf : Supported known Γ f) (ha : Supported known Γ a) :
@@ -266,6 +272,15 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
         (args := pre ++ discr :: minors) (by simp)
       rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
+
+/-- **The sibling alternative of `Supported.const` is inhabited** (recursion wall, W3.1):
+inside a mutual block, a reference to the block's own name `f` is in the fragment even at
+`known := ⊥` — it is *not* registered yet (`visitMutual` registers the block only after
+erasing every body), and it must not have to be. `ΓfixOpen` is `Erases.lean`'s W1 fixture
+at its open stage, i.e. exactly the reader `visitMutual` installs. -/
+example (x : FVarId) (us : List Level) :
+    Supported (fun _ => False) (ΓfixOpen x) (.const `f us) :=
+  .const `f us (.inr (by simp [ΓfixOpen])) (by simp [ΓfixOpen]) (by simp [ΓfixOpen])
 
 /-- A saturated nullary constructor *is* in the fragment (`ctorApp`, `args = []`,
 `ar = 0`). -/

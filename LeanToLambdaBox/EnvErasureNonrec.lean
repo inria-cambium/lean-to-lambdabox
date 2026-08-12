@@ -419,15 +419,19 @@ premise set is not vacuously unsatisfiable. Mirrors `VisitExprRefines.lean` guar
 `hkn` is the invariant's `knames` field (cold-start S2): `Γ` files every constant under
 its canonical kername. It is a side condition on `Γ` alone, satisfied by every concrete
 `Γ` in the development (`ΓFOd`/`ΓFOι` define `constants := toKername`), so it is passed
-in rather than baked into a particular `Γ` here. -/
+in rather than baked into a particular `Γ` here. `hnfv` is the same kind of side
+condition for the (W3.1) fixvar agreement: at a top-level entry point neither the run nor
+`Γ` installs a block-local fixvar map, so the agreement is `False ↔ False`. -/
 theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (hkn : ∀ n : Name, Γ.constants n = toKername n)
+    (hnfv : Γ.fixvars = fun _ => none)
     (gen : NameGenerator) (cfg : ErasureConfig) :
     BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
   kfresh := fun _ hfv => nomatch hfv
-  fixvars := rfl
+  fixvars := by intro nm x; rw [hnfv]; simp
+  fixfresh := by intro nm x hx; rw [hnfv] at hx; simp at hx
   reserved := fun _ hfv => nomatch hfv
   knames := hkn
   consts := by intro n k hk; simp at hk

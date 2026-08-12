@@ -170,7 +170,8 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
       kfresh := fun _ h => nomatch h
-      fixvars := rfl
+      fixvars := by intro nm x; rw [hΓfv]; simp
+      fixfresh := by intro nm x hx; rw [hΓfv] at hx; simp at hx
       reserved := fun _ h => nomatch h
       knames := hkn
       consts := by intro n k hk; simp at hk

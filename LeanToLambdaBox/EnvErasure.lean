@@ -44,9 +44,13 @@ remaining gap:
   to the entry slice's `RegBridgeHyps` (see the note at motive 5). That branch is also
   what would supply the top-level term bridge (`hrun`/`hinv`), which is why the subject
   here is still `visitExpr e` under a registered state, not cold-start `erase`.
-* **`visitConst`-fixvar bridge (P3.12, deferred).** The recursive discharge's `hbodies`
-  (each opened sibling body erases) is a bridge fact the fixvar branch of
-  `visitExpr_refines_erases` would supply; it is folded into `RegisteredClosureRec`.
+* **`visitConst`-fixvar bridge (P3.12, DONE at the term level — recursion wall, W3.1).**
+  `visitConst`'s fixvar branch is no longer dead: `BridgeInv.fixvars` is an agreement
+  between the reader's block-local map and `Γ.fixvars`, and motive 4 concludes
+  `Erases.fixvar` there. What the recursive discharge's `hbodies` (each *opened* sibling
+  body erases) still needs on top is the **environment**-level walk — `visitMutual`'s own
+  motive, which stays `True` (W3.2, the cold-start/DAG slice) — so `hbodies` remains
+  folded into `RegisteredClosureRec` for now.
 * **`NoFixEnv` relaxation (item 2, DONE — recursion wall, slice W2).** D3 and the forward
   simulations no longer carry `NoFixEnv E`, and no longer conclude `NoFix t'`: they accept
   **recursive** environments. A recursive head in the β case unfolds through

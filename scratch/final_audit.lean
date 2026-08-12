@@ -214,6 +214,14 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.Erases.const_fvar_elim
 #print axioms LeanToLambdaBox.erases_fixvar_fixOpen
 #print axioms LeanToLambdaBox.erases_correct_data_zeta
+-- …and the bridge side of W3.1: `BridgeInv.fixvars` is now an *agreement* between the
+-- reader's block-local map and `Γ.fixvars` (plus `fixfresh`, the run's minting order),
+-- `Supported.const` admits an in-block sibling, and motive 4 of the big induction
+-- concludes `Erases.fixvar` on `visitConst`'s fixvar branch instead of killing it. The
+-- big induction's axiom set is unchanged (it is re-listed at the cold-start block below).
+#print axioms LeanToLambdaBox.Supported.const_inv'
+#print axioms LeanToLambdaBox.BridgeInv.mkLocalDecl
+#print axioms LeanToLambdaBox.BridgeInv.mkLetDecl
 -- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
 -- Prop hypotheses (`PrepareHyps`, `Registered*`), NEVER axioms. Expected axiom set:
 -- 4 standard [propext, Classical.choice, Quot.sound] (+ sorryAx via the lean4lean Expr

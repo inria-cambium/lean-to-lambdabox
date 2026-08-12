@@ -47,7 +47,8 @@ constant body to be `NoFix` *or* a literal `.fix defs j` — the two shapes
 the right disjunct is dead and `noFixEnv_of_noFixEnvD` collapses `NoFixEnvD` to
 `NoFixEnv`; when the recursion wall lands it only has to *populate* the right disjunct,
 with no change to this structure. (Design note: the recursion wall owes this layer
-exactly `run_visitMutual_rec_ok` and the `visitConst` fixvar bridge case.)
+exactly `run_visitMutual_rec_ok`; the `visitConst` fixvar bridge case landed with slice
+W3.1 — motive 4 now derives `Erases.fixvar` on that branch.)
 -/
 
 namespace LeanToLambdaBox
