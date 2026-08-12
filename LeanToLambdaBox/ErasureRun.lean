@@ -2031,5 +2031,233 @@ theorem run_visitMutual_ok {n : Name}
 
 end Helpers
 
+/-! ### Binder-helper run lemmas
+
+The continuation-passing helpers (`withLocalDecl`, `lambdaMonocular`, `letMonocular`,
+`forallMonocular`, `lambdaMonocularOrIntro`, `lambdaOrIntroToArity`) and the λ□-side
+binder constructors (`fvar_to_name`, `mkLambda`, `mkLetIn`, `mkAlt`) sit between
+`visitExpr` and every one of its binder cases, so any induction over the family's
+*results* has to step through them.
+
+Each destructuring helper `panic!`s when its argument has the wrong shape, and a panic
+**succeeds** at `EraseM`, so every one of these lemmas carries a `r = default`
+fall-through disjunct — that is the honest reading of the code, not a defect of the
+statement. None of them touches the `ErasureState`: they move only the reader's local
+context, which is why they all conclude `s' = s` on the fall-through and hand the
+continuation back at an *unconstrained* `ctx'`.
+
+`run_mkAlt_ok` is the one with content: it pins the produced binder list to the same
+length as the closed-over fvars, and the produced body to the `toBvar` fold that
+`LeanToLambdaBox.lbClosed_foldl_zipIdx` computes the closedness level of.
+-/
+
+section Binders
+
+variable {α : Type} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+
+/-- `withLocalDecl` allocates a fresh fvar (state-preserving) and runs the continuation
+under an extended local context. -/
+theorem run_withLocalDecl_ok {nm : Name} {ty : Expr} {bi : BinderInfo}
+    {k : FVarId → EraseM α} {s : ErasureState} {ctx : ErasureContext}
+    {w : Void IO.RealWorld} {r : α} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : withLocalDecl nm ty bi k s ctx cctx ref w = .ok (r, s') w') :
+    ∃ (x : FVarId) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k x s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold withLocalDecl at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨x, sx, wx, hfv, hk⟩ := hrun
+  have hz := run_mkFreshFVarId_state _ _ cctx ref _ hfv
+  subst hz
+  rw [run_withReader] at hk
+  exact ⟨x, _, _, hk⟩
+
+theorem run_withLocalDef_ok {nm : Name} {ty val : Expr} {nd : Bool}
+    {k : FVarId → EraseM α} {s : ErasureState} {ctx : ErasureContext}
+    {w : Void IO.RealWorld} {r : α} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : withLocalDef nm ty val nd k s ctx cctx ref w = .ok (r, s') w') :
+    ∃ (x : FVarId) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k x s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold withLocalDef at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨x, sx, wx, hfv, hk⟩ := hrun
+  have hz := run_mkFreshFVarId_state _ _ cctx ref _ hfv
+  subst hz
+  rw [run_withReader] at hk
+  exact ⟨x, _, _, hk⟩
+
+/-- `lambdaMonocular`: either the input was not a `.lam` (the `unreachable!` fall-through,
+which *succeeds* at `EraseM` and returns `default`), or the continuation ran under one
+extra local declaration. -/
+theorem run_lambdaMonocular_ok [Inhabited α] {e : Expr} {k : FVarId → Expr → EraseM α}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld} {r : α}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : lambdaMonocular e k s ctx cctx ref w = .ok (r, s') w') :
+    (r = default ∧ s' = s ∧ w' = w) ∨
+    ∃ (x : FVarId) (b : Expr) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k x b s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold lambdaMonocular at hrun
+  split at hrun
+  · obtain ⟨x, ctx', w₀, hk⟩ := run_withLocalDecl_ok hrun
+    exact Or.inr ⟨x, _, ctx', w₀, hk⟩
+  · rw [run_panicWithPosWithDecl] at hrun
+    cases hrun
+    exact Or.inl ⟨rfl, rfl, rfl⟩
+
+theorem run_letMonocular_ok [Inhabited α] {e : Expr} {k : FVarId → Expr → Expr → EraseM α}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld} {r : α}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : letMonocular e k s ctx cctx ref w = .ok (r, s') w') :
+    (r = default ∧ s' = s ∧ w' = w) ∨
+    ∃ (x : FVarId) (v b : Expr) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k x v b s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold letMonocular at hrun
+  split at hrun
+  · obtain ⟨x, ctx', w₀, hk⟩ := run_withLocalDef_ok hrun
+    exact Or.inr ⟨x, _, _, ctx', w₀, hk⟩
+  · rw [run_panicWithPosWithDecl] at hrun
+    cases hrun
+    exact Or.inl ⟨rfl, rfl, rfl⟩
+
+theorem run_forallMonocular_ok [Inhabited α] {ty : Expr} {k : FVarId → Expr → EraseM α}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld} {r : α}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : forallMonocular ty k s ctx cctx ref w = .ok (r, s') w') :
+    (r = default ∧ s' = s ∧ w' = w) ∨
+    ∃ (x : FVarId) (bt : Expr) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k x bt s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold forallMonocular at hrun
+  split at hrun
+  · obtain ⟨x, ctx', w₀, hk⟩ := run_withLocalDecl_ok hrun
+    exact Or.inr ⟨x, _, ctx', w₀, hk⟩
+  · rw [run_panicWithPosWithDecl] at hrun
+    cases hrun
+    exact Or.inl ⟨rfl, rfl, rfl⟩
+
+theorem run_lambdaMonocularOrIntro_ok [Inhabited α] {e ty : Expr}
+    {k : Expr → Expr → FVarId → EraseM α}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld} {r : α}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : lambdaMonocularOrIntro e ty k s ctx cctx ref w = .ok (r, s') w') :
+    (r = default ∧ s' = s ∧ w' = w) ∨
+    ∃ (e' bt : Expr) (x : FVarId) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+      k e' bt x s ctx' cctx ref w₀ = .ok (r, s') w' := by
+  unfold lambdaMonocularOrIntro at hrun
+  rcases run_forallMonocular_ok hrun with ⟨h1, h2, h3⟩ | ⟨x, bt, ctx', w₀, hk⟩
+  · exact Or.inl ⟨h1, h2, h3⟩
+  · split at hk
+    · exact Or.inr ⟨_, bt, x, ctx', w₀, hk⟩
+    · exact Or.inr ⟨_, bt, x, ctx', w₀, hk⟩
+
+/-- `lambdaOrIntroToArity`: either the type was not a deep enough `∀`-telescope (a
+panic fall-through), or the continuation ran on exactly `arity` fresh fvars. -/
+theorem run_lambdaOrIntroToArity_ok [Inhabited α] :
+    ∀ (arity : Nat) {e ty : Expr} {k : Expr → List FVarId → EraseM α}
+      {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld} {r : α}
+      {s' : ErasureState} {w' : Void IO.RealWorld},
+      lambdaOrIntroToArity e ty arity k s ctx cctx ref w = .ok (r, s') w' →
+      (r = default ∧ s' = s) ∨
+      ∃ (e' : Expr) (xs : List FVarId) (ctx' : ErasureContext) (w₀ : Void IO.RealWorld),
+        xs.length = arity ∧ k e' xs s ctx' cctx ref w₀ = .ok (r, s') w'
+  | 0, e, ty, k, s, ctx, w, r, s', w', hrun =>
+    Or.inr ⟨e, [], ctx, w, rfl, hrun⟩
+  | m + 1, e, ty, k, s, ctx, w, r, s', w', hrun => by
+    unfold lambdaOrIntroToArity at hrun
+    rcases run_lambdaMonocularOrIntro_ok hrun with ⟨h1, h2, -⟩ | ⟨e', bt, x, ctx', w₀, hk⟩
+    · exact Or.inl ⟨h1, h2⟩
+    · rcases run_lambdaOrIntroToArity_ok m hk with ⟨h1, h2⟩ | ⟨e'', xs, ctx'', w₁, hlen, hk'⟩
+      · exact Or.inl ⟨h1, h2⟩
+      · exact Or.inr ⟨e'', x :: xs, ctx'', w₁, by simp [hlen], hk'⟩
+
+/-! ### The λ□-side binder constructors -/
+
+theorem run_fvar_to_name_ok {x : FVarId} {s : ErasureState} {ctx : ErasureContext}
+    {w : Void IO.RealWorld} {r : BinderName} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : fvar_to_name x s ctx cctx ref w = .ok (r, s') w') : s' = s ∧ w' = w := by
+  unfold fvar_to_name at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨c, sc, wc, hread, hrun⟩ := hrun
+  rw [run_read] at hread
+  cases hread
+  split at hrun <;> (rw [run_pure] at hrun; cases hrun; exact ⟨rfl, rfl⟩)
+
+theorem run_mkLambda_ok {x : FVarId} {body : LBTerm} {s : ErasureState}
+    {ctx : ErasureContext} {w : Void IO.RealWorld} {t : LBTerm} {s' : ErasureState}
+    {w' : Void IO.RealWorld}
+    (hrun : mkLambda x body s ctx cctx ref w = .ok (t, s') w') :
+    s' = s ∧ w' = w ∧ ∃ nm, t = .lambda nm (toBvar x 0 body) := by
+  unfold mkLambda at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨nm, sn, wn, hnm, hrun⟩ := hrun
+  obtain ⟨hs, hw⟩ := run_fvar_to_name_ok hnm
+  subst hs
+  subst hw
+  rw [run_pure] at hrun
+  cases hrun
+  exact ⟨rfl, rfl, nm, rfl⟩
+
+theorem run_mkLetIn_ok {x : FVarId} {val body : LBTerm} {s : ErasureState}
+    {ctx : ErasureContext} {w : Void IO.RealWorld} {t : LBTerm} {s' : ErasureState}
+    {w' : Void IO.RealWorld}
+    (hrun : mkLetIn x val body s ctx cctx ref w = .ok (t, s') w') :
+    s' = s ∧ w' = w ∧ ∃ nm, t = .letIn nm val (toBvar x 0 body) := by
+  unfold mkLetIn at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨nm, sn, wn, hnm, hrun⟩ := hrun
+  obtain ⟨hs, hw⟩ := run_fvar_to_name_ok hnm
+  subst hs
+  subst hw
+  rw [run_pure] at hrun
+  cases hrun
+  exact ⟨rfl, rfl, nm, rfl⟩
+
+theorem run_mkAlt_ok {xs : List FVarId} {body : LBTerm} {s : ErasureState}
+    {ctx : ErasureContext} {w : Void IO.RealWorld} {r : List BinderName × LBTerm}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : mkAlt xs body s ctx cctx ref w = .ok (r, s') w') :
+    s' = s ∧ w' = w ∧ r.1.length = xs.length ∧
+      r.2 = xs.reverse.zipIdx.foldl (fun b p => toBvar p.1 p.2 b) body := by
+  unfold mkAlt at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨names, sn, wn, hnames, hrun⟩ := hrun
+  have hlen := run_list_mapM_ok _ cctx ref
+    (P := fun (pre : List FVarId) (outs : List BinderName) (s₂ : ErasureState)
+        (w₂ : Void IO.RealWorld) => outs.length = pre.length ∧ s₂ = s ∧ w₂ = w)
+    ⟨rfl, rfl, rfl⟩
+    (fun _ y _ outs s₂ w₂ b s₃ w₃ _ hP hb => by
+      obtain ⟨hl, hs, hw⟩ := hP
+      subst hs
+      subst hw
+      obtain ⟨hs2, hw2⟩ := run_fvar_to_name_ok hb
+      exact ⟨by simp [hl], hs2, hw2⟩)
+    hnames
+  obtain ⟨hlen', hs, hw⟩ := hlen
+  rw [hs, hw] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨bfin, sb, wb, hloop, hrun⟩ := hrun
+  have hfold := run_list_forIn_ok' _ cctx ref
+    (P := fun (pre : List (FVarId × Nat)) (b : LBTerm) (s₂ : ErasureState)
+        (w₂ : Void IO.RealWorld) =>
+      b = pre.foldl (fun b p => toBvar p.1 p.2 b) body ∧ s₂ = s ∧ w₂ = w)
+    ⟨rfl, rfl, rfl⟩
+    (fun pre y post acc s₂ w₂ b s₃ w₃ _ hP hb => by
+      obtain ⟨hacc, hs, hw⟩ := hP
+      subst hs
+      subst hw
+      rw [run_pure] at hb
+      cases hb
+      exact ⟨by rw [List.foldl_append, hacc]; rfl, rfl, rfl⟩)
+    (fun pre y post acc s₂ w₂ b s₃ w₃ _ hP hb => by
+      rw [run_pure] at hb
+      exact nomatch hb)
+    hloop
+  obtain ⟨hb, hs2, hw2⟩ := hfold
+  rw [hs2, hw2] at hrun
+  rw [run_pure] at hrun
+  cases hrun
+  exact ⟨rfl, rfl, hlen', hb⟩
+
+end Binders
+
 end Erasure
 
