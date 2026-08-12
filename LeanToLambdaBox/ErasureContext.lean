@@ -65,17 +65,15 @@ structure ErasureCtx where
   /-- For each source name that is a **sibling of the mutual block currently being
       erased**, the fresh `FVarId` the run minted for it (`Erasure.visitMutual`, the
       `withReader … fixvars` line). Mirrors the shipping reader's
-      `ErasureContext.fixvars` one-for-one, which is what will make the bridge's
-      fixvar branch cheap.
+      `ErasureContext.fixvars` one-for-one, which is what makes the bridge's fixvar
+      branch cheap (`BridgeInv.fixvars` is a plain agreement between the two).
 
       Non-`none` only *inside* a block; every top-level `Γ` leaves it at `fun _ => none`.
-      **No `Erases` rule reads this field yet**: the `fixvar` leaf that will
-      (`.const nm us ↦ .fvar x`) forces a `Γ.fixvars = fun _ => none` premise onto every
-      forward simulation — its `const_inv` disjunct is refutable by nothing the δ cases
-      currently hold, unlike `const_fix`'s, which `NoFix` kills — so it lands with the
-      bridge's fixvar branch, together with that premise. The field is added here so the
-      `ErasureCtx` (and hence `ErasureCtx`-literal) disruption happens exactly once.
-      Defaulted, like every registration field. (Recursion wall, slice W1.) -/
+      Read by the `Erases.fixvar` leaf (`.const nm us ↦ .fvar x`, slice W3.1), which is
+      why `Γ.fixvars = fun _ => none` is a premise (`hnfv`) of every forward simulation:
+      that equation is what refutes the leaf's `const_inv` disjunct in the δ cases, the
+      way `NoFix` used to. Defaulted, like every registration field. (Recursion wall,
+      slices W1 + W3.1.) -/
   fixvars : Name → Option FVarId := fun _ => none
   /-- For each **registered recursive constant**, the emitted mutual block and this
       constant's index in it — the datum `visitMutual` registers when it conses

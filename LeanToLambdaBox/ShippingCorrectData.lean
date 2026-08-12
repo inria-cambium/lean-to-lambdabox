@@ -57,6 +57,7 @@ theorem shipping_visitExpr_correct_data
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -70,7 +71,7 @@ theorem shipping_visitExpr_correct_data
     (hev : SEvalDataC Γ Esrc e v) :
     ∃ t' vve, WcbvEval E appliedFlags t t' ∧ TrExprS env Us Δ v vve ∧
       Erases env Us Γ Δ v t' ∧ NoBlock t' :=
-  erases_correct_data henv hΔ hcon hdelta hctorenv hcc hrec hev htr
+  erases_correct_data henv hΔ hcon hdelta hctorenv hcc hrec hnfv hev htr
     (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
       Δ hinv hsup ⟨ve, htr⟩).1
     hnb
@@ -97,7 +98,7 @@ example (gw : Void IO.RealWorld → NameGenerator)
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_visitExpr_correct_data envFO_wf (Us := []) (Δ := []) trivial
     (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_
-    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) H HD C hrun hinv hsup htr hnb ?_
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C hrun hinv hsup htr hnb ?_
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
   · intro cn iid cidx hc

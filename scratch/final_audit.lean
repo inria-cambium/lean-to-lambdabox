@@ -200,6 +200,20 @@ open LeanToLambdaBox
 -- step really is `fix_guarded` + `app_box`. This is the guard that makes the whole wall
 -- witnessed rather than merely un-blocked.
 #print axioms LeanToLambdaBox.erases_correct_data_recursive_fires
+-- Recursion wall, W3.1: the `Erases.fixvar` leaf (`visitConst`'s `return .fvar id`) with
+-- its rule-side freshness premise `x ∉ Δ.fvars`, and the `hnfv : Γ.fixvars = fun _ => none`
+-- premise it forces onto the four forward simulations and every capstone above.
+--
+-- `ThinVLet.fvars_eq` is the one genuinely new pure lemma (the lean4lean-side
+-- `Abstract`/`BVLift`/`InstN`/`InstLet` `fvars_eq`s already existed) and is axiom-free;
+-- everything else mentions `Erases` and inherits the standing lean4lean boundary. No new
+-- axiom of ours, and no axiom-set movement anywhere: every declaration listed here
+-- reports exactly what it reported before the leaf landed.
+#print axioms LeanToLambdaBox.ThinVLet.fvars_eq
+#print axioms LeanToLambdaBox.Erases.const_inv_full
+#print axioms LeanToLambdaBox.Erases.const_fvar_elim
+#print axioms LeanToLambdaBox.erases_fixvar_fixOpen
+#print axioms LeanToLambdaBox.erases_correct_data_zeta
 -- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
 -- Prop hypotheses (`PrepareHyps`, `Registered*`), NEVER axioms. Expected axiom set:
 -- 4 standard [propext, Classical.choice, Quot.sound] (+ sorryAx via the lean4lean Expr

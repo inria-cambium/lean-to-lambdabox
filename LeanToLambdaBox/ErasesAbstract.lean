@@ -173,6 +173,17 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have hj' : j < minors.length := by simpa using hj
     rw [List.getElem_map, List.getElem_map, ← toBvar_mkLambdas]
     exact ihalts j hj' W (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj')))
+  | fixvar nm us x hfx hctor hcases hfresh =>
+    -- **The arm the rule's `hfresh` premise exists for.** `toBvar` is *not* inert on the
+    -- leaf's `.fvar x` target, so this case needs `x ≠ v₀`. `VLCtx.Abstract.fvars_eq`
+    -- gives both halves at once: `Δ₁.fvars = v₀ :: Δ₀.fvars` refutes `x = v₀`, and
+    -- `Δ.fvars = Δ₀.fvars` re-establishes the premise at the conclusion's context.
+    obtain ⟨h1, h2⟩ := W.fvars_eq
+    rw [h1] at hfresh
+    have hxv : ¬ (x = v₀) := fun hx => hfresh (hx ▸ List.mem_cons_self ..)
+    simp only [Expr.abstract1, toBvar, if_neg (by simpa using hxv : ¬ (x == v₀) = true)]
+    exact .fixvar nm us x hfx hctor hcases
+      (h2 ▸ fun hm => hfresh (List.mem_cons_of_mem _ hm))
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
     -- `abstract1` is the identity on a `.const`; `toBvar` on the (fvar-free) block.
     rw [htobv v₀ dk]
@@ -256,6 +267,22 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ : VLCtx)
   have H : Erases env Us Γ ((some (v₀, deps), d) :: Δ)
       ((Expr.const n []).instantiate1' (.fvar v₀)) (.const kn) := .const n [] kn h hctor hcases
   exact H.uninstantiate (sc := by intro u hu; cases hu) (hc := True.intro)
+
+/- (iv) **The `fixvar` leaf survives the closing** — the guard for the `hfresh` premise
+slice W3.1 put on the rule. `visitMutual` mints the block's fixvar `x` *before*
+`visitLambda` opens a binder with `v₀`, so `x ≠ v₀`; the leaf's `.fvar x` target is
+therefore untouched by `toBvar v₀ 0` and the sibling reference is still an `.fvar x`,
+ready for `mkDef`'s own closing. Without `hfresh` this arm is *underivable* (the closing
+would turn the target into `.bvar 0`, and no rule relates a `.const` source to a bvar),
+which is why the premise is on the rule and not on this theorem. -/
+example (env : VEnv) (Us : List Name) (v₀ x : FVarId) (deps : List FVarId)
+    (d : VLocalDecl) (Δ : VLCtx) (hne : x ≠ v₀) (hx : x ∉ Δ.fvars) :
+    Erases env Us (ΓfixOpen x) ((none, d) :: Δ) (.const `f []) (.fvar x) := by
+  have H : Erases env Us (ΓfixOpen x) ((some (v₀, deps), d) :: Δ)
+      ((Expr.const `f []).instantiate1' (.fvar v₀)) (.fvar x) :=
+    erases_fixvar_fixOpen env Us x [] _ (by simpa using ⟨hne, hx⟩)
+  have h := H.uninstantiate (sc := by intro u hu; cases hu) (hc := True.intro)
+  simpa [toBvar, (by simpa using hne : ¬ (x == v₀) = true)] using h
 
 /- Axiom audit (2026-07-07, via temporary `#print axioms`, since removed):
 * helpers (`abstract1_foldl_app`, `toBvar_mkLambdas`, `fvarId_beq_comm`,

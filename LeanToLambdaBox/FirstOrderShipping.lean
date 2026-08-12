@@ -59,6 +59,7 @@ theorem shipping_erase_correct_firstorder
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -77,7 +78,7 @@ theorem shipping_erase_correct_firstorder
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv⟩ :=
     shipping_visitExpr_correct_data henv (Δ := []) trivial hcon hdelta hctorenv hcc hrec
-      H HD C hrun hinv hsup htr hnb hev
+      hnfv H HD C hrun hinv hsup htr hnb hev
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv,
     fun tu hertu hnbtu =>
       firstOrder_value_erases_unique henv (Δ := []) trivial hfo hertu hnbtu herv hnbv⟩
@@ -105,7 +106,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' := by
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorder envFO_wf (Us := []) (Esrc := fun _ => none)
-    (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)
+    (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl
     H HD C hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)

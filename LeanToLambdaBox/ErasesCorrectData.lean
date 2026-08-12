@@ -507,9 +507,10 @@ theorem Erases.app_inv_t {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
 /-- **`.const`-source inversion keeping the `ctors`/`casesOns = none` witnesses** (which
 `const_inv` discards) — needed to exclude the plain-`const` rule on a registered
 constructor head (`ctors`) or a registered `casesOn` head (`casesOns`, the base case of
-`Erases.cases_spine_inv`). Since the recursion wall's `const_fix` leaf there is a fourth
-disjunct, and it keeps the same two witnesses: that is exactly what lets the spine
-inversions below refute it at a registered head, with no new premise. -/
+`Erases.cases_spine_inv`). Since the recursion wall's `const_fix` and `fixvar` leaves
+there are a fourth and a fifth disjunct, and both keep the same two witnesses: that is
+exactly what lets the spine inversions below refute them at a registered head, with no
+new premise. -/
 theorem Erases.const_inv_full {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {us : List Level} {t : LBTerm} (h : Erases env Us Γ Δ (.const n us) t) :
     (∃ ve, TrExprS env Us Δ (.const n us) ve ∧
@@ -518,14 +519,18 @@ theorem Erases.const_inv_full {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {�
     (∃ (iid : InductiveId) (cidx : Nat), Γ.ctors n = some (iid, cidx) ∧
         t = .construct iid cidx []) ∨
     (∃ (defs : List (@FixDef LBTerm)) (idx : Nat), Γ.recBodies n = some (defs, idx) ∧
-        Γ.ctors n = none ∧ Γ.casesOns n = none ∧ t = .fix defs idx) := by
+        Γ.ctors n = none ∧ Γ.casesOns n = none ∧ t = .fix defs idx) ∨
+    (∃ x : FVarId, Γ.fixvars n = some x ∧
+        Γ.ctors n = none ∧ Γ.casesOns n = none ∧ t = .fvar x) := by
   generalize he : (Expr.const n us) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
   | const m ms kn hkn hctor hcases => cases he; exact .inr (.inl ⟨_, hkn, hctor, hcases, rfl⟩)
   | ctor_head cn cus iid cidx hc => cases he; exact .inr (.inr (.inl ⟨iid, cidx, hc, rfl⟩))
   | const_fix m ms hrec hctor hcases _ _ _ =>
-      cases he; exact .inr (.inr (.inr ⟨_, _, hrec, hctor, hcases, rfl⟩))
+      cases he; exact .inr (.inr (.inr (.inl ⟨_, _, hrec, hctor, hcases, rfl⟩)))
+  | fixvar m ms x hfx hctor hcases _ =>
+      cases he; exact .inr (.inr (.inr (.inr ⟨_, hfx, hctor, hcases, rfl⟩)))
   | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
       rcases List.eq_nil_or_concat args with rfl | ⟨init, last, rfl⟩
       · simp only [List.foldl] at he
@@ -572,7 +577,7 @@ theorem Erases.ctor_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
     · -- base: args = []
       simp only [List.foldl] at htr her
       rcases her.const_inv_full with ⟨ve', htr', her', rfl⟩ | ⟨kn, _, hctor, _, rfl⟩
-        | ⟨iid2, cidx2, hc2, rfl⟩ | ⟨defs, fidx, _, hctor, _, rfl⟩
+        | ⟨iid2, cidx2, hc2, rfl⟩ | ⟨defs, fidx, _, hctor, _, rfl⟩ | ⟨x, _, hctor, _, rfl⟩
       · refine .inl ⟨?_, [], rfl, by simp⟩
         exact her'.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htr' htr)
@@ -581,6 +586,8 @@ theorem Erases.ctor_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
         exact .inr (.inl ⟨[], rfl, by simp [LBTerm.mkApps], fun i h => absurd h (by simp)⟩)
       · -- `const_fix` at a *registered constructor* head: refuted by the leaf's own
         -- `Γ.ctors = none` witness.
+        rw [hc] at hctor; exact absurd hctor (by simp)
+      · -- `fixvar` at a *registered constructor* head: same witness, same refutation.
         rw [hc] at hctor; exact absurd hctor (by simp)
     · -- step: args = init ++ [last]
       simp only [List.concat_eq_append] at hm htr her ⊢
@@ -725,10 +732,10 @@ theorem Erases.cases_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
   | ind m ih =>
     intro args hm ve t htr her
     rcases list_nil_or_snoc args with rfl | ⟨init, last, rfl⟩
-    · -- base: args = []; only `const_inv_full`'s four shapes are available
+    · -- base: args = []; only `const_inv_full`'s five shapes are available
       simp only [List.foldl] at htr her
       rcases her.const_inv_full with ⟨ve', htr', her', rfl⟩ | ⟨kn, _, _, hcs, rfl⟩
-        | ⟨iid2, cidx2, hc2, rfl⟩ | ⟨defs, fidx, _, _, hcs, rfl⟩
+        | ⟨iid2, cidx2, hc2, rfl⟩ | ⟨defs, fidx, _, _, hcs, rfl⟩ | ⟨x, _, _, hcs, rfl⟩
       · refine .inl ⟨0, by simp, ve', [], by simp, htr', her', ?_, by simp, by simp⟩
         exact her'.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htr' htr)
@@ -736,6 +743,8 @@ theorem Erases.cases_spine_inv {env : VEnv} (henv : env.WF) {Us : List Name}
       · rw [hctors] at hc2; exact absurd hc2 (by simp)
       · -- `const_fix` at a *registered `casesOn`* head: refuted by the leaf's own
         -- `Γ.casesOns = none` witness.
+        rw [hc] at hcs; exact absurd hcs (by simp)
+      · -- `fixvar` at a *registered `casesOn`* head: same witness, same refutation.
         rw [hc] at hcs; exact absurd hcs (by simp)
     · -- step: args = init ++ [last]
       have hspine : (init ++ [last]).foldl Expr.app (.const con us)
@@ -995,6 +1004,7 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {e v : Expr} (hev : SEvalDataC Γ Esrc e v) :
     ∀ {ve : VExpr} {t : LBTerm},
       TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t →
@@ -1095,6 +1105,7 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
+        | ⟨x, hfx, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toSEvalData.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -1113,6 +1124,9 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
         rw [hunf] at hunf₀
         obtain rfl : body₀ = body := by simpa using hunf₀.symm
         exact ihbody htrbody her₀ hnb
+      · -- `fixvar`: `hnfv` says `Γ` installs no fixvar map, so an in-block sibling
+        -- reference cannot occur at a top-level evaluation.
+        rw [hnfv] at hfx; exact absurd hfx (by simp)
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
       intro ve t htr her hnb
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
@@ -1295,6 +1309,10 @@ theorem Erases.defeqDFC {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : Eras
         hnlen harity (fun j hj => ?_)
       obtain ⟨mve, htr_m⟩ := hspine (j + 1) (by simp; omega)
       exact ihalts j hj hΔ (by simpa using htr_m)
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      -- A context defeq moves neither source nor target; `VLCtx.IsDefEq.fvars` says it
+      -- moves no fvar either, so the freshness premise re-applies at `Δ₂`.
+      exact .fixvar nm us x hfx hctor hcases (hΔ.fvars ▸ hfresh)
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
       exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
   | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
@@ -1326,6 +1344,7 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {e v : Expr} (hev : SEvalData Γ Esrc e v) :
     ∀ {ve : VExpr} {t : LBTerm},
       TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t →
@@ -1482,6 +1501,7 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
+        | ⟨x, hfx, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -1498,6 +1518,9 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
         rw [hunf] at hunf₀
         obtain rfl : body₀ = body := by simpa using hunf₀.symm
         exact ihbody htrbody her₀ hnb
+      · -- `fixvar`: `hnfv` says `Γ` installs no fixvar map, so an in-block sibling
+        -- reference cannot occur at a top-level evaluation.
+        rw [hnfv] at hfx; exact absurd hfx (by simp)
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
       intro ve t htr her hnb
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx

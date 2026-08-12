@@ -39,7 +39,7 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
 
 This relation covers the projection-free fragment:
 `box | lit | bvar | fvar | const | app | lam | letE | ctor | ctor_head | cases |
-const_fix | fix`.
+fixvar | const_fix | fix`.
 
 ## Trust boundary: inherited `sorryAx`
 
@@ -496,6 +496,42 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       Erases env Us Γ Δ
         ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us)))
         (.case (iid, numParams) discr' alts')
+  /-- **The fixvar leaf** (recursion wall, slice W3.1). Models `visitConst`'s
+      `return .fvar id` (`Erasure.lean`): while a mutual block is being erased, a
+      reference to one of the block's *own* names is replaced by the fresh `FVarId` the
+      run minted for that sibling, and `mkDef`/`closeFix` later binds those fvars into
+      the block's de Bruijn binders. Only usable at a `Γ` that has a fixvar map
+      installed; every top-level `Γ` has `fixvars = fun _ => none`, so `Erases.const_inv`'s
+      fixvar disjunct is killed by `rfl`/`simp` there — which is what the `hnfv` premise
+      of the forward simulations does.
+
+      `hctor`/`hcases` mirror `Erases.const`'s (and `const_fix`'s) disjointness premises.
+      They are faithful: `visitConstApp` dispatches `getCasesInfo?`/`getCtorArity?`
+      *before* falling through to `visitConst`, so a name that reaches the fixvar branch
+      is neither a registered `casesOn` nor a registered constructor. They are what lets
+      `ctor_spine_inv`/`cases_spine_inv` refute this leaf at a registered head.
+
+      **`hfresh` — the freshness premise, and why it is on the rule.** The target of this
+      rule *is* an fvar, so — unlike every other leaf — it is not inert under
+      `toBvar`. `Erases.abstract` (`ErasesAbstract`) closes the target over a binder's
+      fvar `v₀` while leaving the source `.const nm us` alone, so the arm is derivable
+      only when `toBvar v₀ dk (.fvar x) = .fvar x`, i.e. when `x ≠ v₀`. `hfresh` supplies
+      exactly that: `v₀ ∈ Δ₁.fvars` by `VLCtx.Abstract.fvars_eq`, and `x` is fresh for
+      `Δ₁`. It is *self-transporting* — `VLCtx.Abstract`/`BVLift`/`InstN`/`InstLet` all
+      come with an `fvars_eq` lemma, so each of the six enumerated inductions
+      re-establishes it at its conclusion context from the same lemma that discharges the
+      arm. Semantically it is the run's own freshness discipline: `visitMutual` mints the
+      block's fixvars *before* `visitExpr` opens any binder, so no fixvar is ever a
+      `Δ`-entry (this is `BridgeInv.fixfresh`).
+
+      The alternative — a freshness side condition on `Erases.abstract` itself — was
+      rejected in slice W2: it ripples through `Erases.uninstantiate` into `Bridge`'s two
+      binder lemmas and `VisitExprRefines`, where the rule-side premise ripples nowhere. -/
+  | fixvar {Δ} (nm : Name) (us : List Level) (x : FVarId)
+      (h : Γ.fixvars nm = some x)
+      (hctor : Γ.ctors nm = none) (hcases : Γ.casesOns nm = none)
+      (hfresh : x ∉ Δ.fvars) :
+      Erases env Us Γ Δ (.const nm us) (.fvar x)
   /-- **The recursive-constant leaf** (recursion wall, slice W1). A constant that `Γ`
       records as recursive relates to *its own* `.fix` node. This is **not** what the
       eraser emits at a call site — there it emits `.const kn`, handled by `Erases.const`,
@@ -641,6 +677,10 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← shift_mkLambdas]
       exact ihalts j (by simpa using hj) W
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      -- `liftLooseBVars'`/`shift` are both the identity here; freshness travels along
+      -- `BVLift.fvars_eq`.
+      exact .fixvar nm us x hfx hctor hcases (W.fvars_eq ▸ hfresh)
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
       -- The registered block is closed: `shift` is the identity on it.
       rw [hshift dn dk]
@@ -721,6 +761,11 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      -- `instantiate1'`/`subst` are both the identity here; `InstN.fvars_eq` moves the
+      -- freshness from `Δ₁` to `Δ` (both agree with `Δ₀`).
+      obtain ⟨h1, h2⟩ := W.fvars_eq
+      exact .fixvar nm us x hfx hctor hcases (h2 ▸ h1 ▸ hfresh)
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
       rw [hsubst s' dk]
       exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
@@ -897,6 +942,32 @@ theorem erases_fixRec (env : VEnv) (Us : List Name) (Δ : VLCtx) :
     rw [fixRecDefs_unfold]
     exact .lam (ty' := .sort .zero) (.sort rfl)
       (.app (erases_const_fixRec env Us _ []) (.bvar 0))
+
+/-! ### Non-vacuity guards for `Erases.fixvar` (W3.1)
+
+The fixvar leaf is the *other half* of the same fixture: while `visitMutual` is erasing
+the block, the reader carries `fixvars := {f ↦ x}` (`Erasure.lean`'s `withReader`), and a
+reference to the sibling `f` comes out as `.fvar x` rather than `.const (toKername f)`.
+`mkDef`/`closeFix` then binds `x` to `.bvar 1`, which is exactly `fixRecDefs`' body — so
+the two guards below and `erases_fixRec` above describe the same run at its two stages. -/
+
+/-- The **block-local** `Γ`: `ΓfixRec` plus the fixvar map the run installs while erasing
+the block (`Erasure.lean`'s `withReader … fixvars`). Top-level `Γ`s keep the field's
+`fun _ => none` default, which is the forward simulations' `hnfv`. -/
+def ΓfixOpen (x : FVarId) : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  recBodies := fun n => if n = `f then some (fixRecDefs, 0) else none
+  fixvars := fun n => if n = `f then some x else none
+
+/-- **Non-vacuity (`Erases.fixvar`)**: inside the block, the sibling reference `f` erases
+to the fresh fvar the run minted for it — at every context that does not already bind
+that fvar, which is every context the run builds (it mints `x` *before* opening any
+binder). -/
+theorem erases_fixvar_fixOpen (env : VEnv) (Us : List Name) (x : FVarId) (us : List Level)
+    (Δ : VLCtx) (hx : x ∉ Δ.fvars) :
+    Erases env Us (ΓfixOpen x) Δ (.const `f us) (.fvar x) :=
+  .fixvar `f us x (by simp [ΓfixOpen]) (by simp [ΓfixOpen]) (by simp [ΓfixOpen]) hx
 
 /-! ### Non-vacuity guards for `Erases.cases`
 

@@ -248,6 +248,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hclenv : ClosedEnv E)
     {e v : Expr} (hev : SEvalDataι Γ ia Esrc e v) :
     ∀ {ve : VExpr} {t : LBTerm},
@@ -381,6 +382,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
+        | ⟨x, hfx, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalDataι_defeq henv hΔ hcon hiota htr (.delta hunf hbodyev)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -398,6 +400,9 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         rw [hunf] at hunf₀
         obtain rfl : body₀ = body := by simpa using hunf₀.symm
         exact ihbody htrbody her₀ hnb hcl
+      · -- `fixvar`: `hnfv` says `Γ` installs no fixvar map, so an in-block sibling
+        -- reference cannot occur at a top-level evaluation.
+        rw [hnfv] at hfx; exact absurd hfx (by simp)
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
       intro ve t htr her hnb hcl
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx

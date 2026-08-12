@@ -341,16 +341,19 @@ theorem Erases.letE_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VL
 
 /-- **Inversion of `Erases` on a `.const` source.** Either irrelevant (`box`),
 the `const` rule (`t = .const kn`), a *nullary* `ctor` spine (`args = []`,
-`t = .construct iid cidx []`), or — since the recursion wall's `const_fix` leaf
-(`Erases.lean`) — a **registered recursive constant** standing for its own block
-(`t = .fix defs idx`). The `cases` rule needs a non-empty spine, so it is
-excluded; a non-nullary `ctor` would make the source an `.app`, also excluded.
+`t = .construct iid cidx []`), a **registered recursive constant** standing for its own
+block (`t = .fix defs idx`, the recursion wall's `const_fix` leaf), or — since slice
+W3.1 — an **in-block sibling** standing for its fixvar (`t = .fvar x`). The `cases` rule
+needs a non-empty spine, so it is excluded; a non-nullary `ctor` would make the source an
+`.app`, also excluded.
 
-The fourth disjunct is the price of `const_fix`, and it is cheap: the spine inversions
-kill it with its own `Γ.ctors`/`Γ.casesOns`-disjointness witnesses (which
-`const_inv_full` keeps), and the δ case of each forward simulation *uses* it — since the
-recursion wall's slice W2, `RecEnvConsistent` turns the recorded block back into the
-source body's erasure, and the target's own step is `WcbvEval.fix_atom`. -/
+The last two disjuncts are the price of the two recursion leaves, and both are cheap:
+the spine inversions kill them with their own `Γ.ctors`/`Γ.casesOns`-disjointness
+witnesses (which `const_inv_full` keeps), the δ case of each forward simulation *uses*
+`const_fix` — since slice W2, `RecEnvConsistent` turns the recorded block back into the
+source body's erasure, and the target's own step is `WcbvEval.fix_atom` — and it kills
+`fixvar` with its `hnfv : Γ.fixvars = fun _ => none` premise, since a *top-level*
+evaluation never runs inside a block. -/
 theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {us : List Level} {t : LBTerm}
     (h : Erases env Us Γ Δ (.const n us) t) :
@@ -360,13 +363,17 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
     (∃ (iid : InductiveId) (cidx : Nat),
         Γ.ctors n = some (iid, cidx) ∧ t = .construct iid cidx []) ∨
     (∃ (defs : List (@FixDef LBTerm)) (idx : Nat),
-        Γ.recBodies n = some (defs, idx) ∧ t = .fix defs idx) := by
+        Γ.recBodies n = some (defs, idx) ∧ t = .fix defs idx) ∨
+    (∃ x : FVarId, Γ.fixvars n = some x ∧ t = .fvar x) := by
   generalize he : (Expr.const n us) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
   | const m ms kn hkn _ _ => cases he; exact .inr (.inl ⟨_, hkn, rfl⟩)
   | ctor_head cn cus iid cidx hc => cases he; exact .inr (.inr (.inl ⟨iid, cidx, hc, rfl⟩))
-  | const_fix m ms hrec _ _ _ _ _ => cases he; exact .inr (.inr (.inr ⟨_, _, hrec, rfl⟩))
+  | const_fix m ms hrec _ _ _ _ _ =>
+      cases he; exact .inr (.inr (.inr (.inl ⟨_, _, hrec, rfl⟩)))
+  | fixvar m ms x hfx _ _ _ =>
+      cases he; exact .inr (.inr (.inr (.inr ⟨_, hfx, rfl⟩)))
   | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
       -- The spine `args.foldl app (.const cn cus) = .const n us` forces `args = []`.
       rcases List.eq_nil_or_concat args with rfl | ⟨init, last, hcat⟩
@@ -388,5 +395,24 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
       · rw [← he] at hh; simp at hh
       · rw [← he] at hh; simp [Expr.isApp] at hh
   | _ => exact absurd he (by simp)
+
+/-- **`hnfv` refutes a bare-fvar erasure of a constant** (recursion wall, W3.1). At a `Γ`
+that installs no fixvar map — i.e. anywhere outside `visitMutual`'s block, which is where
+every forward simulation lives — no constant erases to an `.fvar`: `Erases.fixvar` is the
+only rule that could, and it needs the map. (Even the `box` rule cannot, its target being
+`.box`.) This is exactly the refutation the δ case of `erases_correct`,
+`erases_correct_data{,_zeta}` and `erases_correct_dataι` performs inline, and it is the
+guard that the leaf's registration premise is load-bearing rather than decorative. -/
+theorem Erases.const_fvar_elim {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {us : List Level} {x : FVarId} (hnfv : Γ.fixvars = fun _ => none) :
+    ¬ Erases env Us Γ Δ (.const n us) (.fvar x) := by
+  intro h
+  rcases h.const_inv with ⟨_, _, _, hb⟩ | ⟨_, _, hb⟩ | ⟨_, _, _, hb⟩ | ⟨_, _, _, hb⟩
+    | ⟨y, hfx, _⟩
+  · exact absurd hb (by simp)
+  · exact absurd hb (by simp)
+  · exact absurd hb (by simp)
+  · exact absurd hb (by simp)
+  · rw [hnfv] at hfx; exact absurd hfx (by simp)
 
 end LeanToLambdaBox

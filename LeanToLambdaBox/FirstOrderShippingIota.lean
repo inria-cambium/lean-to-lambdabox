@@ -132,6 +132,7 @@ theorem shipping_erase_correct_firstorderι
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -152,7 +153,7 @@ theorem shipping_erase_correct_firstorderι
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv, hclv⟩ :=
     erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
-      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hclenv hev htr
+      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hnfv hclenv hev htr
       (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
         [] hinv hsup ⟨ve, htr⟩).1
       hnb hcl
@@ -194,6 +195,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -214,7 +216,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
     (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hclenv H HD C
+    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C
     hrun hinv hsup htr hnb hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
@@ -252,6 +254,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -275,7 +278,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
-    hiacoh hrel hcc hrec hclenv H HD C hrun hinv hsup htr hnb hcl hev hfo
+    hiacoh hrel hcc hrec hnfv hclenv H HD C hrun hinv hsup htr hnb hcl hev hfo
 
 /-! ## Non-vacuity guards
 
@@ -421,11 +424,12 @@ actually carry; see the section docstring for the one that it cannot. -/
 theorem ΓFOι_certificates :
     ErasesEnvCtor ΓFOι EFOd ∧ ErasesEnvCases ΓFOι EFOd ∧ ErasesEnvCasesι ΓFOι EFOd ∧
       CtorFieldsCoherent ΓFOι ∧ IotaArityCoherent ΓFOι iaFOι ∧
-      RecEnvConsistent envFO [] ΓFOι (fun _ => none) EFOd ∧ ClosedEnv EFOd ∧
+      RecEnvConsistent envFO [] ΓFOι (fun _ => none) EFOd ∧
+      ΓFOι.fixvars = (fun _ => none) ∧ ClosedEnv EFOd ∧
       (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
         ΓFOι.ctors cn = some (iid, cidx) → ΓFOι.casesOns cn = none) :=
   ⟨ΓFOι_erasesEnvCtor, ΓFOι_erasesEnvCases, ΓFOι_erasesEnvCasesι, ΓFOι_ctorFieldsCoherent,
-    ΓFOι_iotaArityCoherent, recEnvConsistent_of_noRec (Γ := ΓFOι) rfl, EFOd_closedEnv,
+    ΓFOι_iotaArityCoherent, recEnvConsistent_of_noRec (Γ := ΓFOι) rfl, rfl, EFOd_closedEnv,
     ΓFOι_cc⟩
 
 /-- **D3ι fires.** On the first-order constructor `c` at the registered inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
@@ -467,7 +471,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
-    (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl)
+    (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl) rfl
     EFOd_closedEnv H HD C hrun hinv hsup envFO_trC hnb hcl ?_
     (envFO_foC_ι harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous

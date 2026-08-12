@@ -448,13 +448,14 @@ theorem eraseCore_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {orc : Expr → Bool} (hos : OracleSound env Us orc)
     {fuel : Nat} {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (herase : eraseCore orc Γ fuel e = .ok t)
     (hev : SEvalβδ Esrc e v) :
     ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' :=
-  erases_correct henv hΔ hcon hdelta hrec htr
+  erases_correct henv hΔ hcon hdelta hrec hnfv htr
     (eraseCore_refines hos htr herase) hev
 
 /-! ## Non-vacuity guard

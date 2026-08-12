@@ -376,7 +376,7 @@ theorem erases_correct_data_zeta_fires :
       Erases envFO [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' := by
   refine erases_correct_data_zeta (env := envFO) envFO_wf (Us := []) (Δ := []) trivial
     (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_
-    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl
     (v := .const `c []) ?_ envFO_trC (.ctor_head `c [] _ 0 ΓFOd_ctorsC) trivial
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)

@@ -70,6 +70,16 @@ protected theorem ThinVLet.toCtx {x : FVarId} {deps : List FVarId} {A e₀ : VEx
     | .vlam ty => exact congrArg (ty :: ·) ih
     | .vlet _ _ => exact ih
 
+/-- Dropping the entry removes exactly `x` from the fvar list (the surgery's `succ`
+steps cons only `none`-tagged entries, which contribute no fvar). Mirror of
+lean4lean's `VLCtx.Abstract.fvars_eq`; it is what carries the `Erases.fixvar` leaf's
+`hfresh` premise across the thinning. -/
+protected theorem ThinVLet.fvars_eq {x : FVarId} {deps : List FVarId} {A e₀ : VExpr}
+    {Δ₁ Δ : VLCtx} (W : ThinVLet x deps A e₀ Δ₁ Δ) : Δ₁.fvars = x :: Δ.fvars := by
+  induction W with
+  | zero => rfl
+  | succ _ ih => exact ih
+
 /-- `VLCtx.find?` is unchanged by dropping the unused entry, for every variable
 other than the dropped fvar itself: the fvar tag passes bvar lookups through
 unshifted, and the `.vlet`'s `depth = 0` makes the result's `liftN` a no-op. -/
@@ -184,6 +194,9 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have ⟨_, hall⟩ := fvarsIn_foldl_app sc
     exact .cases con us iid numParams pre hc hpre hnfs (ihd W (hall _ (.head _))) hlen
       hnlen harity fun j hj => ihalts j hj W (hall _ (.tail _ (List.getElem_mem hj)))
+  | fixvar nm us y hfx hctor hcases hfresh =>
+    rw [W.fvars_eq] at hfresh
+    exact .fixvar nm us y hfx hctor hcases fun hm => hfresh (List.mem_cons_of_mem _ hm)
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
     exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
   | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg

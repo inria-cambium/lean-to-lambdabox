@@ -92,6 +92,7 @@ theorem shipping_erase_correct_firstorder_registered
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
@@ -110,7 +111,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hrec H HD C hrun hinv hsup htr hnb hev hfo
+    hctorenv hcc hrec hnfv H HD C hrun hinv hsup htr hnb hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -137,6 +138,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   refine shipping_erase_correct_firstorder_registered envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_
     (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)        -- ΓFOd registers no recursion
+    rfl                                                -- …and installs no fixvar map
     H HD C hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous

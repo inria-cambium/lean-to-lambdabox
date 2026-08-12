@@ -424,6 +424,10 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      -- Both operations are the identity here; `InstLet.fvars_eq` carries the freshness.
+      obtain ⟨h1, h2⟩ := W.fvars_eq
+      exact .fixvar nm us x hfx hctor hcases (h2 ▸ h1 ▸ hfresh)
   | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
       rw [hsubst s' dk]
       exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
@@ -510,13 +514,20 @@ the statement now holds of *recursive* environments. What replaces them is one p
 the registration level, `RecEnvConsistent`, used in exactly one place — the δ case at a
 constant whose target erasure is its own block. The β case handles a recursive head by
 `erases_lam_head_step`: one source β-step becomes the head's `fix_guarded` unfolding
-stack followed by the ordinary `beta`. -/
+stack followed by the ordinary `beta`.
+
+**`hnfv` (wall slice W3.1).** `Γ` installs no fixvar map. This is the "we are at a
+top level, not inside `visitMutual`'s block" side condition: the `Erases.fixvar` leaf
+sends a sibling `.const` to a bare `.fvar`, which no top-level evaluation can meet
+(and which `WcbvEval` could not step anyway), so the δ case refutes that disjunct of
+`Erases.const_inv` outright. It is `rfl` at every concrete `Γ` in the repo. -/
 theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {Esrc : SEnv}
     {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
+    (hnfv : Γ.fixvars = fun _ => none)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     (htr : TrExprS env Us Δ e ve)
     (her : Erases env Us Γ Δ e t)
@@ -613,6 +624,7 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
       obtain ⟨hnoctor, _, body', hlook, herbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
+        | ⟨x, hfx, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -630,5 +642,8 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
         rw [hunf] at hunf₀
         obtain rfl : body₀ = body := by simpa using hunf₀.symm
         exact ihbody htrbody her₀
+      · -- `fixvar`: a bare in-block sibling reference. `hnfv` says `Γ` installs no
+        -- fixvar map, so this leaf is unavailable at a top-level evaluation.
+        rw [hnfv] at hfx; exact absurd hfx (by simp)
 
 end LeanToLambdaBox

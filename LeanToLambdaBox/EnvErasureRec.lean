@@ -729,7 +729,7 @@ theorem erases_correct_data_recursive_fires :
       Erases .empty [] gRecΓ [] gCxId t' ∧ NoBlock t' :=
   erases_correct_data (env := .empty) ⟨[], .empty⟩ (Us := []) (Δ := []) trivial
     gRecSEnvConsistent gRecErasesEnvDeltaData (fun h => by simp [gRecΓ] at h)
-    (fun h => by simp [gRecΓ] at h) gRecRecEnvConsistent
+    (fun h => by simp [gRecΓ] at h) gRecRecEnvConsistent rfl
     gCxSEval gCxTrExprS gRecErases gRecNoBlock
 
 /-- …and the value it produces is exactly the erasure of the source value: the run is
