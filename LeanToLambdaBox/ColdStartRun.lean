@@ -31,6 +31,12 @@ as a case of its own). It deliberately does **not** decide *which* exit was take
 depends on `Compiler.LCNF.getDeclInfo?`, `isExtern` and `name_occurs`, i.e. on opaque
 runtime data. A consumer that wants the non-recursive case discharges the other two by
 `RegBridgeHyps`-class facts, or handles all three.
+
+Since slice D1 it *does* hand back the `getDeclInfo?` run itself, which is the handle
+those discharges need: `isExtern`/`getInlineAttribute?` are pure functions of the
+environment and `name_occurs` a pure function of the declaration's value, so once the
+declaration is pinned every branch condition is. See the theorem's own docstring for
+the four widened facts.
 -/
 
 namespace LeanToLambdaBox
@@ -265,17 +271,46 @@ set_option maxHeartbeats 1000000 in
 The three disjuncts are the three registering exits (`addAxiom`, the non-recursive
 constant, the recursive block); the `@[inline]` bookkeeping is the `InlineExt` slack.
 The middle disjunct hands back the inner `Erasure.visitExpr` run, which is the whole
-point: it is what slice S3's δ discharge feeds to the bridge. -/
+point: it is what slice S3's δ discharge feeds to the bridge.
+
+## The δ-inclusion widening (slice D1)
+
+Four facts the proof already had and threw away are now handed back, because the δ half
+has to *identify* the dependency being erased, not merely to know that some erasure
+happened:
+
+* the **`getDeclInfo?` run itself**, at the `CoreM` layer. It is the handle a
+  fragment-scope premise (`DeltaHyps.decl_run`) is keyed on, and everything the exits
+  branch on — `ci.all`, `ci.levelParams`, `ci.value?`, `name_occurs` — is a function of
+  its result. Without it `di` is an unconstrained existential and the three disjuncts
+  cannot be separated;
+* the **`prepare_erasure` run**, whose output is the very term the inner `visitExpr`
+  erases, with its input pinned to the declaration's own value
+  (`di.get!.value! (allowOpaque := true)`);
+* the **reader context** the dependency is erased under, pinned to
+  `{ ctx with fixvars := none, lparams := di.get!.levelParams }` — the `withReader` of
+  `Erasure.visitMutual`'s non-recursive exit. It was an unconstrained `ctx'` before;
+  pinning it is what lets a caller transport a reader-indexed invariant to the callee,
+  since only `fixvars` and `lparams` move (`lctx` and `config` do not);
+* the **inlining slack at the entry** (`InlineExt s s₀`), so that the axiom and
+  non-recursive disjuncts relate their own pre-state back to the call's. -/
 theorem run_visitMutual_decomp {s : ErasureState} {ctx : ErasureContext}
     {w : Void IO.RealWorld} {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
     (hrun : visitMutual n s ctx cctx ref w = .ok (u, s₁) w₁) :
-    (∃ s₀ : ErasureState, s₁ = addAxiomState n s₀) ∨
-    (∃ (pe : Expr) (t : LBTerm) (sp st : ErasureState) (ctx' : ErasureContext)
-       (wp wt : Void IO.RealWorld),
-      visitExpr pe sp ctx' cctx ref wp = .ok (t, st) wt ∧
-      InlineExt (nonrecConstState n t st) s₁) ∨
-    (∃ (fixnames : List Name) (defs : List (@FixDef LBTerm)) (sd : ErasureState),
-      s₁ = recConstState fixnames defs sd) := by
+    ∃ (di : Option ConstantInfo) (wa : Void IO.RealWorld),
+      (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok di wa ∧
+      ((∃ s₀ : ErasureState, InlineExt s s₀ ∧ s₁ = addAxiomState n s₀) ∨
+       (∃ (pe : Expr) (t : LBTerm) (s₀ sp st : ErasureState)
+          (w₀ wp wt : Void IO.RealWorld),
+         InlineExt s s₀ ∧
+         prepare_erasure (di.get!.value! (allowOpaque := true)) s₀
+             { ctx with fixvars := none, lparams := di.get!.levelParams } cctx ref w₀
+           = .ok (pe, sp) wp ∧
+         visitExpr pe sp { ctx with fixvars := none, lparams := di.get!.levelParams }
+             cctx ref wp = .ok (t, st) wt ∧
+         InlineExt (nonrecConstState n t st) s₁) ∨
+       (∃ (fixnames : List Name) (defs : List (@FixDef LBTerm)) (sd : ErasureState),
+         s₁ = recConstState fixnames defs sd)) := by
   unfold visitMutual at hrun
   simp only [] at hrun
   rw [Erasure.run_bind_ok] at hrun
@@ -283,6 +318,7 @@ theorem run_visitMutual_decomp {s : ErasureState} {ctx : ErasureContext}
   have hsa := Erasure.run_liftCoreM_state
     (x := (Compiler.LCNF.getDeclInfo? n : CoreM _)) _ _ cctx ref _ hdi
   subst hsa
+  refine ⟨di, wa, ((Erasure.run_liftCoreM_ok _ _ cctx ref _).mp hdi).1, ?_⟩
   rw [Erasure.run_bind_ok] at hrun
   obtain ⟨env0, sb, wb, henv0, hrun⟩ := hrun
   have hsb := Erasure.run_getEnv_state _ _ cctx ref _ henv0
@@ -290,7 +326,7 @@ theorem run_visitMutual_decomp {s : ErasureState} {ctx : ErasureContext}
   clear hdi henv0
   split at hrun
   case isTrue =>
-    obtain ⟨s₀, w₀, u₀, -, hm⟩ := run_inline_prefix_decomp hrun
+    obtain ⟨s₀, w₀, u₀, hinl, hm⟩ := run_inline_prefix_decomp hrun
     rw [Erasure.run_bind_ok] at hm
     obtain ⟨env2, se, we, henv2, hm⟩ := hm
     have hz := Erasure.run_getEnv_state _ _ cctx ref _ henv2
@@ -311,19 +347,19 @@ theorem run_visitMutual_decomp {s : ErasureState} {ctx : ErasureContext}
          subst hz2)
     all_goals
       first
-        | exact Or.inl ⟨_, (Erasure.run_addAxiom_ok hm).1⟩
+        | exact Or.inl ⟨_, hinl, (Erasure.run_addAxiom_ok hm).1⟩
         | (split at hm
            case isTrue =>
-             obtain ⟨pe, t, sp, st, wp, wt, -, hvis, hext'⟩ := run_nonrec_exit_decomp hm
-             exact Or.inr (Or.inl ⟨pe, t, sp, st, _, wp, wt, hvis, hext'⟩)
+             obtain ⟨pe, t, sp, st, wp, wt, hpr, hvis, hext'⟩ := run_nonrec_exit_decomp hm
+             exact Or.inr (Or.inl ⟨pe, t, _, sp, st, _, wp, wt, hinl, hpr, hvis, hext'⟩)
            case isFalse =>
              obtain ⟨defs, sd, hsd⟩ := run_rec_exit_decomp hm
              exact Or.inr (Or.inr ⟨_, defs, sd, hsd⟩))
   case isFalse =>
     split at hrun
     case isTrue =>
-      obtain ⟨pe, t, sp, st, wp, wt, -, hvis, hext'⟩ := run_nonrec_exit_decomp hrun
-      exact Or.inr (Or.inl ⟨pe, t, sp, st, _, wp, wt, hvis, hext'⟩)
+      obtain ⟨pe, t, sp, st, wp, wt, hpr, hvis, hext'⟩ := run_nonrec_exit_decomp hrun
+      exact Or.inr (Or.inl ⟨pe, t, _, sp, st, _, wp, wt, InlineExt.rfl' _, hpr, hvis, hext'⟩)
     case isFalse =>
       obtain ⟨defs, sd, hsd⟩ := run_rec_exit_decomp hrun
       exact Or.inr (Or.inr ⟨_, defs, sd, hsd⟩)
