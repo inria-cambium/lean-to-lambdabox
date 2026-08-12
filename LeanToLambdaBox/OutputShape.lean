@@ -25,6 +25,18 @@ namespace LeanToLambdaBox
 
 open Lean
 
+/-! ### The panic fall-through's output
+
+Every destructuring helper and every `unreachable!` arm of the erasure family `panic!`s,
+and a panic *succeeds* at `EraseM`, returning `default : LBTerm`
+(`Erasure.run_panicWithPosWithDecl`). `default` is `.box`, which is fix-free and closed at
+every level, so the shape induction's panic arms are **discharged**, not refuted — the
+honest reading of code whose "impossible" branches are reachable in the model. -/
+
+@[simp] theorem noFix_default : NoFix (default : LBTerm) := trivial
+
+@[simp] theorem lbClosed_default (k : Nat) : LBClosed (default : LBTerm) k := trivial
+
 theorem noFix_toBvar {t : LBTerm} (x : FVarId) :
     ∀ (lvl : Nat), NoFix t → NoFix (toBvar x lvl t) := by
   induction t using LBTerm.recData with
