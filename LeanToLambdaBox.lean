@@ -136,3 +136,9 @@ import LeanToLambdaBox.ColdStartShape
 -- `mkAlt`/`mkDef` need. Prerequisite of the `visitExpr` output-shape induction that
 -- `ColdStartShape.regInvShape_nonrec_cons_iff` shows the registry invariant requires.
 import LeanToLambdaBox.OutputShape
+-- The output-shape induction itself (R11): `visitExpr_shape`, all 18 motives of the
+-- erasure family in Hoare form over a `RunClosed` state predicate. Yields
+-- `visitExpr_noFix_closed` — every successful `visitExpr` run returns a fix-free,
+-- de-Bruijn-closed term, with no hypotheses — and, at `Q := RegInvShape Γ`, the
+-- preservation of the cold-start registry invariant across a whole run.
+import LeanToLambdaBox.ColdStartInduction
