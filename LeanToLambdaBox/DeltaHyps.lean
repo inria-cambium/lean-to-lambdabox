@@ -37,7 +37,7 @@ trust boundary, exactly as for `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`.
 `mkFreshFVarId` is deliberately **absent**: `BridgeHyps.fresh_run` already specs it, and the
 recursive exit's block ids are the only place the registration path mints one.
 
-## The three scope restrictions this bundle makes operational
+## The four scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
 violates one makes the bundle *unsatisfiable* — the right failure mode, but only because it
@@ -56,10 +56,16 @@ is written down:
    the bridge's motives, which is a separate, larger change.
 3. **No fragment constant is emitted as an axiom.** `axiom_free` covers both `addAxiom`
    sites — the value-less and `@[extern] + preferAxiom` exits of `visitMutual` — which is
-   what lets a δ record transport across every state-growing step that is not a constant
-   registration.
+   what a capstone needs to know that a fragment constant the walk reached really has a
+   recorded *body* and not a value-less axiom entry.
+4. **Fragment names are distinguished by their kernames.** `Erasure.toKername` is not
+   injective, so without `kinj` the δ *record* below is false whenever two fragment names
+   collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
 
-## The one residue that is not a scope statement
+## The record, and the one residue that is not a scope statement
+
+`DeltaMem` and `RunConclδ` (below) are not hypotheses at all: they are what the bridge
+*proves* about a run, and they live here because the bridge's motives mention them.
 
 `uniform` is the `∀ Δ` context-uniformity residue that
 `ColdStartDelta.registeredClosureData_step_nonrec` already carries as `huni`: the bridge
@@ -98,6 +104,18 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   registered `casesOn` head. (The same conjunct `RegisteredClosureData.disj` carries, and
   what kills the constructor-spine disjunct of `Erases.app_inv` in a δ case.) -/
   disj : ∀ {n : Name}, known n → Γ.ctors n = none ∧ Γ.casesOns n = none
+  /-- **Fragment names are distinguished by their kernames** — scope restriction 4, and
+  the one the δ *record* needs rather than the δ *reference* (slice D4b).
+
+  `Erasure.toKername` is **not** injective (`ColdStartShape.mutualBlockKn_eq_toKername`:
+  the block-key and constant-key spaces genuinely overlap), so two distinct names can be
+  filed in `gdecls` under one key. A record saying "the body stored under `Γ.constants n`
+  erases what `Esrc` records for `n`" is then simply false for one of them, and the walk
+  cannot repair it — it stores one entry per registration and never looks at the other
+  name. Restricting the claim to the fragment is what makes it true, and it is the
+  fragment-scoped form of the `hkinj` naming-scheme assumption the cold-start capstone has
+  to pay anyway for `KeysDistinct`. -/
+  kinj : ∀ {m m' : Name}, known m → known m' → Γ.constants m = Γ.constants m' → m = m'
   /-- **No block-local fixvar map** — scope restriction 2. This is the `hnfv` every
   top-level capstone already pins, moved into the bundle because it is exactly what the
   dependency's reader (`withReader (… fixvars := .none …)`) has to agree with. -/
@@ -244,6 +262,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cctx ref where
   esrc_sub := by intro n h; simp at h
   disj := fun h => h.elim
+  kinj := fun h => h.elim
   nofixvars := hnfv
   decl_run := fun h => h.elim
   prepared := fun h => h.elim
@@ -255,6 +274,146 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   ci_run := hci
   prep_run := hprep
   uniform := by intro n pe t Δ h; simp at h
+
+/-! ## The δ record along the walk
+
+`DeltaHyps` is what a δ-*reference* costs. What follows is what a δ-*record* is: the fact
+the walk produces about the bodies it registers, in the form that survives being carried
+through the bridge induction. -/
+
+/-- **The δ record, membership-flavoured.** Every constant body the walk has *recorded* for
+a fragment name really erases the source body `Esrc` records for it.
+
+Three deliberate choices, each forced by where this has to travel:
+
+* **membership in `gdecls`, not `envLookup`.** `RegisteredClosureData.mono` needs
+  `KeysDistinct` to transport, and slice S1e proved that no state predicate carried along
+  the walk can maintain key distinctness (`ColdStartInduction.runClosed_keysDistinct_refuted`).
+  Membership needs no key discipline; `ColdStartDelta.envLookup_of_mem_of_keys` converts
+  once, at the end, where `KeysDistinct` is a capstone premise anyway.
+* **keyed on the recorded entry, not on the registry domain.** The domain grows at
+  *every* `addAxiom`, including the `@[extern]`-constructor prefix inside
+  `register_inductive`, and killing those needs the `addAxiom` runs, which
+  `Erasure.run_register_inductive_cold_ok` does not hand back (it exposes a `ConstExt`).
+  Keyed on the entry, the same call transports for free: every entry it conses is either
+  `.constantDecl ⟨none⟩` or an `.inductiveDecl`, and neither is of this shape. The
+  existence half — "the walk did record a body for every fragment constant it reached" —
+  is therefore *not* part of this record; it is a separate walk fact, and the capstone
+  conversion below takes it as a premise.
+* **`∃ Δ`, not `∀ Δ`.** The bridge fires at the `Δ` of the *call site*, and `visitMutual`'s
+  `withReader` keeps the ambient `lctx`, so a dependency reached from inside a binder is
+  erased at a non-empty `Δ`. Lifting to `∀ Δ` is the `uniform`/`huni` residue this
+  development already carries as a premise everywhere else. -/
+structure DeltaMem (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Esrc : SEnv)
+    (s : ErasureState) : Prop where
+  erase : ∀ {n : Name} {body : Expr} {t : LBTerm}, Esrc n = some body →
+    (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+    ∃ Δ : VLCtx, Erases env Us Γ Δ body t
+
+/-- At the entry state there is nothing recorded, so the record holds. -/
+theorem DeltaMem.empty {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv} :
+    DeltaMem env Us Γ Esrc {} where
+  erase := by intro n body t _ hm; simp at hm
+
+/-- **The general transport.** A step that conses no `.constantDecl ⟨some _⟩` entry keeps
+the record — that is every step of the walk except the two constant registrations. -/
+theorem DeltaMem.mono_of_gdecls {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s s' : ErasureState} (h : DeltaMem env Us Γ Esrc s)
+    (hg : ∀ {kn : Kername} {t : LBTerm},
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s'.gdecls →
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls) :
+    DeltaMem env Us Γ Esrc s' where
+  erase := fun hb hm => h.erase hb (hg hm)
+
+/-- Transport across a state whose `gdecls` did not move at all (the `@[inline]`
+bookkeeping, and every state-transparent primitive). -/
+theorem DeltaMem.of_gdecls_eq {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s s' : ErasureState} (h : DeltaMem env Us Γ Esrc s)
+    (hg : s'.gdecls = s.gdecls) : DeltaMem env Us Γ Esrc s' :=
+  h.mono_of_gdecls (by rw [hg]; exact id)
+
+/-- Transport across an axiom registration: it conses a *value-less* entry, so it cannot
+be the recorded body of anything. (This is why `DeltaHyps.axiom_free` is not needed to
+carry the record — only to reach the capstone's existence half.) -/
+theorem DeltaMem.addAxiom {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s : ErasureState} (h : DeltaMem env Us Γ Esrc s) (m : Name) :
+    DeltaMem env Us Γ Esrc (addAxiomState m s) := by
+  refine h.mono_of_gdecls ?_
+  intro kn t hm
+  rcases List.mem_cons.mp hm with heq | hm'
+  · exact absurd heq (by simp)
+  · exact hm'
+
+/-- **The one extension step.** The non-recursive exit conses the body it just erased; the
+record grows by exactly that witness. -/
+theorem DeltaMem.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s : ErasureState} {n : Name} {t : LBTerm} (h : DeltaMem env Us Γ Esrc s)
+    (hkn : Γ.constants n = toKername n)
+    (hinj : ∀ {m : Name}, (Esrc m).isSome → Γ.constants m = Γ.constants n → m = n)
+    (hwit : ∀ {body : Expr}, Esrc n = some body → ∃ Δ : VLCtx, Erases env Us Γ Δ body t) :
+    DeltaMem env Us Γ Esrc (nonrecConstState n t s) where
+  erase := by
+    intro m body t' hb hm
+    rcases List.mem_cons.mp hm with heq | hm'
+    · obtain ⟨hk, hd⟩ : Γ.constants m = toKername n ∧
+          GlobalDecl.constantDecl ⟨some t'⟩ = GlobalDecl.constantDecl ⟨some t⟩ := by
+        simpa using heq
+      obtain rfl : t' = t := by simpa using hd
+      obtain rfl : m = n := hinj (by rw [hb]; simp) (by rw [hk, hkn])
+      exact hwit hb
+    · exact h.erase hb hm'
+
+/-- **The state-side conclusion every bridge motive carries** (slice D4b): the run grew the
+state in the registration-only way `Erasure.RunConcl` describes, *and* it carried the δ
+record with it. Bundling the two keeps the motives' shape — and the ~40 sites that produce
+it — unchanged: a `RunConclδ` is produced and composed exactly where a `RunConcl` was. -/
+structure RunConclδ (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Esrc : SEnv)
+    (s s' : ErasureState) : Prop where
+  rc : Erasure.RunConcl s s'
+  δ : DeltaMem env Us Γ Esrc s → DeltaMem env Us Γ Esrc s'
+
+theorem RunConclδ.rfl' {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    (s : ErasureState) : RunConclδ env Us Γ Esrc s s :=
+  ⟨Erasure.RunConcl.rfl' s, id⟩
+
+theorem RunConclδ.of_eq {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s s' : ErasureState} (h : s' = s) : RunConclδ env Us Γ Esrc s s' := by
+  subst h; exact RunConclδ.rfl' _
+
+theorem RunConclδ.trans {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s s' s'' : ErasureState} (h : RunConclδ env Us Γ Esrc s s')
+    (h' : RunConclδ env Us Γ Esrc s' s'') : RunConclδ env Us Γ Esrc s s'' :=
+  ⟨h.rc.trans h'.rc, fun hm => h'.δ (h.δ hm)⟩
+
+/-- The three registration deltas of `visitMutual`, as `RunConclδ` steps: the `@[inline]`
+bookkeeping and the axiom exit record no body, and the non-recursive exit records exactly
+the one the caller has just erased. -/
+theorem RunConclδ.inlinings {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    (s : ErasureState) (kn : Kername) :
+    RunConclδ env Us Γ Esrc s { s with inlinings := kn :: s.inlinings } :=
+  ⟨Erasure.runConcl_inlinings s kn, fun h => h.of_gdecls_eq rfl⟩
+
+theorem RunConclδ.addAxiom {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    (m : Name) (s : ErasureState) :
+    RunConclδ env Us Γ Esrc s (Erasure.addAxiomState m s) :=
+  ⟨Erasure.runConcl_addAxiomState m s, fun h => h.addAxiom m⟩
+
+theorem RunConclδ.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s : ErasureState} {n : Name} {t : LBTerm}
+    (hkn : Γ.constants n = toKername n)
+    (hinj : ∀ {m : Name}, (Esrc m).isSome → Γ.constants m = Γ.constants n → m = n)
+    (hwit : ∀ {body : Expr}, Esrc n = some body → ∃ Δ : VLCtx, Erases env Us Γ Δ body t) :
+    RunConclδ env Us Γ Esrc s (Erasure.nonrecConstState n t s) :=
+  ⟨Erasure.runConcl_nonrecConstState n t s, fun h => h.nonrec hkn hinj hwit⟩
+
+/-- A step that conses no recorded body is a `RunConclδ` as soon as it is a `RunConcl`. -/
+theorem RunConclδ.of_runConcl_gdecls {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s s' : ErasureState} (h : Erasure.RunConcl s s')
+    (hg : ∀ {kn : Kername} {t : LBTerm},
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s'.gdecls →
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls) :
+    RunConclδ env Us Γ Esrc s s' :=
+  ⟨h, fun hm => hm.mono_of_gdecls hg⟩
 
 /-! ## Non-vacuity
 

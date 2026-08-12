@@ -260,6 +260,71 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     · obtain ⟨body', hlook, her, hnbb⟩ := hold.erase hunf
       exact ⟨body', envLookup_mono_stateLe hle hkeys hlook, her, hnbb⟩
 
+/-! ## From the walk's record to the capstone's — the conversion (slice D4b)
+
+`DeltaMem` (`DeltaHyps.lean`) is what the bridge now *carries*: every constant body the
+walk recorded for a fragment name erases the source body `Esrc` records for it. Membership
+in `gdecls`, not `envLookup`, is what makes it survive the walk (S1e's refutation:
+`KeysDistinct` cannot be carried by a state predicate), so the conversion happens once,
+here, at the final state — which is also where `KeysDistinct` is a capstone premise anyway.
+
+Three halves the record deliberately does **not** carry, each a premise below and each for
+a reason that is not an oversight:
+
+* **existence** (`hreg`) — the walk registered a body for every fragment constant it
+  reached. That is a *reachability* fact about the source program, not about the erasure;
+  the record is keyed on the entry precisely so that `register_inductive`'s `@[extern]`
+  axiom prefix (which grows the registry domain without recording a body) transports for
+  free. `DeltaHyps.axiom_free` is what will rule out the axiom-emitted names when a
+  capstone discharges this.
+* **context uniformity** (`huni`) — the bridge fires at the `Δ` of the call site, and
+  `RegisteredClosure` quantifies over all `Δ`. This is the same `huni` residue
+  `registeredClosureData_step_nonrec` carries, and it is a lean4lean-side `TrExprS`
+  weakening obligation, not an erasure one.
+* **applied form** (`hnb`, the `Data` version only) — `NoBlock` of the stored body is an
+  output-shape statement about `visitExpr`; the shape induction proves `NoFix`/`LBClosed`
+  and not this, and inside the bridge the erasure argument is abstract, so no motive can
+  conclude it. It is `ColdStartSubject.noBlock`'s job, widened to every reader context. -/
+
+/-- **The walk's δ record becomes the capstone's** (β + δ flavour). -/
+theorem registeredClosure_of_deltaMem {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s : ErasureState}
+    (h : DeltaMem env Us Γ Esrc s) (hkeys : KeysDistinct s.gdecls)
+    (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (hreg : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      ∃ t : LBTerm, (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls)
+    (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t) :
+    RegisteredClosure env Us Γ Esrc s.gdecls where
+  disj := hdisj
+  erase := by
+    intro n body hb
+    obtain ⟨t, hmem⟩ := hreg hb
+    obtain ⟨Δ, her⟩ := h.erase hb hmem
+    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb her⟩
+
+/-- **The walk's δ record becomes the capstone's** (data flavour): the same conversion,
+plus the applied-form conjunct the data simulation consumes. -/
+theorem registeredClosureData_of_deltaMem {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s : ErasureState}
+    (h : DeltaMem env Us Γ Esrc s) (hkeys : KeysDistinct s.gdecls)
+    (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (hreg : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      ∃ t : LBTerm, (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls)
+    (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
+    (hnb : ∀ {kn : Kername} {t : LBTerm},
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls → NoBlock t) :
+    RegisteredClosureData env Us Γ Esrc s.gdecls where
+  disj := hdisj
+  erase := by
+    intro n body hb
+    obtain ⟨t, hmem⟩ := hreg hb
+    obtain ⟨Δ, her⟩ := h.erase hb hmem
+    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb her, hnb hmem⟩
+
 /-! ## Non-vacuity
 
 The bridge-facing results here inherit their guards from `erases_nonrec_const_body`
@@ -291,6 +356,28 @@ theorem gRecConstState_lookups :
     LBTerm.envLookup (recConstState [`f, `g] gRecDefs {}).gdecls (toKername `g)
         = some (.constantDecl ⟨some (.fix gRecDefs 1)⟩) :=
   ⟨recConstState_envLookup (by simp) gRecKeys, recConstState_envLookup (by simp) gRecKeys⟩
+
+/-- **The δ record is non-vacuous on real data**: a one-entry environment in which the
+fragment's constant `f` really is recorded, and the recorded body really erases the body
+`Esrc` gives it (`Erases.bvar`, a rule with no typing premise, so the witness is fully
+constructed). Both of `DeltaMem.erase`'s premises are inhabited here — the record is not
+true merely because `gdecls` is empty or `Esrc` is `⊥`. -/
+theorem gDeltaMem (env : VEnv) (Us : List Name) :
+    DeltaMem env Us gΓδ (gEsrcδ (.bvar 0))
+      { ({} : ErasureState) with
+        gdecls := [(toKername `f, .constantDecl ⟨some (.bvar 0)⟩)] } where
+  erase := by
+    intro n body t hb hm
+    have hn : n = `f := by
+      by_cases h : n = `f
+      · exact h
+      · simp [gEsrcδ, h] at hb
+    subst hn
+    obtain rfl : body = .bvar 0 := by simpa [gEsrcδ] using hb.symm
+    obtain rfl : t = .bvar 0 := by
+      simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
+      simpa using (by simpa using hm : gΓδ.constants `f = toKername `f ∧ t = LBTerm.bvar 0).2
+    exact ⟨[], .bvar 0⟩
 
 /-- Non-vacuity: the *later*-consed sibling does not shadow the earlier one — which is
 what `envLookup_of_mem_of_keys` buys, and what a caller's `KeysDistinct` premise is for. -/

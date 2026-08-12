@@ -1414,3 +1414,61 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- δ-inclusion, slice D4b (2026-08-12): the δ RECORD travels the walk. Every bridge
+-- motive's state conclusion is now `RunConclδ` — `Erasure.RunConcl` plus "the record
+-- survived" — so the top-level run reports what the walk recorded, instead of the
+-- capstone assuming it.
+--
+-- WHAT LANDED.
+--   * `DeltaMem` — "every constant body the walk RECORDED for a fragment name erases the
+--     source body `Esrc` records for it", membership-flavoured (S1e proved no state
+--     predicate along the walk can maintain `KeysDistinct`, so `envLookup` cannot be the
+--     carrier; the conversion happens once, at the end).
+--   * `RunConclδ` — the bundle that made the threading cheap: `rc` + the record's
+--     transport, produced and composed exactly where a `RunConcl` was, so the ~40
+--     conclusion sites of the 18-motive induction did not have to change shape.
+--   * step 6 extends the record at the non-recursive exit (the body it just erased, from
+--     motive 1's own IH), and transports it across the axiom exits and the `@[inline]`
+--     bookkeeping for free; step 3 and step 17 transport it across `register_inductive`
+--     via `run_register_inductive_gdeclsConst` — every entry that call conses is an
+--     `.inductiveDecl` or a value-less `.constantDecl ⟨none⟩`.
+--   * `registeredClosure{,Data}_of_deltaMem` — the capstone-side conversion (membership
+--     + `KeysDistinct` → `envLookup`). D5 wires it up; it is not wired here.
+--
+-- FOUR DESIGN CLAIMS THAT DID NOT SURVIVE CONTACT, all recorded at their definitions:
+--   1. the record cannot be keyed on the registry DOMAIN (the design's shape). The domain
+--      grows at `register_inductive`'s `@[extern]`-constructor `addAxiom` prefix, and
+--      `run_register_inductive_cold_ok` exposes a `ConstExt`, not the per-name `addAxiom`
+--      runs `DeltaHyps.axiom_free` would need. Keyed on the recorded ENTRY, the same call
+--      transports for free — at the price of the existence half becoming a premise of the
+--      conversion (`hreg`).
+--   2. `NoBlock` cannot be part of the record: it is an output-shape statement, the shape
+--      induction proves `NoFix`/`LBClosed` and not it, and inside the bridge the erasure
+--      argument is abstract. It is a premise of the `Data` conversion.
+--   3. `∀ Δ` cannot be part of the record either: the bridge fires at the `Δ` of the CALL
+--      SITE (`visitMutual`'s `withReader` keeps the ambient `lctx`), so the record carries
+--      `∃ Δ` and the conversion takes the `huni` residue this development already carries
+--      everywhere else.
+--   4. the extension step is FALSE without a naming assumption: `Erasure.toKername` is not
+--      injective (`mutualBlockKn_eq_toKername`), so two names can share a `gdecls` key and
+--      the record is then false for one of them. `DeltaHyps.kinj` restricts it to the
+--      fragment — the fragment-scoped form of the capstone's `hkinj`.
+--
+-- LEDGER: no new axiom. `DeltaMem`/`RunConclδ` are `Prop`s over `Erases`, so their types
+-- carry lean4lean's `sorryAx` exactly as `BridgeInv`'s do; the two `Erasure`-side lemmas
+-- are pure `EraseM`/list reasoning and are sorryAx-free.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.DeltaMem
+#print axioms LeanToLambdaBox.DeltaMem.empty
+#print axioms LeanToLambdaBox.DeltaMem.nonrec
+#print axioms LeanToLambdaBox.RunConclδ
+#print axioms LeanToLambdaBox.RunConclδ.trans
+#print axioms Erasure.run_register_inductive_gdeclsConst
+
+-- The record is non-vacuous on real data, and converts.
+#print axioms LeanToLambdaBox.gDeltaMem
+#print axioms LeanToLambdaBox.registeredClosure_of_deltaMem
+#print axioms LeanToLambdaBox.registeredClosureData_of_deltaMem

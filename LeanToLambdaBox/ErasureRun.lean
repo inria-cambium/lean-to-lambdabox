@@ -1727,6 +1727,44 @@ theorem run_register_inductive_runConcl {indinfo : InductiveVal}
       by show ((mutualBlockKn indinfo, _) :: sM.gdecls) = _; rw [List.cons_append, ← hpre]⟩⟩,
       hext.canon⟩
 
+/-- **What `register_inductive` does *not* record.** Every `gdecls` entry it conses is
+either an `.inductiveDecl` (the block itself) or a value-less `.constantDecl ⟨none⟩` (one
+per `@[extern]` constructor, via `addAxiom`), so it never records a constant *body*.
+
+This is what lets a δ record — "the body stored for a fragment constant erases its source
+body" — cross the call for free. Keyed on entries rather than on the registry domain,
+because the domain *does* grow here and the `addAxiom` runs that grow it are not handed
+back (the miss branch exposes a `ConstExt`, not its per-name runs). -/
+theorem run_register_inductive_gdeclsConst {indinfo : InductiveVal}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : InductiveId × InductiveArgMasks} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : register_inductive indinfo s ctx cctx ref w = .ok (r, s₁) w₁) :
+    ∀ {kn : Kername} {t : LBTerm},
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s₁.gdecls →
+      (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls := by
+  intro kn t hm
+  cases hi : s.inductives.get? indinfo.name with
+  | some rc0 =>
+    obtain ⟨-, hs, -⟩ := run_register_inductive_hit_ok hi hrun
+    rw [hs] at hm
+    exact hm
+  | none =>
+    obtain ⟨bodies, sM, hs1, -, -, hext, -, -⟩ := run_register_inductive_cold_ok hi hrun
+    subst hs1
+    obtain ⟨pre, hpre, hax⟩ := hext.gdecls
+    show (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls
+    have hm' : (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈
+        (mutualBlockKn indinfo, GlobalDecl.inductiveDecl
+          { npars := indinfo.numParams, bodies := bodies }) :: sM.gdecls := hm
+    rcases List.mem_cons.mp hm' with heq | hm''
+    · exact absurd heq (by simp)
+    · rw [hpre] at hm''
+      rcases List.mem_append.mp hm'' with hmem | hmem
+      · obtain ⟨hd, -⟩ := hax _ hmem
+        exact absurd hd (by simp)
+      · exact hmem
+
 /-- **R9.** -/
 theorem run_mkDef_ok {nm : Name} {fixvarnames : List Name} {body : LBTerm}
     {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
