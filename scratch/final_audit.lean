@@ -712,3 +712,8 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.noFix_foldl_toBvar
 #print axioms LeanToLambdaBox.lbClosed_foldl_toBvar
 #print axioms LeanToLambdaBox.lbClosed_foldl_zipIdx
+-- The `RegInvShape` closure lemmas `run_visitMutual_ok` consumes at two of its four
+-- exits. The recursive exit's (`RegInvShape` under `Erasure.recConstState`) is the one
+-- piece of the R7 interface still open.
+#print axioms LeanToLambdaBox.RegInvShape.inlinings
+#print axioms LeanToLambdaBox.RegInvShape.nonrecConst

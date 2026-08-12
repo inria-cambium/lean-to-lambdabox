@@ -653,6 +653,67 @@ theorem regInvShape_nonrec_cons_iff {Γ : ErasureCtx} {s : ErasureState} {n : Na
       · cases hdd; exact ht
       · exact h.closed hpass
 
+/-! ### The two remaining `visitMutual` exits
+
+`Erasure.run_visitMutual_ok` (R7) discharges a state predicate through `visitMutual`
+given one closure lemma per exit. Two of the four are already above (`addAxiom`, and
+`register_inductive` is not on this path); the inlining-bookkeeping exit and the
+non-recursive constant exit are here. The recursive exit's closure lemma
+(`RegInvShape` under `Erasure.recConstState`) is the one piece of the interface still
+open — see the module note below. -/
+
+/-- **The inlining-bookkeeping exit.** `RegInvShape` mentions only `constants` and
+`gdecls`, so the `inlinings` cons is invisible to it — which is the formal counterpart
+of `Program` dropping that field (`erase` returns `s.inlinings` separately). -/
+theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername}
+    (h : RegInvShape Γ s) : RegInvShape Γ { s with inlinings := kn :: s.inlinings } :=
+  ⟨h.kn, h.keys, h.ctors, h.cases, h.fields, h.nofix, h.closed⟩
+
+/-- **The non-recursive constant exit.** The stored body is a `visitExpr` output, so its
+`NoFix`/`LBClosed` obligations (`regInvShape_nonrec_cons_iff`) must be supplied — that is
+`hnf`/`hcl`, the output-shape facts `LeanToLambdaBox.OutputShape` and the (still open)
+result induction produce. Everything else mirrors `RegInvShape.addAxiom`. -/
+theorem RegInvShape.nonrecConst {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
+    (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
+    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
+    (hnf : NoFix t) (hcl : LBClosed t 0) :
+    RegInvShape Γ (nonrecConstState n t s) where
+  kn := by
+    intro m k hm
+    simp only [nonrecConstState] at hm
+    rw [Std.HashMap.get?_insert] at hm
+    split at hm
+    · rename_i heq
+      cases hm
+      have hnm : n = m := by simpa using heq
+      subst hnm
+      exact hΓ.symm
+    · exact h.kn hm
+  keys := KeysDistinct.cons hfresh h.keys
+  ctors := by
+    intro cn iid cidx hdom hc
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    exact (h.ctors hdom' hc).cons hne
+  cases := by
+    intro con iid np hdom hc
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    obtain ⟨body, oib, hlk, hbod, hnp, hprop⟩ := h.cases hdom' hc
+    exact ⟨body, oib, envLookup_cons_of_ne hne hlk, hbod, hnp, hprop⟩
+  fields := by
+    intro con iid np hdom hc
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    exact (h.fields hdom' hc).cons hne
+  nofix := by
+    intro kn body' hl
+    rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
+    · cases hd; exact Or.inl hnf
+    · exact h.nofix hpass
+  closed := by
+    intro kn body hl
+    rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
+    · cases hd; exact hcl
+    · exact h.closed hpass
+
 /-! ### Non-vacuity
 
 `RegInvShape.empty` is constructed, so the invariant is inhabited. The guards below add
