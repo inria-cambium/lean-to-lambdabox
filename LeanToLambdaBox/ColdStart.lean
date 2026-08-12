@@ -28,35 +28,45 @@ Everything below is *derived from the run*, not assumed:
 | `hclenv : ClosedEnv E` | `RegInvShape.closed`, at the run's final state (S1e: carried by `visitExpr_regInvShape`, a theorem) |
 | `hcl : LBClosed t 0` | `visitExpr_noFix_closed` (R11, no hypotheses) |
 | `hregctors`/`hregcases`/`hregfields` | `RegInvShape.registeredCtors/…`, modulo saturation |
-| `hdelta : ErasesEnvDeltaData` | vacuous — see the scope note |
-| `known` as a free variable | instantiated to `⊥` — see the scope note |
+| `hdelta : ErasesEnvDeltaData` | the walk's own δ record, converted (slice D5) |
+| `known` as a free variable | stays free — the fragment (slice D5) |
 
-## Scope note: the cold-start fragment is δ-free, and why
+## Scope note: the cold-start fragment used to be δ-free (slices D1–D5)
 
-`BridgeInv.known_dom` says a `known` constant is *already registered*. At the empty state
-nothing is, so the only sound instantiation is `known = ⊥` — and `Supported.const` needs
-`known n`. **The cold-start fragment therefore contains no δ-constant**: constructors,
-`casesOn` heads, literals, λ, `let` and application, but no plain constant reference.
-Consequently `Esrc` is empty here and the δ records (`SEnvConsistent`,
-`ErasesEnvDeltaData`, `RecEnvConsistent`) are discharged *vacuously* rather than from the
-walk. Slice S3 (`ColdStartDelta`) proves the δ content that a δ-carrying cold start would
-need — "the body a `visitMutual` exit recorded really erases the body it erased" — but it
-cannot be *reached* until the following gap is closed, and this is the precise statement
-of that gap:
+Every capstone here was pinned at `known = ⊥`, `Esrc = ⊥` until slice D5, and the reason
+was one invariant field:
 
-> `get_constant_kername`'s **miss** branch (bridge motive 5) is still refuted rather than
-> proved. Closing it needs motive 6 (`visitMutual`) to conclude `RunConcl` +
-> generator-monotonicity + "`n` is now registered". Motive 6 can only get those from
-> motive 1 (the bridge's own IH for the *abstract* erasure argument), and motive 1's
-> conclusion is entirely **conditional** on `BridgeInv`/`Supported`/`TrExprS` — which a
-> dependency's body does not come with. So the fix is not a new `RegBridgeHyps` field, as
-> slice S2's note supposed: it is a restructuring of `visitExpr_refines_erases_core`'s
-> motives to carry an *unconditional* state/generator conjunct alongside the conditional
-> `Erases` one, i.e. a merge of the bridge induction with the shape induction.
+> `BridgeInv.known_dom` said a `known` constant is *already registered*. At the empty state
+> nothing is, so the only sound instantiation was `known = ⊥` — and `Supported.const` needs
+> `known n`. The cold-start fragment therefore contained no δ-constant: constructors,
+> `casesOn` heads, literals, λ, `let` and application, but no plain constant reference.
+> Consequently `Esrc` was empty and the δ records (`SEnvConsistent`, `ErasesEnvDeltaData`,
+> `RecEnvConsistent`) were discharged *vacuously* rather than from the walk.
 
-Everything else the design predicted for this slice holds: the entry point reduces, the
-invariant starts vacuously true and survives, and the environment the theorem talks about
-is the one the run built.
+The field is gone (D4a, with `visitMutual`'s motive taking its job), the record now travels
+the walk (D4b, `DeltaMem`/`RunConclδ`), and this slice (D5) wires the two into the
+capstones. What changed here, precisely:
+
+* `known` and `Esrc` are **parameters**. `gBridgeInv_nil` no longer pins `known`, so the
+  entry configuration carries the invariant at any fragment.
+* `ErasesEnvDeltaData` is **derived**, not assumed: the bridge's `RunConclδ` transports
+  `DeltaMem.empty` to the run's final state, and
+  `ColdStartDelta.registeredClosureData_of_deltaMem_walked` converts it.
+* The conversion is stated at `Esrc.walked Γ sf.gdecls` — `Esrc` cut down to the constants
+  the run's environment really stores a body for. That is what makes the *existence* of
+  each registration derivable rather than assumed, and it removes the `KeysDistinct`
+  (`hkinj`) premise the design expected to pay here; see `SEnv.walked`. The price is that
+  the source-evaluation premise is stated at the restricted environment — the honest place
+  for "the program only calls what the walk reached".
+* Two residues survive, both named and both pre-existing classes: context-uniformity
+  (`DeltaHyps.uniform`, a lean4lean-side `TrExprS`-weakening obligation) and applied form
+  of the recorded bodies (`ColdStartSubject.noBlockEnv`, an output-shape statement the
+  shape induction does not prove).
+
+`SEnvConsistent` is **not** derived and should not be: it says the prepared body is defeq
+to the kernel's value for the constant, which is a `PrepareHyps`-class fact about the
+elaborator, not about the walk. The δ guard at the end of this file discharges it at a
+concrete two-declaration environment, from `VEnv`'s own defining equation.
 
 ## The premise ledger, after this slice
 
@@ -76,8 +86,11 @@ is the one the run built.
 * **Certificates** — `IotaConsistent`, `IotaArityCoherent`, `IotaRelevant`, the
   constructor/`casesOn` disjointness; all `rfl`-checkable at a concrete `Γ`.
 * **About the subject** — `ColdStartSubject` (the prepared term is supported and
-  translatable; the output is in applied form) and the source evaluation, both stated
-  about `prepare_erasure e` rather than `e`, since that is what the run erases.
+  translatable; the output, and every body the walk recorded, is in applied form) and the
+  source evaluation, both stated about `prepare_erasure e` rather than `e`, since that is
+  what the run erases.
+* **The δ fragment** (slice D5) — `DeltaHyps` (scope side) and `SEnvConsistent` (source
+  side). Everything *target*-side about δ is derived.
 -/
 
 namespace LeanToLambdaBox
@@ -215,19 +228,36 @@ prepare run that produces it.
 `PrepareHyps.prepare_sound` is what relates the prepared term's source evaluation back to
 `e`'s; it is stated for `SEvalData`, so the `SEvalDataι`/`SEvalDataC` flavours the
 capstones use are taken directly about the prepared term. -/
-structure ColdStartSubject (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
-    (e : Expr) (cfg : ErasureConfig) (cctx : Core.Context)
+structure ColdStartSubject (env : VEnv) (Us : List Name) (known : Name → Prop)
+    (Γ : ErasureCtx) (e : Expr) (cfg : ErasureConfig) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld) : Prop where
-  /-- The prepared term is in the supported fragment (at `known = ⊥`: no δ-constant —
-  see the module docstring) and lean4lean translates it. -/
+  /-- The prepared term is in the supported fragment — since slice D5 at an **arbitrary**
+  fragment `known`, so the subject may reference constants; before D5 the only sound
+  instantiation was `known = ⊥`, and the reason is the module docstring's scope note.
+  Read this in one breath with `DeltaHyps.prepared`, which is the *same* premise for the
+  subject's callees. -/
   supported : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
     Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
-    Supported (fun _ => False) Γ pe ∧ ∃ ve, TrExprS env Us [] pe ve
+    Supported known Γ pe ∧ ∃ ve, TrExprS env Us [] pe ve
   /-- The erased term is in applied (`NoBlock`) form — the data fragment's shape premise,
   here about the entry point's own run. -/
   noBlock : ∀ {pe : Expr} {sp : ErasureState} {wp : Void IO.RealWorld} {t : LBTerm}
       {sf : ErasureState} {wt : Void IO.RealWorld},
     Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt → NoBlock t
+  /-- **…and so is every body the walk recorded on the way** (slice D5) — the applied-form
+  residue of the δ record, in the only shape available at the capstone.
+
+  It is the same statement as `noBlock` one level down, and it stays a premise for the
+  same reason: `NoBlock` is an output-shape fact about `visitExpr`, the shape induction
+  proves `NoFix`/`LBClosed` and not it (`ColdStartInduction.visitExpr_regInvShape`), and
+  inside the bridge the erasure argument is abstract, so no motive can conclude it either.
+  Note it is stated about the run's final *environment* rather than about a dependency's
+  own run: at the capstone a `gdecls` entry does not come with the run that produced it,
+  and manufacturing that link is a separate walk fact this slice does not build. -/
+  noBlockEnv : ∀ {pe : Expr} {sp : ErasureState} {wp : Void IO.RealWorld} {t : LBTerm}
+      {sf : ErasureState} {wt : Void IO.RealWorld},
+    Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+    NoBlockEnv sf.gdecls
 
 /-! ## The capstone -/
 
@@ -246,12 +276,15 @@ docstring's ledger.
 -/
 theorem shipping_erase_correct_firstorderι_coldstart
     {env : VEnv} (henv : env.WF) {Us : List Name} (hUs : Us = [])
-    {Γ : ErasureCtx} {ia : IotaArities} {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {ia : IotaArities} {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
     -- Γ-side conditions
     (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
     -- registration bundle
     (Hr : RegBridgeHyps Γ)
+    -- the source-side δ trust item (see the ledger: it cannot come from the walk)
+    (hcon : SEnvConsistent env Us Esrc)
     -- ι certificates
     (hiota : IotaConsistent env Us Γ ia)
     (hiacoh : IotaArityCoherent Γ ia)
@@ -262,14 +295,15 @@ theorem shipping_erase_correct_firstorderι_coldstart
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     -- the subject
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
-    (S : ColdStartSubject env Us Γ e cfg cctx ref w)
-    (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
-      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
-      SEvalDataι Γ ia (fun _ => none) pe v)
+    (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
+    (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      SEvalDataι Γ ia (Esrc.walked Γ sf.gdecls) pe v)
     (hfo : FirstOrderValue env Us Γ [] v)
     -- the run: the REAL entry point, cold
     {p : Program} {inls : List Kername} {w' : Void IO.RealWorld}
@@ -289,23 +323,38 @@ theorem shipping_erase_correct_firstorderι_coldstart
   have hshape : RegInvShape Γ sf := (visitExpr_regInvShape Hr hvis (RegInvShape.empty Γ)).1
   have hcl : LBClosed t 0 := (visitExpr_noFix_closed hvis).2
   -- The bridge invariant is *constructed* at the entry configuration.
-  have hinv : BridgeInv env [] (fun _ => False) Γ (gw wp) { «config» := cfg } {} [] :=
-    gBridgeInv_nil env [] Γ Hr.knames hnfv (gw wp) cfg hnat
+  have hinv : BridgeInv env [] known Γ (gw wp) { «config» := cfg } {} [] :=
+    gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, hex⟩ := S.supported hpr
   obtain ⟨ve, htr⟩ := hex
+  -- D5: the δ record the walk carried, at the run's final state. `DeltaMem.empty` is the
+  -- entry-state instance (nothing is recorded yet), and the bridge's `RunConclδ` — the
+  -- state-side conclusion every motive carries since D4b — transports it to `sf`.
+  have hmem : DeltaMem env [] Γ Esrc sf :=
+    (visitExpr_refines_erases H HD C Hδ henv.ordered pe {} { «config» := cfg } cctx ref wp
+      t sf wt hvis [] hinv hsup ⟨ve, htr⟩).2.1.δ DeltaMem.empty
+  -- …converted, at the walk-restricted source environment, into the record the data
+  -- simulation consumes. Existence and key distinctness are *by construction* of
+  -- `SEnv.walked`; `hdisj` is the fragment's own δ-closure clause; the two residues are
+  -- `DeltaHyps.uniform` and the subject bundle's `noBlockEnv`.
+  have hdelta : ErasesEnvDeltaData env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
+    erasesEnvDeltaData_of_registeredClosureData
+      (registeredClosureData_of_deltaMem_walked hmem
+        (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
+        (fun hb _ her => (Hδ cctx ref).uniform hb her) (S.noBlockEnv hvis))
   obtain ⟨t', heval, htrv, herv, hnbv, hclv, huniq⟩ :=
-    shipping_erase_correct_firstorderι henv (Us := []) (Esrc := fun _ => none)
-      (E := sf.gdecls) (known := fun _ => False)
-      (by intro Δ n us body cve h; exact absurd h (by simp))
+    shipping_erase_correct_firstorderι henv (Us := [])
+      (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
+      hcon.walked
       hiota
-      (by intro Δ n body h; exact absurd h (by simp))
+      hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
       (erasesEnvCases_of_registeredCases (hshape.registeredCases (Hr.satCases hvis)))
       (ctorFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
       hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C Hδ
-      hvis hinv hsup htr (S.noBlock hvis) hcl (hev hpr) hfo
+      hvis hinv hsup htr (S.noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
 /-- **Cold-start D3 — the βζδ+data flavour.** Same composition, with the source
@@ -315,22 +364,25 @@ dropped; it goes through `shipping_erase_correct_firstorder`, whose conclusion c
 "the composition is uniform" means here. -/
 theorem shipping_erase_correct_firstorder_coldstart
     {env : VEnv} (henv : env.WF) {Us : List Name} (hUs : Us = [])
-    {Γ : ErasureCtx} {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
     (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
     (Hr : RegBridgeHyps Γ)
+    (hcon : SEnvConsistent env Us Esrc)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
-    (S : ColdStartSubject env Us Γ e cfg cctx ref w)
-    (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
-      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
-      SEvalDataC Γ (fun _ => none) pe v)
+    (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
+    (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      SEvalDataC Γ (Esrc.walked Γ sf.gdecls) pe v)
     (hfo : FirstOrderValue env Us Γ [] v)
     {p : Program} {inls : List Kername} {w' : Void IO.RealWorld}
     (hrun : Erasure.erase e cfg cctx ref w = .ok (p, inls) w') :
@@ -344,17 +396,25 @@ theorem shipping_erase_correct_firstorder_coldstart
   obtain ⟨pe, t, sp, sf, wp, wt, hpr, hvis, hp, -⟩ := erase_run_ok hrun
   obtain rfl : sp = {} := run_prepare_erasure_state (by simpa using hcsimp) hpr
   have hshape : RegInvShape Γ sf := (visitExpr_regInvShape Hr hvis (RegInvShape.empty Γ)).1
-  have hinv : BridgeInv env [] (fun _ => False) Γ (gw wp) { «config» := cfg } {} [] :=
-    gBridgeInv_nil env [] Γ Hr.knames hnfv (gw wp) cfg hnat
+  have hinv : BridgeInv env [] known Γ (gw wp) { «config» := cfg } {} [] :=
+    gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, ve, htr⟩ := S.supported hpr
+  have hmem : DeltaMem env [] Γ Esrc sf :=
+    (visitExpr_refines_erases H HD C Hδ henv.ordered pe {} { «config» := cfg } cctx ref wp
+      t sf wt hvis [] hinv hsup ⟨ve, htr⟩).2.1.δ DeltaMem.empty
+  have hdelta : ErasesEnvDeltaData env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
+    erasesEnvDeltaData_of_registeredClosureData
+      (registeredClosureData_of_deltaMem_walked hmem
+        (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
+        (fun hb _ her => (Hδ cctx ref).uniform hb her) (S.noBlockEnv hvis))
   obtain ⟨t', heval, htrv, herv, hnbv, huniq⟩ :=
-    shipping_erase_correct_firstorder henv (Us := []) (Esrc := fun _ => none)
-      (E := sf.gdecls) (known := fun _ => False)
-      (by intro Δ n us body cve h; exact absurd h (by simp))
-      (by intro Δ n body h; exact absurd h (by simp))
+    shipping_erase_correct_firstorder henv (Us := [])
+      (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
+      hcon.walked
+      hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
       hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ
-      hvis hinv hsup htr (S.noBlock hvis) (hev hpr) hfo
+      hvis hinv hsup htr (S.noBlock hvis) (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
 /-! ## Non-vacuity guards
@@ -393,7 +453,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
-    (S : ColdStartSubject envFO [] ΓFOι e cfg cctx ref w)
+    (S : ColdStartSubject envFO [] (fun _ => False) ΓFOι e cfg cctx ref w)
     (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
       SEvalDataι ΓFOι iaFOι (fun _ => none) pe (.const `c []))
@@ -405,7 +465,9 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ S hev
+    (by simp [ΓFOι]) Hr (by intro Δ n us body cve h; exact absurd h (by simp))
+    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ S
+    (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
 /-- The βζδ+data flavour of the same guard, at the same pin. -/
@@ -418,7 +480,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
-    (S : ColdStartSubject envFO [] ΓFOι e cfg cctx ref w)
+    (S : ColdStartSubject envFO [] (fun _ => False) ΓFOι e cfg cctx ref w)
     (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
       SEvalDataC ΓFOι (fun _ => none) pe (.const `c []))
@@ -430,6 +492,291 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr ΓFOι_cc H HD C Hδ S hev (envFO_foC_ι harity) hrun
+    (by simp [ΓFOι]) Hr (by intro Δ n us body cve h; exact absurd h (by simp))
+    ΓFOι_cc H HD C Hδ S (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
+    (envFO_foC_ι harity) hrun
+
+/-! ## The δ guard: a program that CALLS a walked function (slice D5)
+
+The two guards above are the *old* ones, re-checked at the new statement: their fragment
+is still `known = ⊥`, so they exercise the rewiring but not the δ. This section is the one
+the slice exists for — **a two-declaration source**, `g := c` and a program that calls `g`.
+
+### Where it fires, and where it cannot
+
+At the **cold-start** entry point the subject is `prepare_erasure e`, the output of three
+opaque elaborator transforms, so `pe` cannot be named and the source evaluation premise is
+hypothetical whatever the fragment is. What the cold-start guard can therefore show — and
+does, last in this section — is that the capstone's *statement* is now instantiable at a
+genuinely non-empty fragment: `known` holds of `g`, `Esrc` records its body, the bridge
+invariant is constructed at the empty state at that fragment (`gBridgeInv_nil`, `known` no
+longer pinned at `⊥`), and the δ record is *derived* from the walk.
+
+The δ **step** is exercised one level down, at the warm capstone, whose subject can be
+named: `shipping_erase_correct_firstorder` on the program `.const g []`. There the source
+evaluation really takes `SEvalDataC.delta`, and `ErasesEnvDeltaData` — the premise that
+lets the *target* take its matching `WcbvEval` δ step — is produced by D5's conversion out
+of a `DeltaMem`, not assumed. That pair is the whole point of δ-inclusion.
+
+### What is constructed and what is not
+
+Constructed: the environment (a real *definition* `g : I := c`, so `SEnvConsistent` is
+discharged from `VEnv`'s own defining equation rather than assumed — the first time in this
+development that premise is met at a non-empty `Esrc`), its well-formedness, the fragment,
+the `Supported.const` derivation, the bridge invariant, the δ record and its walk
+restriction, the source evaluation's δ step, and the value's first-orderness.
+
+Hypothetical, all pre-existing classes: the run; the four runtime bundles; `NoBlock t`
+(a statement about the run's output); and `harity` — the single lean4lean-blocked side
+condition `FirstOrder.lean` documents, here restated at this environment. -/
+
+section DeltaGuard
+
+/-- The two-declaration environment's new declaration: **a definition**, `g : I := c`.
+`VDecl.WF.def` is what turns it into a `VEnv` defining equation (`VDefVal.toDefEq`), and
+that equation is what `SEnvConsistent` needs — a δ step is a *defeq*, so a fragment
+constant has to be a `def`, not an axiom. -/
+def gDefδ : VDefVal := ⟨⟨⟨0, .const `I []⟩, `g⟩, .const `c []⟩
+
+/-- `envFO` (`I : Sort 1`, `c : I`) extended with the constant `g : I`. -/
+noncomputable def envδ0 : VEnv := (envFO.addConst `g gDefδ.toVConstant).getD .empty
+
+/-- …and with `g`'s defining equation `g ≡ c : I`. -/
+noncomputable def envδ : VEnv := envδ0.addDefEq gDefδ.toDefEq
+
+theorem envδ_addg : envFO.addConst `g gDefδ.toVConstant = some envδ0 := by
+  unfold envδ0 gDefδ envFO VEnv.addConst VEnv.empty; simp
+
+theorem envδ_g : envδ.constants `g = some ⟨0, .const `I []⟩ := by
+  unfold envδ envδ0 gDefδ envFO VEnv.addDefEq VEnv.addConst VEnv.empty; simp
+theorem envδ_c : envδ.constants `c = some ⟨0, .const `I []⟩ := by
+  unfold envδ envδ0 gDefδ envFO VEnv.addDefEq VEnv.addConst VEnv.empty; simp
+theorem envδ_I : envδ.constants `I = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envδ envδ0 gDefδ envFO VEnv.addDefEq VEnv.addConst VEnv.empty; simp
+
+/-- The environment is well-formed: `envFO`'s two axioms, then one `def` whose value is
+typed by `envFO_cTypeI`. -/
+theorem envδ_wf : envδ.WF := by
+  obtain ⟨ds, hds⟩ := envFO_wf
+  exact ⟨.def gDefδ :: ds, .decl (.def envFO_cTypeI envδ_addg) hds⟩
+
+/-- `.const g []` translates (nullary constant). -/
+theorem envδ_trG : TrExprS envδ [] [] (.const `g []) (.const `g []) :=
+  .const envδ_g (by simp) (by simp)
+
+/-- **The defining equation, as a defeq at every context.** `VEnv.IsDefEq.extra` is
+context-polymorphic, which is exactly what `SEnvConsistent`'s `∀ Δ` needs. -/
+theorem envδ_gc (Γ : List VExpr) : envδ.IsDefEqU 0 Γ (.const `g []) (.const `c []) := by
+  refine ⟨.const `I [], ?_⟩
+  have h : envδ.defeqs gDefδ.toDefEq := Or.inl rfl
+  have hx := VEnv.IsDefEq.extra (env := envδ) (uvars := 0) (Γ := Γ) (ls := []) h
+    (by simp) rfl
+  simpa [gDefδ, VDefVal.toDefEq, VLevel.params, VExpr.instL] using hx
+
+/-- The fragment: `g` and nothing else. -/
+def knownδ : Name → Prop := fun n => n = `g
+
+/-- The source environment: `g` unfolds to the nullary constructor `c`. -/
+def Esrcδ : SEnv := fun n => if n = `g then some (.const `c []) else none
+
+@[simp] theorem Esrcδ_g : Esrcδ `g = some (.const `c []) := by simp [Esrcδ]
+
+theorem Esrcδ_eq {n : Name} {body : Expr} (h : Esrcδ n = some body) :
+    n = `g ∧ body = .const `c [] := by
+  by_cases hn : n = `g
+  · exact ⟨hn, by simpa [Esrcδ, hn] using h.symm⟩
+  · simp [Esrcδ, hn] at h
+
+/-- **`SEnvConsistent` at a non-empty `Esrc`, discharged.** The source-side δ trust item
+of every capstone, met here from the environment's own defining equation instead of being
+assumed vacuously. -/
+theorem envδ_senvConsistent : SEnvConsistent envδ [] Esrcδ := by
+  intro Δ n us body cve hb htr
+  obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb
+  cases htr with
+  | const hci hus hlen =>
+    rw [envδ_g] at hci
+    obtain rfl : us = [] := by
+      refine List.eq_nil_of_length_eq_zero ?_
+      rw [hlen, ← Option.some.inj hci]
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at hus
+    subst hus
+    exact ⟨.const `c [], .const envδ_c (by simp) (by simp), envδ_gc _⟩
+
+/-- The target environment the walk would build for this fragment: `EFOd`'s inductive
+block, plus the body it recorded for `g` — the applied-form nullary constructor. -/
+def tδ : LBTerm := .construct ⟨toKername `I, 0⟩ 0 []
+def Eδ : GlobalDeclarations := (toKername `g, .constantDecl ⟨some tδ⟩) :: EFOd
+
+/-- The state the walk ends in, as far as this record is concerned. -/
+def sδ : ErasureState := { ({} : ErasureState) with gdecls := Eδ }
+
+/-- **The δ record, on this fragment.** `Erases.ctor_head` — the applied-form
+constructor leaf, which carries no typing premise — is the witness, at *every* `Δ`, so
+`DeltaMem`'s `∃ Δ` is met without any residue. -/
+theorem gDeltaMemδ : DeltaMem envδ [] ΓFOd Esrcδ sδ where
+  erase := by
+    intro n body t hb hm
+    obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb
+    obtain rfl : t = tδ := by
+      simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hm
+      rcases hm with h | h
+      · simpa [ΓFOd] using (by simpa using h : ΓFOd.constants `g = toKername `g ∧ t = tδ).2
+      · exact absurd h (by simp)
+    exact ⟨[], .ctor_head `c [] _ 0 ΓFOd_ctorsC⟩
+
+/-- **The walk restriction keeps the fragment.** `g`'s body really is stored in `Eδ`, so
+`SEnv.walked` does not quietly empty `Esrc` — the guard against the restriction being a
+vacuity dressed as a derivation. -/
+@[simp] theorem Esrcδ_walked_g : Esrcδ.walked ΓFOd Eδ `g = some (.const `c []) := by
+  unfold SEnv.walked
+  rw [show LBTerm.envLookup Eδ (ΓFOd.constants `g) = some (.constantDecl ⟨some tδ⟩) from
+    by simp [Eδ, ΓFOd]]
+  simp
+
+/-- **The δ record becomes `ErasesEnvDeltaData`, from the walk.** Every premise of the D5
+conversion is discharged here: `hdisj` off `ΓFOd`, `huni` off `Erases.ctor_head`'s
+context-polymorphism, `hnb` off the stored body's shape — and existence and key
+distinctness are gone by construction of `SEnv.walked`. -/
+theorem gErasesEnvDeltaDataδ :
+    ErasesEnvDeltaData envδ [] ΓFOd (Esrcδ.walked ΓFOd Eδ) Eδ :=
+  erasesEnvDeltaData_of_registeredClosureData
+    (registeredClosureData_of_deltaMem_walked (s := sδ) gDeltaMemδ
+      (fun hb => by obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb; exact ⟨by simp [ΓFOd], rfl⟩)
+      (fun hb hm _ => by
+        obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb
+        obtain rfl : _ = tδ := by
+          simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hm
+          rcases hm with h | h
+          · exact (by simpa using h : ΓFOd.constants `g = toKername `g ∧ _ = tδ).2
+          · exact absurd h (by simp)
+        exact .ctor_head `c [] _ 0 ΓFOd_ctorsC)
+      (by
+        intro kn t hm
+        simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hm
+        rcases hm with h | h
+        · obtain rfl : t = tδ := (by simpa using h : kn = toKername `g ∧ t = tδ).2
+          simp [tδ]
+        · exact absurd h (by simp)))
+
+/-- **The source program δ-unfolds.** `.const g []` evaluates, through
+`SEvalDataC.delta`, to the constructor value `c` — at the *walk-restricted* environment,
+which is the one the capstone's premise is stated at. -/
+theorem gSEvalδ : SEvalDataC ΓFOd (Esrcδ.walked ΓFOd Eδ) (.const `g []) (.const `c []) := by
+  refine .delta Esrcδ_walked_g ?_
+  have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  rw [heq]
+  exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))
+
+/-- `.const c []` is a first-order value at `envδ` — `envFO`'s argument, restated at the
+extended environment (the extension adds a constant and a defeq; neither disturbs `I`'s
+sort or `c`'s type). -/
+theorem envδ_foC_d (harity : ¬ IsArityUpTo envδ 0 [] (.const `I [])) :
+    FirstOrderValue envδ [] ΓFOd [] (.const `c []) := by
+  have hcT : envδ.HasType 0 [] (.const `c []) (.const `I []) :=
+    VEnv.IsDefEq.constDF (env := envδ) (uvars := 0) (Γ := []) (c := `c)
+      (ci := ⟨0, .const `I []⟩) (ls := []) (ls' := []) envδ_c
+      (by simp) (by simp) (by simp) (by simp)
+  have hIT : envδ.HasType 0 [] (.const `I []) (.sort (.succ .zero)) :=
+    VEnv.IsDefEq.constDF (env := envδ) (uvars := 0) (Γ := []) (c := `I)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envδ_I
+      (by simp) (by simp) (by simp) (by simp)
+  have hnp : ¬ envδ.HasType 0 [] (.const `I []) (.sort .zero) := by
+    intro h
+    have huniq : envδ.IsDefEqU 0 [] (.sort .zero) (.sort (.succ .zero)) :=
+      VEnv.IsDefEq.uniqU envδ_wf trivial h hIT
+    have := VEnv.IsDefEqU.sort_inv envδ_wf trivial huniq
+    rw [VLevel.equiv_def] at this; have := this []; simp [VLevel.eval] at this
+  have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  rw [heq]
+  exact .ctor `c [] ⟨toKername `I, 0⟩ 0 ΓFOd_ctorsC ΓFOd_casesC
+    ⟨.const `c [], .const `I [], .const envδ_c (by simp) (by simp), hcT, hnp, harity⟩
+    (fun i h => absurd h (by simp))
+
+/-- **The payoff.** The warm D3 capstone, on the program `.const g []` — a program whose
+*only* content is a call to another declaration. The source side δ-unfolds
+(`SEvalDataC.delta`, `gSEvalδ`); the target side has the matching environment entry,
+produced by D5's conversion out of the walk's own record (`gErasesEnvDeltaDataδ`); and the
+constant reference is `Supported` because the fragment is non-empty — the derivation
+`known = ⊥` used to kill.
+
+Hypothetical: the run, the four bundles, `NoBlock t`, and `harity`. Everything else is
+constructed, including the two premises that were previously discharged *vacuously* at
+every cold-start capstone (`SEnvConsistent`, `ErasesEnvDeltaData`). -/
+example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
+    (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envδ [] knownδ ΓFOd Esrcδ gw cc rf)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.const `g []) {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w')
+    (hnb : NoBlock t) :
+    ∃ t', WcbvEval Eδ appliedFlags t t' ∧
+      (∃ vve, TrExprS envδ [] [] (.const `c []) vve) ∧
+      Erases envδ [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
+      ∀ tu, Erases envδ [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' :=
+  shipping_erase_correct_firstorder envδ_wf (Us := [])
+    (Esrc := Esrcδ.walked ΓFOd Eδ) (E := Eδ) (known := knownδ)
+    envδ_senvConsistent.walked gErasesEnvDeltaDataδ
+    (by
+      intro cn iid cidx ar hc har
+      by_cases h : cn = `c
+      · subst h
+        rw [ΓFOd_ctorsC] at hc; rw [ΓFOd_ctorAritiesC] at har
+        simp only [Option.some.injEq, Prod.mk.injEq] at hc
+        obtain ⟨rfl, rfl⟩ := hc
+        rw [show constructorArity Eδ ⟨toKername `I, 0⟩ 0 = some 0 by decide]; exact har
+      · simp [ΓFOd, if_neg h] at hc)
+    (by
+      intro cn iid cidx hc
+      by_cases h : cn = `c
+      · subst h; rfl
+      · simp [ΓFOd, if_neg h] at hc)
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C Hδ hrun
+    (gBridgeInv_nil envδ [] knownδ ΓFOd (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOd]))
+    (.const `g [] (Or.inl rfl) (by simp [ΓFOd]) rfl)
+    envδ_trG hnb gSEvalδ (envδ_foC_d harity)
+
+/-- **The cold-start capstone at a non-empty fragment.** The same statement the two
+guards above instantiate at `known = ⊥`, here at `knownδ`/`Esrcδ`: what it shows is that
+δ-inclusion reaches the *entry point* — nothing in the cold-start composition forces the
+empty fragment any more, and `SEnvConsistent` arrives constructed rather than vacuous.
+
+The prepared subject stays hypothetical, and unavoidably so: `Erasure.erase` erases
+`prepare_erasure e`, which no in-logic term can name (see the section docstring). -/
+example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
+    (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw) (Hr : RegBridgeHyps ΓFOd)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envδ [] knownδ ΓFOd Esrcδ gw cc rf)
+    {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (S : ColdStartSubject envδ [] knownδ ΓFOd e cfg cctx ref w)
+    (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      SEvalDataC ΓFOd (Esrcδ.walked ΓFOd sf.gdecls) pe (.const `c []))
+    (hrun : Erasure.erase e cfg cctx ref w = .ok (p, inls) w') :
+    ∃ (E : GlobalDeclarations) (t t' : LBTerm),
+      p = .untyped E (some t) ∧
+      WcbvEval E appliedFlags t t' ∧
+      (∃ vve, TrExprS envδ [] [] (.const `c []) vve) ∧
+      Erases envδ [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
+      ∀ tu, Erases envδ [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' :=
+  shipping_erase_correct_firstorder_coldstart envδ_wf rfl hcsimp rfl rfl
+    (by simp [ΓFOd]) Hr envδ_senvConsistent
+    (by
+      intro cn iid cidx hc
+      by_cases h : cn = `c
+      · subst h; rfl
+      · simp [ΓFOd, if_neg h] at hc)
+    H HD C Hδ S hev (envδ_foC_d harity) hrun
+
+end DeltaGuard
 
 end LeanToLambdaBox

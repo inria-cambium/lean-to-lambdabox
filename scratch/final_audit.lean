@@ -1472,3 +1472,81 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gDeltaMem
 #print axioms LeanToLambdaBox.registeredClosure_of_deltaMem
 #print axioms LeanToLambdaBox.registeredClosureData_of_deltaMem
+
+-- ============================================================================
+-- δ-inclusion, slice D5 (2026-08-12): the cold-start capstones are rewired for δ. A
+-- cold-started program may now CALL a walked function, and the capstone PROVES the
+-- environment fact that makes the target's δ step legal instead of assuming it.
+--
+-- WHAT LANDED.
+--   * `known` and `Esrc` are PARAMETERS of both capstones. `gBridgeInv_nil` gained a
+--     `known` argument (the invariant stopped mentioning `known` at D4a; this was the last
+--     place the entry configuration pinned the fragment at `⊥`), and `ColdStartSubject`
+--     gained a `known` index so the subject may reference constants.
+--   * `ErasesEnvDeltaData` is DERIVED: the bridge's `RunConclδ` carries `DeltaMem.empty`
+--     from the entry state to the run's final state, and
+--     `registeredClosureData_of_deltaMem_walked` converts membership to `envLookup`.
+--   * `SEnv.walked` — `Esrc` cut to the constants the final environment stores a BODY for,
+--     keyed on `LBTerm.envLookup` (the target semantics' own δ-lookup). The capstones'
+--     source-evaluation premise is stated at that restriction.
+--   * `NoBlockEnv` + `ColdStartSubject.noBlockEnv`; `SEnvConsistent.walked`;
+--     `DeltaHyps.uniform` generalised from `Δ = []` to two arbitrary contexts (`DeltaMem`
+--     carries `∃ Δ`, the CALL SITE's, so nothing one-sided bridges it).
+--   * The `Hδ` bundle's `Esrc` is SPLIT from the simulation's in every shipping theorem
+--     (`Esrcδ`): the bundle's is the fragment (a scope), the simulation's is what the
+--     evaluation δ-unfolds (the walk-restricted one). Conflating them forces either a false
+--     record or a bundle at an environment `DeltaHyps.prep_esrc` cannot be stated at.
+--
+-- THE FOUR OPEN PREMISES OF THE D4b CONVERSION, RESOLVED:
+--   * existence (`hreg`) — **DERIVED**. `SEnv.walked`'s defining condition *is* the lookup
+--     the record needs. It does NOT fall to `RegInvShape.cover`, which states the converse
+--     (every stored constant key is a name the registry knows), and it is not provable in
+--     the unrestricted form at all: a fragment constant the program never mentions is never
+--     registered, so unrestricted `ErasesEnvDeltaData` is FALSE, not merely unproved.
+--   * key distinctness (`hkeys`/`hkinj`) — **ELIMINATED**. Keyed on `envLookup` rather than
+--     on membership, the conversion never turns a membership into a lookup. This is one
+--     premise better than the design predicted (it expected `hkinj` to be paid here).
+--   * context-uniformity (`huni`) — **SURVIVES**, as the existing `DeltaHyps.uniform`
+--     field, so it is not a new capstone premise. Now restricted to bodies the walk really
+--     stored (the membership premise), which is strictly weaker.
+--   * applied form (`hnb`) — **SURVIVES**, as the new `ColdStartSubject.noBlockEnv`. The
+--     shape induction's `Q` cannot carry it: `visitExpr_noFix_closed` proves `NoFix`/
+--     `LBClosed` and not `NoBlock`, and inside the bridge the erasure argument is abstract.
+--     Stating it about the run's final ENVIRONMENT (not about a dependency's own run) is
+--     forced: at the capstone a `gdecls` entry does not come with the run that produced it.
+--
+-- LEDGER: no new axiom, no `sorry`. `SEnv.walked`/`NoBlockEnv` are plain definitions over
+-- `GlobalDeclarations`; `envδ` is built with lean4lean's own `VEnv.addConst`/`addDefEq` and
+-- its WF with `VDecl.WF.def`, so the δ guard's environment carries exactly what `envFO`'s
+-- two-axiom environment carries. The capstones' axiom sets must be UNCHANGED.
+-- ============================================================================
+
+-- The walk restriction and the conversions it enables.
+#print axioms LeanToLambdaBox.SEnv.walked
+#print axioms LeanToLambdaBox.SEnv.walked_lookup
+#print axioms LeanToLambdaBox.SEnv.walked_bot
+#print axioms LeanToLambdaBox.NoBlockEnv
+#print axioms LeanToLambdaBox.registeredClosure_of_deltaMem_walked
+#print axioms LeanToLambdaBox.registeredClosureData_of_deltaMem_walked
+#print axioms LeanToLambdaBox.SEnvConsistent.walked
+
+-- The rewired capstones (axiom sets unchanged), and the invariant construction that no
+-- longer pins the fragment.
+#print axioms LeanToLambdaBox.gBridgeInv_nil
+#print axioms LeanToLambdaBox.ColdStartSubject
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- The δ guard: a two-DECLARATION fragment, `g := c`, and a program that calls `g`.
+-- `envδ` is `envFO` plus a real `def`, so `SEnvConsistent` is discharged from the
+-- environment's own defining equation — the first non-vacuous instance of that premise in
+-- the development. The `Erases`-mentioning members inherit the standing lean4lean boundary;
+-- `envδ_wf`/`envδ_gc` should carry what `envFO_wf` carries.
+#print axioms LeanToLambdaBox.envδ_wf
+#print axioms LeanToLambdaBox.envδ_gc
+#print axioms LeanToLambdaBox.envδ_senvConsistent
+#print axioms LeanToLambdaBox.gDeltaMemδ
+#print axioms LeanToLambdaBox.Esrcδ_walked_g
+#print axioms LeanToLambdaBox.gErasesEnvDeltaDataδ
+#print axioms LeanToLambdaBox.gSEvalδ
+#print axioms LeanToLambdaBox.envδ_foC_d

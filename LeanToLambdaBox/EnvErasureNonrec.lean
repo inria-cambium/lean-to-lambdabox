@@ -427,13 +427,18 @@ condition for the (W3.1) fixvar agreement: at a top-level entry point neither th
 third of the same kind (Nat-literals wall, L3): if `Γ` declares peano-`Nat` — which only a
 `Γ` carrying `Supported.natLit` derivations does — the run's config must agree. It is
 vacuous at the default `Γ.natPeano = false`, so every existing caller passes
-`(by simp [Γ…])`. -/
-theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+`(by simp [Γ…])`.
+
+`known` is now a **parameter** (slice D5), not pinned at `⊥`: the invariant stopped
+mentioning `known` when D4a deleted `known_dom`, and this construction is the cold-start
+capstones' only source of a `BridgeInv`. Pinning it here was the last place the entry
+configuration forced a δ-free fragment. -/
+theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : ErasureCtx)
     (hkn : ∀ n : Name, Γ.constants n = toKername n)
     (hnfv : Γ.fixvars = fun _ => none)
     (gen : NameGenerator) (cfg : ErasureConfig)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
-    BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+    BridgeInv env Us known Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
   natcfg := hcfg

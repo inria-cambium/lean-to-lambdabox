@@ -198,9 +198,9 @@ so the record holds at any `E`.
 It was more than a convenience before slice D4a: the cold-start bridge invariant's
 `known_dom` field forced `known = ⊥` at the empty state (nothing is registered yet) and
 `Supported.const` needs `known n`, so the cold-start fragment contained no δ-constant at
-all. That field is now deleted and the bridge fires at a non-empty fragment; what still
-instantiates `Esrc` at `⊥` is the capstone's own wiring (`ColdStart.lean`), not the
-bridge. -/
+all. That field is now deleted, the bridge fires at a non-empty fragment, and slice D5
+un-pinned the capstones too (`registeredClosureData_of_deltaMem_walked` below is what they
+call instead). This stays as the degenerate case it always was. -/
 theorem registeredClosureData_empty {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {E : GlobalDeclarations} : RegisteredClosureData env Us Γ (fun _ => none) E where
   disj := by intro n body h; exact absurd h (by simp)
@@ -324,6 +324,133 @@ theorem registeredClosureData_of_deltaMem {env : VEnv} {Us : List Name} {Γ : Er
     obtain ⟨t, hmem⟩ := hreg hb
     obtain ⟨Δ, her⟩ := h.erase hb hmem
     exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb her, hnb hmem⟩
+
+/-! ## The walk-restricted source environment (slice D5)
+
+The conversion above takes *three* premises the walk does not supply — existence
+(`hreg`), key distinctness (`hkeys`, i.e. `hkinj`) and applied form (`hnb`) — and the
+first two are artefacts of asking the wrong question. `ErasesEnvDeltaData` quantifies over
+**all** of `Esrc`'s domain, while the walk only registers the constants it actually
+*reached*; a fragment constant the program never mentions is never registered, so the
+unrestricted record is not merely unproved, it is **false**. Proving reachability ("an
+evaluation only touches walked constants") is a large detour and, worse, it is a property
+of the source program rather than of the erasure.
+
+**Restrict instead.** `SEnv.walked` cuts `Esrc` down to the constants for which the run's
+final environment really stores a body, and then
+
+* **existence is by construction** — the restriction's own defining condition *is* the
+  lookup the record needs;
+* **key distinctness disappears** — the restriction is keyed on `LBTerm.envLookup`, the
+  first-match-wins lookup the target semantics actually uses, so the conversion never has
+  to turn a membership into a lookup and never needs `KeysDistinct`. (`DeltaMem` is keyed
+  on membership because that is what survives the walk; the *inclusion* it needs here goes
+  the easy way, `envLookup_mem`.)
+
+What the restriction costs is paid by the consumer, in the right place: the capstone's
+source-evaluation premise becomes "`pe` evaluates using only the constants the walk
+recorded", which is exactly the honest side condition, is monotone (an evaluation in the
+restricted environment is one in the full environment), and is where a two-declaration
+cold start has to be checked anyway. -/
+
+/-- `Esrc` restricted to the constants a run's final environment stores a **body** for.
+
+Keyed on `LBTerm.envLookup` rather than on membership in `gdecls`, and rather than on the
+registry domain `s.constants`, for two independent reasons: `envLookup` is the target
+semantics' own δ-lookup, so the restriction says precisely "the δ step this environment can
+actually take"; and the registry domain also grows at `addAxiom` (both `visitMutual`'s
+value-less exits and `register_inductive`'s `@[extern]`-constructor prefix), which records
+no body at all. -/
+def SEnv.walked (Esrc : SEnv) (Γ : ErasureCtx) (E : GlobalDeclarations) : SEnv :=
+  fun n => match LBTerm.envLookup E (Γ.constants n) with
+    | some (.constantDecl ⟨some _⟩) => Esrc n
+    | _ => none
+
+/-- The restriction only forgets: it never invents an unfolding. -/
+theorem SEnv.walked_le {Esrc : SEnv} {Γ : ErasureCtx} {E : GlobalDeclarations} {n : Name}
+    {body : Expr} (h : Esrc.walked Γ E n = some body) : Esrc n = some body := by
+  unfold SEnv.walked at h
+  split at h
+  · exact h
+  · exact absurd h (by simp)
+
+/-- An empty fragment restricts to an empty fragment — what keeps the δ-free capstone
+guards reading as they did before slice D5. -/
+@[simp] theorem SEnv.walked_bot (Γ : ErasureCtx) (E : GlobalDeclarations) :
+    SEnv.walked (fun _ => none) Γ E = fun _ => none := by
+  funext n; unfold SEnv.walked; split <;> rfl
+
+/-- **What the restriction hands back**: for a name it keeps, the environment's stored
+body — the `envLookup` half of `RegisteredClosure*.erase`, for free. -/
+theorem SEnv.walked_lookup {Esrc : SEnv} {Γ : ErasureCtx} {E : GlobalDeclarations}
+    {n : Name} {body : Expr} (h : Esrc.walked Γ E n = some body) :
+    ∃ t : LBTerm, LBTerm.envLookup E (Γ.constants n) = some (.constantDecl ⟨some t⟩) := by
+  unfold SEnv.walked at h
+  split at h
+  · rename_i t hlk; exact ⟨t, hlk⟩
+  · exact absurd h (by simp)
+
+/-- **Applied form of every stored body** — the one output-shape residue of the data
+conversion (`hnb`). `NoBlock` is not an invariant the shape induction can carry: it proves
+`NoFix`/`LBClosed` of a `visitExpr` output (`visitExpr_noFix_closed`) and not this, and
+inside the bridge the erasure argument is abstract, so no motive can conclude it either. It
+is therefore stated about the *environment* a run built, as a run-keyed premise of the
+capstone's subject bundle — the same epistemic class as `ColdStartSubject.noBlock`, which
+says the same thing about the top-level output. -/
+def NoBlockEnv (E : GlobalDeclarations) : Prop :=
+  ∀ {kn : Kername} {t : LBTerm}, (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ E → NoBlock t
+
+/-- **The walk's δ record becomes the capstone's, at the walk-restricted `Esrc`** (β + δ
+flavour). Compared with `registeredClosure_of_deltaMem` the existence premise `hreg` and
+the key-distinctness premise `hkeys` are **gone** — `SEnv.walked`'s defining condition
+supplies the first and *is* a lookup, so the second is not needed. What survives is the
+context-uniformity residue `huni`, which is `DeltaHyps.uniform`. -/
+theorem registeredClosure_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s : ErasureState} (h : DeltaMem env Us Γ Esrc s)
+    (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t) :
+    RegisteredClosure env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
+  disj := fun hb => hdisj (SEnv.walked_le hb)
+  erase := by
+    intro n body hb
+    obtain ⟨t, hlk⟩ := SEnv.walked_lookup hb
+    obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
+    obtain rfl := Kername.eq_of_beq hbeq
+    obtain ⟨Δ, her⟩ := h.erase (SEnv.walked_le hb) hmem
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem her⟩
+
+/-- **The walk's δ record becomes the capstone's, at the walk-restricted `Esrc`** (data
+flavour): the same conversion, plus the applied-form conjunct the data simulation
+consumes. `hnb` is the one premise `SEnv.walked` cannot retire — see `NoBlockEnv`. -/
+theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
+    {Γ : ErasureCtx} {Esrc : SEnv} {s : ErasureState} (h : DeltaMem env Us Γ Esrc s)
+    (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
+    (hnb : NoBlockEnv s.gdecls) :
+    RegisteredClosureData env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
+  disj := fun hb => hdisj (SEnv.walked_le hb)
+  erase := by
+    intro n body hb
+    obtain ⟨t, hlk⟩ := SEnv.walked_lookup hb
+    obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
+    obtain rfl := Kername.eq_of_beq hbeq
+    obtain ⟨Δ, her⟩ := h.erase (SEnv.walked_le hb) hmem
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem her, hnb hmem⟩
+
+/-- **`SEnvConsistent` restricts.** The source-side δ trust item is a `∀` over `Esrc`'s
+domain, so cutting the domain down keeps it — which is what lets the capstone state its
+evaluation premise at the walk-restricted environment while taking the trust item at the
+fragment's own. -/
+theorem SEnvConsistent.walked {env : VEnv} {Us : List Name} {Esrc : SEnv} {Γ : ErasureCtx}
+    {E : GlobalDeclarations} (h : SEnvConsistent env Us Esrc) :
+    SEnvConsistent env Us (Esrc.walked Γ E) :=
+  fun hb htr => h (SEnv.walked_le hb) htr
 
 /-! ## Non-vacuity
 

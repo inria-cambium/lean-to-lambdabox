@@ -120,7 +120,7 @@ the *value*, which is a first-order constructor spine either way.
 theorem shipping_erase_correct_firstorderι
     {env : VEnv} (henv : env.WF) {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {ia : IotaArities}
-    {Esrc : SEnv} {E : GlobalDeclarations}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hiota : IotaConsistent env Us Γ ia)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
@@ -137,7 +137,7 @@ theorem shipping_erase_correct_firstorderι
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -184,7 +184,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
     {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {ia : IotaArities}
-    {Esrc : SEnv} {E : GlobalDeclarations}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hspec : PatsIotaSpec safety kenv env)
     (hcon : SEnvConsistent env Us Esrc)
     (hshape : IotaShape safety kenv Γ ia Esrc)
@@ -202,7 +202,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -246,7 +246,7 @@ What is **not** registration-derived, by nature: `IotaArityCoherent` (a fact abo
 theorem shipping_erase_correct_firstorderι_registered
     {env : VEnv} (henv : env.WF) {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {ia : IotaArities}
-    {Esrc : SEnv} {E : GlobalDeclarations}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hiota : IotaConsistent env Us Γ ia)
     (hregdelta : RegisteredClosureData env Us Γ Esrc E)
@@ -263,7 +263,7 @@ theorem shipping_erase_correct_firstorderι_registered
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -476,7 +476,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   -- assumed — its `consts` field is soundness-flavoured (vacuous at `{}`) and its
   -- `knames` side condition is `ΓFOι`'s own `constants := toKername`.
   have hinv : BridgeInv envFO [] (fun _ => False) ΓFOι (gw w) ⟨{}, none, [], cfg⟩ {} [] :=
-    gBridgeInv_nil envFO [] ΓFOι (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOι])
+    gBridgeInv_nil envFO [] _ ΓFOι (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOι])
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc

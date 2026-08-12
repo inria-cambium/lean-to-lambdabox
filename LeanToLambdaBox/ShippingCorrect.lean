@@ -68,7 +68,7 @@ constructor/`casesOn` fragment remain future work, exactly as scoped in
 theorem shipping_visitExpr_correct
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ)
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
@@ -76,7 +76,7 @@ theorem shipping_visitExpr_correct
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -109,7 +109,7 @@ theorem shipping_visitExpr_correct'
     {env₀ : Lean.Kernel.Environment} {ves : Lean4Lean.VEnvs} (wf : ves.WF env₀)
     {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF (ves.venv .safe) Us.length Δ)
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent (ves.venv .safe) Us Esrc)
     (hdelta : ErasesEnvDelta (ves.venv .safe) Us Γ Esrc E)
     (hrec : RecEnvConsistent (ves.venv .safe) Us Γ Esrc E)
@@ -117,7 +117,7 @@ theorem shipping_visitExpr_correct'
     {gw : Void IO.RealWorld → NameGenerator}
     (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps (ves.venv .safe) Us known Γ Esrc gw cc rf)
+      DeltaHyps (ves.venv .safe) Us known Γ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}

@@ -62,6 +62,21 @@ is written down:
    injective, so without `kinj` the δ *record* below is false whenever two fragment names
    collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
 
+## Two environments, deliberately: the fragment and the evaluation's
+
+`Esrc` here is a **scope** — the collection of prepared bodies the erased program is
+allowed to call — and the bridge's `decl_run`/`prep_esrc` clauses pin the *walk*'s
+declaration fetches against it. The forward simulations take an `Esrc` too, but theirs is
+the environment the *source evaluation* δ-unfolds, and at a cold start that one is
+necessarily smaller: the walk registers only what the program reached
+(`ColdStartDelta.SEnv.walked`). Every theorem downstream of the bridge therefore carries
+the two separately — the bundle at `Esrcδ`, the simulation at its own `Esrc` — because
+conflating them forces either a *false* record (the unrestricted `ErasesEnvDeltaData`,
+which claims registrations for constants the walk never reached) or a bundle at the
+restricted environment, which `prep_esrc` cannot satisfy: it fixes `Esrc` at the moment
+the walk prepares a body, before there is a final state to restrict against. No theorem
+relates the two; a caller that wants them equal simply passes one environment twice.
+
 ## The record, and the one residue that is not a scope statement
 
 `DeltaMem` and `RunConclδ` (below) are not hypotheses at all: they are what the bridge
@@ -219,9 +234,16 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s
   /-- **Context-uniformity of a constant body's erasure** — the `huni` residue
   `ColdStartDelta.registeredClosureData_step_nonrec` already carries. Discharged outright
-  once `Erases`/`TrExprS` gain fvar-extension weakening; a premise until then. -/
-  uniform : ∀ {n : Name} {pe : Expr} {t : LBTerm} {Δ : VLCtx},
-    Esrc n = some pe → Erases env Us Γ [] pe t → Erases env Us Γ Δ pe t
+  once `Erases`/`TrExprS` gain fvar-extension weakening; a premise until then.
+
+  Stated between *two* arbitrary contexts rather than out of `Δ = []` (slice D5). The
+  `[]`-shaped form is what a caller holding the run needs, because `visitMutual` erases a
+  top-level constant body at the empty context; but the record the walk hands the capstone
+  (`DeltaMem`) carries `∃ Δ` — the `Δ` of the *call site*, since `withReader` keeps the
+  ambient `lctx` — and `RegisteredClosure*.erase` demands `∀ Δ`. Nothing weaker than the
+  two-sided form bridges those, and the one-sided form is its instance at `Δ := []`. -/
+  uniform : ∀ {n : Name} {pe : Expr} {t : LBTerm} {Δ Δ' : VLCtx},
+    Esrc n = some pe → Erases env Us Γ Δ pe t → Erases env Us Γ Δ' pe t
 
 /-- **What the bundle costs at the empty fragment** — the honest accounting for every
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
@@ -273,7 +295,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   inst_run := hinst
   ci_run := hci
   prep_run := hprep
-  uniform := by intro n pe t Δ h; simp at h
+  uniform := by intro n pe t Δ Δ' h; simp at h
 
 /-! ## The δ record along the walk
 
