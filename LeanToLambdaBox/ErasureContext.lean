@@ -62,6 +62,32 @@ structure ErasureCtx where
       bridge cashes it in against the run). Defaulted to `false`, so every machine-mode
       consumer is unchanged and the literal rule is unusable at the default `Γ`. -/
   natPeano : Bool := false
+  /-- For each source name that is a **sibling of the mutual block currently being
+      erased**, the fresh `FVarId` the run minted for it (`Erasure.visitMutual`, the
+      `withReader … fixvars` line). Mirrors the shipping reader's
+      `ErasureContext.fixvars` one-for-one, which is what will make the bridge's
+      fixvar branch cheap.
+
+      Non-`none` only *inside* a block; every top-level `Γ` leaves it at `fun _ => none`.
+      **No `Erases` rule reads this field yet**: the `fixvar` leaf that will
+      (`.const nm us ↦ .fvar x`) forces a `Γ.fixvars = fun _ => none` premise onto every
+      forward simulation — its `const_inv` disjunct is refutable by nothing the δ cases
+      currently hold, unlike `const_fix`'s, which `NoFix` kills — so it lands with the
+      bridge's fixvar branch, together with that premise. The field is added here so the
+      `ErasureCtx` (and hence `ErasureCtx`-literal) disruption happens exactly once.
+      Defaulted, like every registration field. (Recursion wall, slice W1.) -/
+  fixvars : Name → Option FVarId := fun _ => none
+  /-- For each **registered recursive constant**, the emitted mutual block and this
+      constant's index in it — the datum `visitMutual` registers when it conses
+      `(kn, .constantDecl ⟨some (.fix defs j)⟩)` onto the target env.
+
+      This is what makes `Erases.fix` say something: the rule's `hreg` premise demands
+      that `Γ` records *this* block for the block's own names, and the `const_fix` leaf
+      relates a registered recursive constant to its own `.fix` node — which is what a
+      fix *unfolding* puts where the source has a sibling `.const nⱼ`. Defaulted to
+      `fun _ => none`, so both rules are unusable at a `Γ` that registers no recursion.
+      (Recursion wall, slice W1.) -/
+  recBodies : Name → Option (List (@FixDef LBTerm) × Nat) := fun _ => none
 
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
