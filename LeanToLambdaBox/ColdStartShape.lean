@@ -121,28 +121,11 @@ theorem envLookup_mem {E : GlobalDeclarations} {kn : Kername} {d : GlobalDecl}
       obtain ⟨k', hmem, hbeq⟩ := ih h
       exact ⟨k', List.mem_cons_of_mem _ hmem, hbeq⟩
 
-/-! ## State extension -/
+/-! ## State extension
 
-/-- **State extension.** The registries only grow and `gdecls` only gets prepended to —
-the monotonicity a cold run needs in place of the warm bridge's `s' = s`. -/
-structure StateLe (s s' : ErasureState) : Prop where
-  consts : ∀ {n : Name}, (s.constants.get? n).isSome → (s'.constants.get? n).isSome
-  inds : ∀ {n : Name}, (s.inductives.get? n).isSome → (s'.inductives.get? n).isSome
-  gdecls : ∃ pre : GlobalDeclarations, s'.gdecls = pre ++ s.gdecls
-
-theorem StateLe.rfl' (s : ErasureState) : StateLe s s where
-  consts := id
-  inds := id
-  gdecls := ⟨[], rfl⟩
-
-theorem StateLe.trans {s s' s'' : ErasureState} (h : StateLe s s') (h' : StateLe s' s'') :
-    StateLe s s'' where
-  consts hc := h'.consts (h.consts hc)
-  inds hi := h'.inds (h.inds hi)
-  gdecls := by
-    obtain ⟨pre, hpre⟩ := h.gdecls
-    obtain ⟨pre', hpre'⟩ := h'.gdecls
-    exact ⟨pre' ++ pre, by rw [hpre', hpre, List.append_assoc]⟩
+`StateLe` (the registries only grow, `gdecls` only gets prepended to) and `RunConcl` moved
+to `ErasureRun.lean` with the cold-start S2 slice: `VisitExprRefines` — which this file
+transitively imports — concludes them in every motive of the bridge induction. -/
 
 /-! ## Scoped registration records -/
 
@@ -230,7 +213,8 @@ Deliberately absent: any `Erases` content. That is the δ half (`RegInvDelta`, s
 kept separate so the shape argument is independent of the term bridge. -/
 structure RegInvShape (Γ : ErasureCtx) (s : ErasureState) : Prop where
   /-- Registered kernames agree with `Γ` (SOUNDNESS — the relaxation of the warm
-  bridge's completeness-flavoured `BridgeInv.consts`). -/
+  bridge's once completeness-flavoured `BridgeInv.consts`, which slice S2 relaxed to
+  exactly this statement). -/
   kn : ∀ {n : Name} {k : Kername}, s.constants.get? n = some k → k = Γ.constants n
   /-- Key uniqueness — what makes `envLookup` stable under later prepends. -/
   keys : KeysDistinct s.gdecls

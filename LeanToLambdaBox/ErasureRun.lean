@@ -1298,6 +1298,56 @@ theorem AxiomExt.addAxiom (n : Name) (s : ErasureState) : AxiomExt s (addAxiomSt
     · exact hm
   gdecls := ⟨[(toKername n, .constantDecl ⟨none⟩)], rfl, by simp⟩
 
+/-! ### state extension and the widened run conclusion
+
+`StateLe` is the monotonicity a cold run has in place of the warm bridge's `s' = s`:
+the two registries only grow and `gdecls` only gets prepended to. `RunConcl` bundles it
+with the one *value*-level fact the bridge's own invariant needs across a growing state —
+that the constant registry stays canonical — and is the shape every motive of
+`VisitExprRefines.visitExpr_refines_erases_core` concludes.
+
+Both are stated here rather than in `ColdStartShape` because `VisitExprRefines` (which
+`ColdStartShape` transitively imports) needs them. -/
+
+/-- **State extension.** The registries only grow and `gdecls` only gets prepended to. -/
+structure StateLe (s s' : ErasureState) : Prop where
+  consts : ∀ {n : Name}, (s.constants.get? n).isSome → (s'.constants.get? n).isSome
+  inds : ∀ {n : Name}, (s.inductives.get? n).isSome → (s'.inductives.get? n).isSome
+  gdecls : ∃ pre : GlobalDeclarations, s'.gdecls = pre ++ s.gdecls
+
+theorem StateLe.rfl' (s : ErasureState) : StateLe s s where
+  consts := id
+  inds := id
+  gdecls := ⟨[], rfl⟩
+
+theorem StateLe.trans {s s' s'' : ErasureState} (h : StateLe s s') (h' : StateLe s' s'') :
+    StateLe s s'' where
+  consts hc := h'.consts (h.consts hc)
+  inds hi := h'.inds (h.inds hi)
+  gdecls := by
+    obtain ⟨pre, hpre⟩ := h.gdecls
+    obtain ⟨pre', hpre'⟩ := h'.gdecls
+    exact ⟨pre' ++ pre, by rw [hpre', hpre, List.append_assoc]⟩
+
+/-- **The widened run conclusion.** What replaces `s' = s` in the bridge: the state only
+grew, and canonicity of the constant registry survived. The second field is exactly what
+`VisitExprRefines.BridgeInv.mono_state` needs to re-establish the invariant's `consts`
+(soundness) field at the larger state; every writer on the erasure's registration path
+inserts a constant under its own `toKername`, so it is *provable*, never assumed. -/
+structure RunConcl (s s' : ErasureState) : Prop where
+  le : StateLe s s'
+  canon : CanonicalConstants s → CanonicalConstants s'
+
+theorem RunConcl.rfl' (s : ErasureState) : RunConcl s s :=
+  ⟨StateLe.rfl' s, id⟩
+
+theorem RunConcl.of_eq {s s' : ErasureState} (h : s' = s) : RunConcl s s' := by
+  subst h; exact RunConcl.rfl' _
+
+theorem RunConcl.trans {s s' s'' : ErasureState} (h : RunConcl s s') (h' : RunConcl s' s'') :
+    RunConcl s s'' :=
+  ⟨h.le.trans h'.le, fun hc => h'.canon (h.canon hc)⟩
+
 /-! ### registration shapes -/
 
 def mutualBlockKn (indinfo : InductiveVal) : Kername :=
@@ -1609,6 +1659,32 @@ theorem run_register_inductive_cold_ok
       rw [run_panicWithPosWithDecl] at hrest
       cases hrest
       exact htriv _
+
+/-- **The run conclusion of `register_inductive`, both branches** — the honest replacement
+for the `s = s₁` clause `DataBridgeHyps.reg_run` / `CasesBridgeHyps.casesreg_run` used to
+assert *unconditionally* (which R4 refutes: the miss branch conses a `gdecl`, and one
+`addAxiom` per `@[extern]` constructor). The hit branch preserves the state outright (R5);
+the miss branch only grows it (R4).
+
+Nothing is assumed: this is the whole state effect of the call, proved. -/
+theorem run_register_inductive_runConcl {indinfo : InductiveVal}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : InductiveId × InductiveArgMasks} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : register_inductive indinfo s ctx cctx ref w = .ok (r, s₁) w₁) :
+    RunConcl s s₁ := by
+  cases hi : s.inductives.get? indinfo.name with
+  | some rc0 =>
+    obtain ⟨-, hs, -⟩ := run_register_inductive_hit_ok hi hrun
+    exact RunConcl.of_eq hs
+  | none =>
+    obtain ⟨bodies, sM, hs1, -, -, hext, hgrow, -⟩ := run_register_inductive_cold_ok hi hrun
+    subst hs1
+    obtain ⟨pre, hpre, -⟩ := hext.gdecls
+    exact ⟨⟨hext.dom, hgrow, ⟨(mutualBlockKn indinfo,
+        GlobalDecl.inductiveDecl { npars := indinfo.numParams, bodies := bodies }) :: pre,
+      by show ((mutualBlockKn indinfo, _) :: sM.gdecls) = _; rw [List.cons_append, ← hpre]⟩⟩,
+      hext.canon⟩
 
 /-- **R9.** -/
 theorem run_mkDef_ok {nm : Name} {fixvarnames : List Name} {body : LBTerm}
