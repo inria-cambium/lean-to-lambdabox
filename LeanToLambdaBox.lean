@@ -131,3 +131,8 @@ import LeanToLambdaBox.FirstOrderShippingIota
 -- `ErasureRun` (`run_addAxiom_ok`, `run_register_inductive_cold_ok`) — replacing the
 -- assumed state-preservation of `register_inductive` with its actual `gdecls` cons.
 import LeanToLambdaBox.ColdStartShape
+-- Output-shape metatheory for the binder-closing operations (`toBvar` preserves
+-- `NoFix`; it takes a body closed at `k` to one closed at `k+1`), plus the fold forms
+-- `mkAlt`/`mkDef` need. Prerequisite of the `visitExpr` output-shape induction that
+-- `ColdStartShape.regInvShape_nonrec_cons_iff` shows the registry invariant requires.
+import LeanToLambdaBox.OutputShape

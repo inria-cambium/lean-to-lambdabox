@@ -674,3 +674,41 @@ open LeanToLambdaBox
 -- Non-vacuity: the invariant survives genuine registration steps.
 #print axioms LeanToLambdaBox.gRegInvShape_addAxiom
 #print axioms LeanToLambdaBox.gRegInvShape_addAxiom₂
+
+-- ============================================================================
+-- COLD-START SLICE S1b (2026-08-12): `visitMutual`'s exits, and the binder
+-- metatheory the output-shape induction needs.
+--
+-- Same expectation: ⊆ [propext, Classical.choice, Quot.sound], no `sorryAx`.
+--
+--   * `Erasure.run_visitMutual_ok` is the DAG engine's Hoare rule over its four
+--     exits (axiom / non-recursive constant / recursive block / inlining-only
+--     bookkeeping). It takes the `visitExpr` fact as a HYPOTHESIS, so it is
+--     usable inside `visitExpr.mutual_fixpoint_induct` — where the step goals
+--     are about an abstract function, not the real `visitExpr` — as well as
+--     standalone. The recursive exit is *handled*, not refuted: `hrec` receives
+--     the `.fix` conses, which is what lets `RegInvShape`'s disjunctive `nofix`
+--     absorb the recursion wall with no restructuring.
+--
+--   * Exactly one hypothesis of `run_visitMutual_ok` is assumed rather than
+--     proved: `hprep`, that `prepare_erasure` leaves the predicate alone. Its
+--     `csimp` branch runs `Lean.Core.transform` *at* `EraseM` through
+--     `MonadControlT`, so state transparency does not follow from the `liftM`
+--     lemmas. It belongs with `PrepareHyps`. Slice S4's `erase_run_ok` (R1)
+--     needs the same fact.
+--
+--   * `LeanToLambdaBox.OutputShape` supplies the binder metatheory: `toBvar`
+--     preserves `NoFix` and shifts `LBClosed` by one level, plus the fold forms
+--     `mkAlt`/`mkDef` need.
+-- ============================================================================
+
+#print axioms Erasure.run_inline_tail_ok
+#print axioms Erasure.run_inline_prefix_ok
+#print axioms Erasure.run_nonrec_exit_ok
+#print axioms Erasure.run_rec_exit_ok
+#print axioms Erasure.run_visitMutual_ok
+#print axioms LeanToLambdaBox.noFix_toBvar
+#print axioms LeanToLambdaBox.lbClosed_toBvar
+#print axioms LeanToLambdaBox.noFix_foldl_toBvar
+#print axioms LeanToLambdaBox.lbClosed_foldl_toBvar
+#print axioms LeanToLambdaBox.lbClosed_foldl_zipIdx
