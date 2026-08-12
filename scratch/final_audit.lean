@@ -667,6 +667,10 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.RegInvShape.closedEnv
 #print axioms LeanToLambdaBox.RegInvShape.addAxiom_run
 #print axioms LeanToLambdaBox.RegInvShape.register_inductive_run
+-- The obligation the shape induction still owes at `visitMutual`'s non-recursive
+-- constant cons — an IFF, hence not dischargeable by state reasoning. This is why the
+-- design's "optional" output-shape motives (R11) are in fact a prerequisite of S1.
+#print axioms LeanToLambdaBox.regInvShape_nonrec_cons_iff
 -- Non-vacuity: the invariant survives genuine registration steps.
 #print axioms LeanToLambdaBox.gRegInvShape_addAxiom
 #print axioms LeanToLambdaBox.gRegInvShape_addAxiom₂

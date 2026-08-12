@@ -87,6 +87,21 @@ theorem envLookup_append_of_fresh {pre E : GlobalDeclarations} {kn : Kername}
     simp only [List.cons_append, LBTerm.envLookup, hp, Bool.false_eq_true, if_false]
     exact ih (fun q hq => hfresh q (List.mem_cons_of_mem p hq))
 
+/-- `ModPath.beq` is reflexive. -/
+theorem ModPath.beq_refl : ∀ mp : ModPath, ModPath.beq mp mp = true
+  | .MPfile _ => by simp [ModPath.beq]
+  | .MPdot mp _ => by simp [ModPath.beq, ModPath.beq_refl mp]
+
+/-- `Kername.beq` — the comparison `LBTerm.envLookup` dispatches on — is reflexive.
+Consumers need this to *find* the entry a registration step has just consed. -/
+@[simp] theorem Kername.beq_refl (kn : Kername) : Kername.beq kn kn = true := by
+  simp [Kername.beq, ModPath.beq_refl]
+
+/-- Looking up the entry just consed. -/
+@[simp] theorem envLookup_cons_self (kn : Kername) (d : GlobalDecl)
+    (E : GlobalDeclarations) : LBTerm.envLookup ((kn, d) :: E) kn = some d := by
+  simp [LBTerm.envLookup]
+
 /-- A successful `envLookup` is witnessed by a member of the list whose key is
 `beq`-equal to the queried kername. -/
 theorem envLookup_mem {E : GlobalDeclarations} {kn : Kername} {d : GlobalDecl}
@@ -600,6 +615,43 @@ theorem RegInvShape.register_inductive_run {Γ : ErasureCtx} {indinfo : Inductiv
       GlobalDecl.inductiveDecl { npars := indinfo.numParams, bodies := bodies }) :: pre, ?_⟩⟩
     show ((mutualBlockKn indinfo, _) :: sM.gdecls) = _
     rw [List.cons_append, ← hpre]
+
+/-! ## What the shape induction still owes: the output-shape motives
+
+The one registration site slice S1 does **not** cover is `visitMutual`'s non-recursive
+constant cons, `(toKername n, .constantDecl ⟨some t⟩) :: s.gdecls`, where `t` is the
+sub-`visitExpr` output. The lemma below pins down exactly why: at that cons the
+`nofix`/`closed` fields of `RegInvShape` are *equivalent* to the corresponding
+output-shape facts about `t`, so they cannot be discharged by any amount of state
+reasoning — they need an induction over the `visitExpr` family's *results*.
+
+This corrects a scoping claim in the wall design, which lists those output-shape
+motives (`NoBlock`/`NoFix`/`LBClosed` for every `visitExpr` output — "R11") as an
+*optional* extra riding along with S1 or S2. They are a **prerequisite**: without
+`NoFix t` the `nofix` field cannot be preserved, and the disjunctive form does not help,
+because `visitExpr` never returns a `.fix` (so the right disjunct is unavailable and
+`NoFix t` is forced). Likewise `closed` needs `LBClosed t 0`. -/
+
+theorem regInvShape_nonrec_cons_iff {Γ : ErasureCtx} {s : ErasureState} {n : Name}
+    {t : LBTerm} (h : RegInvShape Γ s) :
+    (NoFixEnvD ((toKername n, .constantDecl ⟨some t⟩) :: s.gdecls) ↔
+        (NoFix t ∨ ∃ (defs : List (@FixDef LBTerm)) (j : Nat), t = .fix defs j)) ∧
+    (ClosedEnv ((toKername n, .constantDecl ⟨some t⟩) :: s.gdecls) ↔ LBClosed t 0) := by
+  constructor
+  · constructor
+    · intro hd
+      exact hd (envLookup_cons_self _ _ _)
+    · intro ht kn body' hl
+      rcases envLookup_cons_inv hl with ⟨-, hdd⟩ | ⟨-, hpass⟩
+      · cases hdd; exact ht
+      · exact h.nofix hpass
+  · constructor
+    · intro hd
+      exact hd (envLookup_cons_self _ _ _)
+    · intro ht kn body hl
+      rcases envLookup_cons_inv hl with ⟨-, hdd⟩ | ⟨-, hpass⟩
+      · cases hdd; exact ht
+      · exact h.closed hpass
 
 /-! ### Non-vacuity
 
