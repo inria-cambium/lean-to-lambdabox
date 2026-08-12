@@ -975,3 +975,63 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_registered
+
+-- ============================================================================
+-- The Nat-literals wall, slice L4 (2026-08-12): capstones and the end-to-end guard.
+--
+-- CAPSTONE RIPPLE: none at the statement level. Every capstone
+-- (`shipping_visitExpr_correct{,_data}`, `shipping_erase_correct_firstorder{,ι}` and the
+-- `_registered` forms) takes `BridgeInv` as a PREMISE, so the new `natcfg` field costs
+-- them nothing; only the places that *build* an invariant gained the side condition
+-- `Γ.natPeano = true → cfg.nat = .peano` — `gBridgeInv_nil` and the five guards. That is
+-- the same shape as S2's `hkn` and W3.1's `hnfv`, and every existing caller discharges it
+-- by `simp` (their `Γ`s leave `natPeano` at its `false` default).
+--
+-- THE END-TO-END GUARD: D3 (`shipping_erase_correct_firstorder`) fires on the raw
+-- literal node `2` in peano mode. What the wall contributes is constructed, not assumed:
+--
+--   * `envNatT` — `Nat : Sort 1`, `Nat.zero : Nat`, `Nat.succ : Nat → Nat` as typed
+--     axioms (`envNatT_wf`), the smallest `VEnv` in which a literal's own `TrExprS`
+--     witness exists: lean4lean translates `.lit l` THROUGH `Literal.toConstructor`, so
+--     the witness is a `Nat.succ` spine and needs the constructors declared and typed.
+--     `envNatLit` (L1) only declares `Nat`, which is all `ContainsLits` needs.
+--   * `trExprS_natLit` / `trExprS_srcNatTower` — the literal and its value land on the
+--     SAME `vNatTower n`. That is lean4lean's own literal rule, and it is why subject
+--     reduction for literals was free in L2.
+--   * `sevalDataC_natLit`, `erasesEnvCtor_natLit`, `firstOrderValue_srcNatTower`.
+--
+-- Hypothetical, per precedent: the run, the three trust bundles, `NoBlock t`, and the
+-- single lean4lean-blocked arity side condition `harity` — the very one `FirstOrder.lean`
+-- carries for `envFO` (`.const`-vs-arity defeq injectivity is not exposed by the pin).
+--
+-- SCOPE, stated so it is not over-read: this is the `Expr.lit` node. A source-level
+-- numeral `(5 : Nat)` is `@OfNat.ofNat Nat (lit 5) (instOfNatNat (lit 5))`, whose
+-- `OfNat.ofNat` body erases to an `LBTerm.proj`; `Erases` is projection-free by design
+-- (lean4lean's `TrProj` is a `sorry`), so a user-written numeral still does not
+-- δ-unfold in the model. `Nat.add` is `@[extern]`, hence an axiom under the shipping
+-- default. Neither is touched by this wall.
+--
+-- Expectation: no axiom of ours; `envNatT_wf` and the typing lemmas carry lean4lean's
+-- `VEnv.WF` machinery exactly as `envFO_wf` does.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.envNatT_wf
+#print axioms LeanToLambdaBox.envNatT_towerType
+#print axioms LeanToLambdaBox.trExprS_natLit
+#print axioms LeanToLambdaBox.trExprS_srcNatTower
+#print axioms LeanToLambdaBox.sevalDataC_natLit
+#print axioms LeanToLambdaBox.envNatT_natNotProp
+#print axioms LeanToLambdaBox.informativeType_srcNatTower
+#print axioms LeanToLambdaBox.firstOrderValue_srcNatTower
+
+-- ----------------------------------------------------------------------------
+-- L3 + L4 axiom movement: MEASURED, not asserted. This file was run at `3d67f2a`
+-- (the pre-L3 tip) and at the L4 tip, and the two outputs compared declaration by
+-- declaration: **337 declarations in the baseline, 0 changed, 0 removed.** The nine
+-- additions are the new declarations themselves — `envNatT_wf`, `envNatT_towerType`,
+-- `trExprS_natLit`, `trExprS_srcNatTower`, `sevalDataC_natLit`, `envNatT_natNotProp`,
+-- `informativeType_srcNatTower`, `firstOrderValue_srcNatTower` — plus `BridgeInv.mono`,
+-- which was newly *printed* here, not newly introduced. `envNatT_wf` and
+-- `sevalDataC_natLit` are `sorryAx`-free; the rest carry the `TrExprS` boundary their
+-- neighbours already carried.
+-- ----------------------------------------------------------------------------

@@ -118,4 +118,99 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   · rw [heq]
     exact .ctor_val ΓFOd_ctorsC ΓFOd_ctorAritiesC (by simp) rfl (fun i h => absurd h (by simp))
 
+/-! ## Non-vacuity guard, the literal fragment (Nat-literals wall, L4)
+
+The end-to-end guard the wall is really about: D3 run on the **raw literal node** `2`,
+in peano mode. Everything the literal fragment contributes is *constructed* — the
+`Supported.natLit` derivation, the `BridgeInv` (its `natcfg` field pinning the run's
+config), the source translation (`trExprS_natLit`, at the three-axiom `envNatT` where
+`Nat`'s constructors are declared and typed), the source evaluation
+(`sevalDataC_natLit`), the arity link (`erasesEnvCtor_natLit`) and the value's
+first-orderness. Hypothetical: the run and the three trust bundles (opaque primitives),
+`NoBlock t` (a statement about the run's output), and the single lean4lean-blocked side
+condition `harity` — *exactly* the one `FirstOrder.lean`'s `envFO` guard carries, for the
+same reason (`.const`-vs-arity defeq injectivity is not exposed by the pinned lean4lean).
+
+Note the scope, and do not over-read it: this covers the `Expr.lit` node itself. A
+*source-level numeral* `(5 : Nat)` elaborates to `@OfNat.ofNat Nat (lit 5) (instOfNatNat
+(lit 5))`, whose `OfNat.ofNat` body erases to an `LBTerm.proj` — and `Erases` is
+projection-free by design (lean4lean's `TrProj` is a `sorry`), so the numeral does not
+δ-unfold in the model. Raw literals — what `csimp`, matcher expansion and `Nat`-internals
+produce — are what this covers. -/
+
+/-- `Nat : Sort 1` at `envNatT`. -/
+theorem envNatT_NatTypeSort1 :
+    envNatT.HasType 0 [] (.const ``Nat []) (.sort (.succ .zero)) :=
+  VEnv.IsDefEq.constDF (env := envNatT) (uvars := 0) (Γ := []) (c := ``Nat)
+    (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envNatT_Nat
+    (by simp) (by simp) (by simp) (by simp)
+
+/-- The not-a-`Prop` half of informativeness for `Nat`, discharged exactly as
+`envFO_notProp` is: `Nat : Sort 1`, so it is not typed by `Sort 0`. -/
+theorem envNatT_natNotProp : ¬ envNatT.HasType 0 [] (.const ``Nat []) (.sort .zero) := by
+  intro h
+  have huniq : envNatT.IsDefEqU 0 [] (.sort .zero) (.sort (.succ .zero)) :=
+    VEnv.IsDefEq.uniqU envNatT_wf trivial h envNatT_NatTypeSort1
+  have := VEnv.IsDefEqU.sort_inv envNatT_wf trivial huniq
+  rw [VLevel.equiv_def] at this; have := this []; simp [VLevel.eval] at this
+
+/-- Every rung of the source tower has informative type `Nat`, modulo the blocked arity
+side condition (as in `envFO_informativeC`). -/
+theorem informativeType_srcNatTower (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
+    (n : Nat) : InformativeType envNatT [] [] (srcNatTower n) :=
+  ⟨vNatTower n, .const ``Nat [], trExprS_srcNatTower n, envNatT_towerType n,
+    envNatT_natNotProp, harity⟩
+
+/-- The source tower is a `FirstOrderValue`: a saturated constructor spine all the way
+down, each rung of informative type. -/
+theorem firstOrderValue_srcNatTower
+    (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat [])) :
+    ∀ n : Nat, FirstOrderValue envNatT [] ΓnatLit [] (srcNatTower n)
+  | 0 =>
+      .ctor (args := []) ``Nat.zero [] natLitInd 0 ΓnatLit_zero rfl
+        (informativeType_srcNatTower harity 0) (fun i h => absurd h (by simp))
+  | n + 1 =>
+      .ctor (args := [srcNatTower n]) ``Nat.succ [] natLitInd 1 ΓnatLit_succ rfl
+        (informativeType_srcNatTower harity (n + 1))
+        (fun i h => by
+          obtain rfl : i = 0 := by simpa using h
+          exact firstOrderValue_srcNatTower harity n)
+
+/-- **D3 fires on a literal.** The shipping eraser, run on `.lit (.natVal 2)` at the
+empty state and a peano config, produces a `t` that `WcbvEval`-uates to **the** unique
+applied-form erasure of the source value `Nat.succ (Nat.succ Nat.zero)`. -/
+example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
+    (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
+    (C : CasesBridgeHyps ΓnatLit gw)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w')
+    (hnb : NoBlock t) :
+    ∃ t', WcbvEval EnatLit appliedFlags t t' ∧
+      (∃ vve, TrExprS envNatT [] [] (srcNatTower 2) vve) ∧
+      Erases envNatT [] ΓnatLit [] (srcNatTower 2) t' ∧ NoBlock t' ∧
+      ∀ tu, Erases envNatT [] ΓnatLit [] (srcNatTower 2) tu → NoBlock tu → tu = t' := by
+  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit (gw w)
+      ⟨{}, none, [], cfg⟩ {} [] :=
+    { mlc := ⟨.nil, trivial, rfl, rfl⟩
+      lparams := rfl
+      natcfg := fun _ => hcfg
+      kfresh := fun _ h => nomatch h
+      fixvars := by intro nm x; simp [ΓnatLit]
+      fixfresh := by intro nm x hx; simp [ΓnatLit] at hx
+      reserved := fun _ h => nomatch h
+      knames := fun _ => rfl
+      consts := by intro n k hk; simp at hk
+      known_dom := fun _ h => h.elim }
+  refine shipping_erase_correct_firstorder envNatT_wf (Us := []) (Esrc := fun _ => none)
+    (E := EnatLit) ?_ ?_ erasesEnvCtor_natLit (fun _ => rfl)
+    (recEnvConsistent_of_noRec (Γ := ΓnatLit) rfl) rfl
+    H HD C hrun hinv (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
+    (trExprS_natLit 2) hnb (sevalDataC_natLit 2) (firstOrderValue_srcNatTower harity 2)
+  · intro Δ n us body cve h; exact absurd h (by simp)
+  · intro Δ n body h; exact absurd h (by simp)
+
 end LeanToLambdaBox

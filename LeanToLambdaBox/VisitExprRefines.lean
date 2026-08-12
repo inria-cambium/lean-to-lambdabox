@@ -2415,6 +2415,47 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     ⟨_, .fvar hfind2⟩
   exact visitExpr_refines_erases H HD C henv _ _ _ _ _ _ _ _ _ hrun _ hinv (.fvar x) hex
 
+
+/-- (iii) **The bridge fires on a `Nat` literal** (Nat-literals wall, L4) — the literal
+analogue of (ii), and the joint non-vacuity of everything L3 added. *Constructed* here:
+the peano config; the context `ΓnatLit` (the same fixture at which `Erases.lean` derives
+the tower and `ErasesCorrectData.lean` runs it on both sides); the `BridgeInv`, whose new
+`natcfg` field is exactly the config pin and is discharged from `hcfg`; the
+`Supported.natLit` derivation; and — the premise that made this guard worth building —
+the source translation `∃ ve, TrExprS envNatT [] [] (.lit (.natVal 2)) ve`, at the
+three-axiom `envNatT` in which `Nat`'s constructors are declared *and typed*
+(`trExprS_natLit`, `Erases.lean`). *Hypothetical*, as in (ii) and for the same reason:
+the run equation and the three trust bundles, which speak about opaque primitives.
+
+So the shipping eraser, run on the raw literal node `2` in peano mode, lands inside
+`Erases` — and by `Erases.lit_inv` only the box rule or `Erases.lit` can have put it
+there. -/
+example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
+    (C : CasesBridgeHyps ΓnatLit gw)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w') :
+    Erases envNatT [] ΓnatLit [] (.lit (.natVal 2)) t ∧
+      RunConcl ({} : ErasureState) s' ∧ gw w ≤ gw w' := by
+  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit (gw w)
+      ⟨{}, none, [], cfg⟩ {} [] :=
+    { mlc := ⟨.nil, trivial, rfl, rfl⟩
+      lparams := rfl
+      natcfg := fun _ => hcfg
+      kfresh := fun _ h => nomatch h
+      fixvars := by intro nm x; simp [ΓnatLit]
+      fixfresh := by intro nm x hx; simp [ΓnatLit] at hx
+      reserved := fun _ h => nomatch h
+      knames := fun _ => rfl
+      consts := by intro n k hk; simp at hk
+      known_dom := fun _ h => h.elim }
+  exact visitExpr_refines_erases H HD C envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _ hinv
+    (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
+    ⟨_, trExprS_natLit 2⟩
+
 end NonVacuity
 
 /- Axiom audit (2026-07-07, via temporary `#print axioms`, since removed;

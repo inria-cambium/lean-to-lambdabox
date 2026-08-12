@@ -856,6 +856,110 @@ example (Us : List Name) (Δ : VLCtx) :
         (.app (.construct natLitInd 1 []) (.construct natLitInd 0 []))) :=
   erases_natLit Us Δ 2
 
+/-! ### The literal's own **translation** (Nat-literals wall, L4)
+
+`envNatLit` declares just enough to *prove* `ContainsLits`, which is all `TrExprS.lit`
+and `Erases.lit` ask for. The bridge asks for more: its hypothesis is
+`∃ ve, TrExprS env Us Δ (.lit l) ve`, and a literal's translation goes *through* its
+unfolding — a `Nat.succ` spine. So a constructed witness needs `Nat`'s two constructors
+declared **and typed**, which `envNatT` does, in the `envFO` idiom (`FirstOrder.lean`):
+three axioms, `Nat : Sort 1`, `Nat.zero : Nat`, `Nat.succ : Nat → Nat`.
+
+Kept separate from `envNatLit` so the L1/L2 guards keep their minimal environment. -/
+
+/-- Stage 1 of `envNatT`: `Nat : Sort 1`. -/
+noncomputable def envNatT₀ : VEnv :=
+  (VEnv.empty.addConst ``Nat ⟨0, .sort (.succ .zero)⟩).getD .empty
+/-- Stage 2 of `envNatT`: `Nat.zero : Nat`. -/
+noncomputable def envNatT₁ : VEnv :=
+  (envNatT₀.addConst ``Nat.zero ⟨0, .const ``Nat []⟩).getD .empty
+/-- `envNatLit` with `Nat`'s two constructors added as typed axioms — the smallest `VEnv`
+in which a `Nat` literal's own `TrExprS` witness is constructible. -/
+noncomputable def envNatT : VEnv :=
+  (envNatT₁.addConst ``Nat.succ ⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩).getD .empty
+
+theorem envNatT₀_add : VEnv.empty.addConst ``Nat ⟨0, .sort (.succ .zero)⟩ = some envNatT₀ := by
+  unfold envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT₁_add : envNatT₀.addConst ``Nat.zero ⟨0, .const ``Nat []⟩ = some envNatT₁ := by
+  unfold envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT_add :
+    envNatT₁.addConst ``Nat.succ ⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩
+      = some envNatT := by
+  unfold envNatT envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+
+theorem envNatT₀_Nat : envNatT₀.constants ``Nat = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT₁_Nat : envNatT₁.constants ``Nat = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT_Nat : envNatT.constants ``Nat = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envNatT envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT_zero : envNatT.constants ``Nat.zero = some ⟨0, .const ``Nat []⟩ := by
+  unfold envNatT envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+theorem envNatT_succ :
+    envNatT.constants ``Nat.succ
+      = some ⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩ := by
+  unfold envNatT envNatT₁ envNatT₀ VEnv.addConst VEnv.empty; simp
+
+theorem envNatT_containsLits (n : Nat) : envNatT.ContainsLits (.natVal n) :=
+  ⟨_, envNatT_Nat⟩
+
+/-- `envNatT` is well-formed (three axioms, each typed in the preceding stage). -/
+theorem envNatT_wf : envNatT.WF := by
+  have hNat : VConstant.WF VEnv.empty ⟨0, .sort (.succ .zero)⟩ :=
+    ⟨.succ (.succ .zero), VEnv.IsDefEq.sortDF (by trivial) (by trivial) (by rfl)⟩
+  have hzero : VConstant.WF envNatT₀ ⟨0, .const ``Nat []⟩ := by
+    refine ⟨.succ .zero, ?_⟩
+    exact VEnv.IsDefEq.constDF (env := envNatT₀) (uvars := 0) (Γ := []) (c := ``Nat)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envNatT₀_Nat
+      (by simp) (by simp) (by simp) (by simp)
+  have hNat₁ : envNatT₁.HasType 0 [] (.const ``Nat []) (.sort (.succ .zero)) :=
+    VEnv.IsDefEq.constDF (env := envNatT₁) (uvars := 0) (Γ := []) (c := ``Nat)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envNatT₁_Nat
+      (by simp) (by simp) (by simp) (by simp)
+  have hNat₁' : envNatT₁.HasType 0 [.const ``Nat []] (.const ``Nat []) (.sort (.succ .zero)) :=
+    VEnv.IsDefEq.constDF (env := envNatT₁) (uvars := 0) (Γ := [.const ``Nat []]) (c := ``Nat)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envNatT₁_Nat
+      (by simp) (by simp) (by simp) (by simp)
+  have hsucc : VConstant.WF envNatT₁ ⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩ :=
+    ⟨_, VEnv.IsDefEq.forallEDF hNat₁ hNat₁'⟩
+  exact ⟨[.axiom ⟨⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩, ``Nat.succ⟩,
+          .axiom ⟨⟨0, .const ``Nat []⟩, ``Nat.zero⟩,
+          .axiom ⟨⟨0, .sort (.succ .zero)⟩, ``Nat⟩],
+    .decl (.axiom hsucc envNatT_add)
+      (.decl (.axiom hzero envNatT₁_add) (.decl (.axiom hNat envNatT₀_add) .empty))⟩
+
+/-- The `VExpr` a peano literal translates to: the same tower, one `Nat.succ` per step. -/
+def vNatTower : Nat → VExpr
+  | 0 => .const ``Nat.zero []
+  | n + 1 => .app (.const ``Nat.succ []) (vNatTower n)
+
+theorem envNatT_zeroType : envNatT.HasType 0 [] (.const ``Nat.zero []) (.const ``Nat []) :=
+  VEnv.IsDefEq.constDF (env := envNatT) (uvars := 0) (Γ := []) (c := ``Nat.zero)
+    (ci := ⟨0, .const ``Nat []⟩) (ls := []) (ls' := []) envNatT_zero
+    (by simp) (by simp) (by simp) (by simp)
+
+theorem envNatT_succType : envNatT.HasType 0 []
+    (.const ``Nat.succ []) (.forallE (.const ``Nat []) (.const ``Nat [])) :=
+  VEnv.IsDefEq.constDF (env := envNatT) (uvars := 0) (Γ := []) (c := ``Nat.succ)
+    (ci := ⟨0, .forallE (.const ``Nat []) (.const ``Nat [])⟩) (ls := []) (ls' := [])
+    envNatT_succ (by simp) (by simp) (by simp) (by simp)
+
+theorem envNatT_towerType : ∀ n : Nat, envNatT.HasType 0 [] (vNatTower n) (.const ``Nat [])
+  | 0 => envNatT_zeroType
+  | n + 1 =>
+      -- `B.inst a` is `(.const Nat []).inst _`, i.e. `.const Nat []` by iota.
+      VEnv.IsDefEq.appDF envNatT_succType (envNatT_towerType n)
+
+/-- **The literal translates** — the witness the bridge's `hex` premise asks for, at every
+`n`, constructed (not assumed). It is `TrExprS.lit` all the way down: lean4lean translates
+`.lit l` *through* `Literal.toConstructor`, which under peano is the very unfolding the
+shipping `visitLiteral` performs. -/
+theorem trExprS_natLit : ∀ n : Nat, TrExprS envNatT [] [] (.lit (.natVal n)) (vNatTower n)
+  | 0 => .lit (envNatT_containsLits 0) (.const envNatT_zero (by simp) (by simp))
+  | n + 1 => .lit (envNatT_containsLits (n + 1))
+      (.app envNatT_succType (envNatT_towerType n)
+        (.const envNatT_succ (by simp) (by simp)) (trExprS_natLit n))
+
 /-! ### Non-vacuity guards for `Erases.const_fix` and the re-founded `Erases.fix`
 
 The re-founded rule is easy to render *vacuous*: `hreg` needs a `Γ` that really

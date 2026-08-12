@@ -1679,6 +1679,27 @@ theorem erases_srcNatTower (Us : List Name) (Δ : VLCtx) : ∀ n : Nat,
   | n + 1 => .app (.ctor_head ``Nat.succ [] natLitInd 1 ΓnatLit_succ)
       (erases_srcNatTower Us Δ n)
 
+/-- The **C**-fragment source evaluation of a literal — the `SEvalDataC` sibling of
+`sevalData_natLit`, which is the form the shipping capstone D3 consumes. -/
+theorem sevalDataC_natLit {E : SEnv} : ∀ n : Nat,
+    SEvalDataC ΓnatLit E (.lit (.natVal n)) (srcNatTower n)
+  | 0 => .lit (.ctor_val (args := []) (vs := []) ΓnatLit_zero ΓnatLit_arity_zero
+      (Nat.le_refl 0) rfl (fun i hi => absurd hi (by simp)))
+  | n + 1 => .lit (.ctor_val (args := [.lit (.natVal n)]) (vs := [srcNatTower n])
+      ΓnatLit_succ ΓnatLit_arity_succ (Nat.le_refl 1) rfl
+      (fun i hi => by
+        obtain rfl : i = 0 := by simpa using hi
+        exact sevalDataC_natLit n))
+
+/-- The **source value** translates too — the `.const`-headed sibling of
+`trExprS_natLit`, at the same `envNatT`. Both land on the *same* `vNatTower n`, which is
+lean4lean's own statement that a literal and its unfolding share a `VExpr`. -/
+theorem trExprS_srcNatTower : ∀ n : Nat,
+    TrExprS envNatT [] [] (srcNatTower n) (vNatTower n)
+  | 0 => .const envNatT_zero (by simp) (by simp)
+  | n + 1 => .app envNatT_succType (envNatT_towerType n)
+      (.const envNatT_succ (by simp) (by simp)) (trExprS_srcNatTower n)
+
 /-- The whole literal instance of `erases_correct_data`'s conclusion, at `n = 2`: the
 source literal evaluates to the tower, the erased term evaluates to the erased tower,
 and the two are related by `Erases` in applied (`NoBlock`, `NoFix`) form. -/
