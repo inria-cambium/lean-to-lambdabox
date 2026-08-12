@@ -1035,3 +1035,51 @@ open LeanToLambdaBox
 -- `sevalDataC_natLit` are `sorryAx`-free; the rest carry the `TrExprS` boundary their
 -- neighbours already carried.
 -- ----------------------------------------------------------------------------
+
+-- ============================================================================
+-- The DAG cold-start wall, slice S3 (2026-08-12): the entry point and the
+-- registration exits, decomposed — and the δ half composed OUTSIDE the inductions.
+--
+-- WHY OUTSIDE. The shape half (S1d) travels as a state predicate `Q : ErasureState →
+-- Prop`; a state predicate has no room to mention the `visitExpr` run whose OUTPUT is
+-- being stored, so it cannot carry an `Erases` witness for it. Widening it is not
+-- available either: inside `visitExpr.mutual_fixpoint_induct` the step goal for
+-- `visitMutual` sees the fixpoint's ABSTRACT erasure argument. And the bridge induction
+-- cannot host the content — that is S2's recorded finding (motive 6 stays `True`). So the
+-- δ content is composed about the REAL functions, from `run_visitMutual_decomp`.
+--
+-- WHAT IS PROVED FROM THE RUN: the entry point reduces to `prepare_erasure` + `visitExpr`
+-- from the EMPTY state (R1); `prepare_erasure` is state-transparent with csimp off (R2),
+-- which is what pins that state to `{}`; the non-recursive exit's stored body is found by
+-- `envLookup` under `Γ.constants n` and really erases the body the run erased; the
+-- recursive block's siblings are each found at their own index.
+--
+-- LEDGER: one trust item LEAVES. `PrepareHyps.prepare_sound` was a fourth, independent
+-- field of the trust class; it is now the THEOREM `prepare_sound_of_prepareHyps`, derived
+-- from the three per-transform fields along R2's monadic-bind decomposition. Nothing is
+-- added: the residues (context-uniformity of a constant body's erasure, the applied form
+-- of the stored body, the `Esrc`-domain agreement, and the recursive block's δ witness)
+-- are explicit named premises of the walk step, not new bundles.
+--
+-- Expectation: the pure `EraseM`/`CoreM`/`LBTerm` layer is sorryAx-free (R1, R2, the
+-- decomposition, the `Kername.beq` and `envLookup` kit, the recursive registration and
+-- its guard); the two bridge-facing results carry exactly the lean4lean boundary
+-- `erases_nonrec_const_body` already carried.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.Kername.eq_of_beq
+#print axioms LeanToLambdaBox.InlineExt.runConcl
+#print axioms LeanToLambdaBox.run_nonrec_exit_decomp
+#print axioms LeanToLambdaBox.run_rec_exit_decomp
+#print axioms LeanToLambdaBox.run_visitMutual_decomp
+#print axioms LeanToLambdaBox.run_prepare_erasure_ok
+#print axioms LeanToLambdaBox.prepare_sound_of_prepareHyps
+#print axioms LeanToLambdaBox.erase_run_ok
+#print axioms LeanToLambdaBox.envLookup_of_mem_of_keys
+#print axioms LeanToLambdaBox.envLookup_mono_of_keys
+#print axioms LeanToLambdaBox.erases_nonrec_const_registered
+#print axioms LeanToLambdaBox.recConstState_envLookup
+#print axioms LeanToLambdaBox.registeredClosureData_step_nonrec
+#print axioms LeanToLambdaBox.RegisteredClosureData.mono
+#print axioms LeanToLambdaBox.gRecConstState_lookups
+#print axioms LeanToLambdaBox.gRecConstState_no_shadow

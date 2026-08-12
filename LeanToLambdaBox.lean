@@ -142,3 +142,11 @@ import LeanToLambdaBox.OutputShape
 -- de-Bruijn-closed term, with no hypotheses — and, at `Q := RegInvShape Γ`, the
 -- preservation of the cold-start registry invariant across a whole run.
 import LeanToLambdaBox.ColdStartInduction
+-- Cold-start slice S3: the entry point and the registration exits, decomposed
+-- (`erase_run_ok` (R1), `run_prepare_erasure_ok` (R2) — which also *derives*
+-- `PrepareHyps`' former `prepare_sound` field — and `run_visitMutual_decomp`, which hands
+-- the inner `visitExpr` run back where the Hoare form cannot); and the δ half of the
+-- registry record: the body a non-recursive `visitMutual` exit stored really erases the
+-- body it erased, plus the recursive block's registration.
+import LeanToLambdaBox.ColdStartRun
+import LeanToLambdaBox.ColdStartDelta

@@ -35,9 +35,9 @@ kernel-semantics-preserving** — it substitutes an extensionally-equal but
 intensionally-different function that the kernel does not see as defeq. It can therefore
 **never** sit inside a correctness statement.
 
-Consequently the net-effect field `prepare_sound` carries the explicit premise
+Consequently the derived net-effect theorem carries the explicit premise
 `ctx.config.csimp = false`. With it, the csimp branch of `prepare_erasure` is dead
-(`prepare_erasure` stops after the second `macroInline`), so `prepare_sound` is exactly
+(`prepare_erasure` stops after the second `macroInline`), so the net effect is exactly
 the composite of the three transform-soundness fields. This is a **documented
 hypothesis, not an axiom**; its non-vacuity is trivial (`config.csimp = false` is a
 configuration the CLI genuinely exposes). RAISE-not-fix: the shipping *default* is
@@ -64,11 +64,13 @@ epistemic class `BridgeHyps.orc_run`; NEVER an axiom).
 
 Each field is a Hoare-style spec: a successful `EraseM` run of the named transform on a
 source `Expr` returns an expression with the **same** lean4lean-validated source
-big-step evaluation (`SEvalData Γ Esrc`). `prepare_sound` is the net composite over the
-whole `prepare_erasure` run, carrying the mandatory `csimp = false` gate (see module
-docstring); it is justified by — and, under a monadic-bind decomposition of the
-csimp-off `prepare_erasure` into its four transform runs, derivable from — the three
-per-transform fields. -/
+big-step evaluation (`SEvalData Γ Esrc`).
+
+The **net composite** over the whole csimp-off `prepare_erasure` run used to be a fourth
+field of this structure; it is now the theorem
+`LeanToLambdaBox.prepare_sound_of_prepareHyps` (`ColdStartRun.lean`), derived from these
+three along the monadic-bind decomposition `run_prepare_erasure_ok` (cold-start R2). One
+trust item fewer, same strength. -/
 structure PrepareHyps (Γ : ErasureCtx) (Esrc : SEnv) : Prop where
   /-- `replaceUnsafeRecNames` preserves source big-step evaluation. -/
   replaceUnsafeRec_sound : ∀ {e e' : Expr} {s s₁ : ErasureState} {ctx : ErasureContext}
@@ -89,18 +91,6 @@ structure PrepareHyps (Γ : ErasureCtx) (Esrc : SEnv) : Prop where
       {w w₁ : Void IO.RealWorld},
       (liftM (inlineMatchers e) : EraseM Expr) s ctx cctx ref w = .ok (e', s₁) w₁ →
       ∀ {v : Expr}, SEvalData Γ Esrc e' v ↔ SEvalData Γ Esrc e v
-  /-- **Net soundness of the whole `prepare_erasure` pipeline, csimp OFF.** With
-  `ctx.config.csimp = false` the csimp branch is dead, so `prepare_erasure` is exactly
-  `replaceUnsafeRecNames ; macroInline ; inlineMatchers ; macroInline`, and this field
-  is their composite. Directly consumable by the cold-start composition: it links the
-  *prepared* constant/top-level body's source evaluation to the *original* body's. -/
-  prepare_sound : ∀ {e e' : Expr} {s s₁ : ErasureState} {ctx : ErasureContext}
-      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
-      {w w₁ : Void IO.RealWorld},
-      ctx.config.csimp = false →
-      Erasure.prepare_erasure e s ctx cctx ref w = .ok (e', s₁) w₁ →
-      ∀ {v : Expr}, SEvalData Γ Esrc e' v ↔ SEvalData Γ Esrc e v
-
 /-! ## Non-vacuity guards -/
 
 /-- The preservation conclusion shared by every `PrepareHyps` field is realizable at
