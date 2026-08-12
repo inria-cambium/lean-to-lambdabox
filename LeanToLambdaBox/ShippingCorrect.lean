@@ -141,6 +141,7 @@ itself, as a value), its `TrExprS` witness, and a concrete `BridgeInv` at
 example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     (hΓfv : Γ.fixvars = fun _ => none)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (cfg : ErasureConfig)
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
@@ -169,6 +170,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     H HD C (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
+      natcfg := hcfg
       kfresh := fun _ h => nomatch h
       fixvars := by intro nm x; rw [hΓfv]; simp
       fixfresh := by intro nm x hx; rw [hΓfv] at hx; simp at hx

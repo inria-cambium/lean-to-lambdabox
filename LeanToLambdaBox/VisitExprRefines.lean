@@ -839,6 +839,17 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
   mlc : ∃ m : MLCtx, m.WF env Us ∧ m.lctx = ctx.lctx ∧ m.vlctx = Δ
   lparams : ctx.lparams = Us
+  /-- **The literal fragment's config pin** (Nat-literals wall, L3). `Supported` is purely
+  syntactic in `(known, Γ)` and cannot see the reader's `ctx.config`; `Supported.natLit`
+  therefore states peano-mode as the `Γ`-side flag `Γ.natPeano`, and *this* field is where
+  the flag is cashed in against the run whose branch selection actually depends on it
+  (`visitLiteral` matches on `(← read).config.nat`).
+
+  Vacuous at `Γ.natPeano = false` — which is every machine-mode instance and every `Γ`
+  that does not opt in — so the machine-mode bridge theorem stays exactly as strong as it
+  was. Preservation is free: `mono`, `mono_state`, `mkLocalDecl` and `mkLetDecl` change
+  only `gen`, `s` and `ctx.lctx`, never `ctx.config`. -/
+  natcfg : Γ.natPeano = true → ctx.config.nat = .peano
   kfresh : ∀ fv ∈ Δ.fvars, kernelNGen.Reserves fv
   /-- **Fixvar agreement** (recursion wall, W3.1). The run's block-local map — the
   reader's `ErasureContext.fixvars`, installed by `visitMutual`'s `withReader` while the
@@ -883,6 +894,7 @@ theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
     BridgeInv env Us known Γ gen' ctx s Δ where
   mlc := h.mlc
   lparams := h.lparams
+  natcfg := h.natcfg
   kfresh := h.kfresh
   fixvars := h.fixvars
   fixfresh := fun nm x hx => ⟨(h.fixfresh nm x hx).1.mono hle, (h.fixfresh nm x hx).2⟩
@@ -905,6 +917,7 @@ theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Pro
     BridgeInv env Us known Γ gen ctx s' Δ where
   mlc := h.mlc
   lparams := h.lparams
+  natcfg := h.natcfg
   kfresh := h.kfresh
   fixvars := h.fixvars
   fixfresh := h.fixfresh
@@ -940,6 +953,7 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
     · show m.lctx.mkLocalDecl x n ty bi = _; rw [hlctx]
     · show (some (x, ty.fvarsList), VLocalDecl.vlam ty') :: m.vlctx = _; rw [hvlctx]
   lparams := hinv.lparams
+  natcfg := hinv.natcfg
   kfresh := by
     intro fv hfv
     have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
@@ -995,6 +1009,7 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     · show (some (x, ty.fvarsList ++ v.fvarsList), VLocalDecl.vlet ty' val') :: m.vlctx = _
       rw [hvlctx]
   lparams := hinv.lparams
+  natcfg := hinv.natcfg
   kfresh := by
     intro fv hfv
     have : fv = x ∨ fv ∈ Δ.fvars := by simpa using hfv
@@ -1146,12 +1161,18 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
     (∀ l s ctx cctx ref w r s' w', visitLiteral l s ctx cctx ref w = .ok (r, s') w' →
-      True) ∧
+      ∀ Δ (n : Nat) (iid : InductiveId),
+        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        l = .natVal n → Γ.natPeano = true →
+        Γ.ctors ``Nat.zero = some (iid, 0) → Γ.ctors ``Nat.succ = some (iid, 1) →
+        (∃ ve, TrExprS env Us Δ (.lit l) ve) →
+        Erases env Us Γ Δ (.lit l) r ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
     (∀ cn args s ctx cctx ref w t s' w',
       visitConstructor cn args s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
         BridgeInv env Us known Γ (gw w) ctx s Δ →
-        Γ.ctors cn = some (iid, cidx) → cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
+        Γ.ctors cn = some (iid, cidx) →
+        (ctx.config.nat = .peano ∨ (cn ≠ ``Nat.zero ∧ cn ≠ ``Nat.succ)) →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
           ∃ ve, TrExprS env Us Δ (args[i]) ve) →
         Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) t ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
@@ -1262,12 +1283,19 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConcl s s' ∧ gw w ≤ gw w')
     (motive_2 := fun f => ∀ l s ctx cctx ref w r s' w',
-      f l s ctx cctx ref w = .ok (r, s') w' → True)
+      f l s ctx cctx ref w = .ok (r, s') w' →
+      ∀ Δ (n : Nat) (iid : InductiveId),
+        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        l = .natVal n → Γ.natPeano = true →
+        Γ.ctors ``Nat.zero = some (iid, 0) → Γ.ctors ``Nat.succ = some (iid, 1) →
+        (∃ ve, TrExprS env Us Δ (.lit l) ve) →
+        Erases env Us Γ Δ (.lit l) r ∧ RunConcl s s' ∧ gw w ≤ gw w')
     (motive_3 := fun f => ∀ cn args s ctx cctx ref w t s' w',
       f cn args s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
         BridgeInv env Us known Γ (gw w) ctx s Δ →
-        Γ.ctors cn = some (iid, cidx) → cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
+        Γ.ctors cn = some (iid, cidx) →
+        (ctx.config.nat = .peano ∨ (cn ≠ ``Nat.zero ∧ cn ≠ ``Nat.succ)) →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
           ∃ ve, TrExprS env Us Δ (args[i]) ve) →
         Erases env Us Γ Δ (args.foldl Expr.app (.const cn us)) t ∧ RunConcl s s' ∧ gw w ≤ gw w')
@@ -1396,7 +1424,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   · exact eraseM_admissible_ok₂ _
   · exact eraseM_admissible_ok₃ _
   -- Step 1: visitExpr — the erasability guard, then dispatch on the fragment.
-  · intro vE vLit vLet vLam vProj vApp _ih1 _ih2 ih8 ih9 _ih10 ih11
+  · intro vE vLit vLet vLam vProj vApp _ih1 ih2 ih8 ih9 _ih10 ih11
     intro e s ctx cctx ref w t s' w' hrun Δ hinv hsupp hex
     simp only [] at hrun
     -- one extra step: `visitExpr` first `read`s `ctx.lparams` for the oracle.
@@ -1449,6 +1477,12 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         obtain ⟨er, hs, hle₂⟩ := ih8 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁)
           n ty _ _ nd rfl (.letE n ty nd hv hb) hex
         exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
+      | @natLit n iid hpeano hz hs =>
+        -- a peano-`Nat` literal: `visitExpr` hands it to `visitLiteral`, motive 2.
+        simp only [] at hk
+        obtain ⟨er, hrc, hle₂⟩ := ih2 _ _ _ _ _ _ _ _ _ hk Δ n iid (hinv.mono hle₁)
+          rfl hpeano hz hs hex
+        exact ⟨er, hrc, NameGenerator.LE.trans hle₁ hle₂⟩
       | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
           hdiscr hlam hminors =>
         -- a `casesOn` spine; always nonempty (it contains the discriminant), so
@@ -1475,12 +1509,48 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
           simp only [] at hk
           obtain ⟨er, hs, hle₂⟩ := ih11 _ _ _ _ _ _ _ _ _ hk Δ (hinv.mono hle₁) hsupp' hex
           exact ⟨er, hs, NameGenerator.LE.trans hle₁ hle₂⟩
-  -- Step 2: visitLiteral (trivial conclusion).
-  · intros; trivial
+  -- Step 2: visitLiteral — under peano the literal is rebuilt as the constructor tower,
+  -- one `visitConstructor` per `succ`, which is *literally* lean4lean's
+  -- `Literal.toConstructor` step; so the case is `Erases.lit` over motive 3, and the
+  -- recursion `visitLiteral → visitConstructor → visitAppArgs → visitExpr → visitLiteral`
+  -- is carried by the fixpoint induction (no measure on `n` is needed). `BridgeInv.natcfg`
+  -- turns the `Γ`-side flag into the reader's config, which selects the branch; the
+  -- machine arms are then unreachable and `.strVal` never enters (`Supported` excludes it).
+  · intro vCtor ih3
+    intro l s ctx cctx ref w r s' w' hrun Δ n iid hinv hl hpeano hz hs hex
+    subst hl
+    obtain ⟨ve, hve⟩ := hex
+    obtain ⟨hcl, htrC⟩ := TrExprS.lit_inv' hve
+    have hpe : ctx.config.nat = .peano := hinv.natcfg hpeano
+    simp only [] at hrun
+    rw [run_read_bind] at hrun
+    cases n with
+    | zero =>
+      simp only [hpe] at hrun
+      obtain ⟨er, hrc, hle⟩ := ih3 _ _ _ _ _ _ _ _ _ _ hrun Δ [] iid 0 hinv hz
+        (.inl hpe) (fun i hi => absurd hi (by simp))
+      exact ⟨.lit hcl (by
+        simpa [Literal.toConstructor, Expr.natLitToConstructor, Expr.natZero,
+          Expr.natSucc] using er), hrc, hle⟩
+    | succ m =>
+      simp only [hpe] at hrun
+      -- the residual literal `m` is itself supported (this is why motive 2 reads the
+      -- `Γ`-side flag and not just the config), and its translation is the argument
+      -- component of the unfolding's own `TrExprS.app`.
+      have hinner : ∃ ve', TrExprS env Us Δ (.lit (.natVal m)) ve' := by
+        cases htrC with | app _ _ _ htra => exact ⟨_, htra⟩
+      obtain ⟨er, hrc, hle⟩ := ih3 _ _ _ _ _ _ _ _ _ _ hrun Δ [] iid 1 hinv hs
+        (.inl hpe) (fun i hi => by
+          have hi0 : i = 0 := by simpa using hi
+          subst hi0
+          exact ⟨.natLit m hpeano hz hs, hinner⟩)
+      exact ⟨.lit hcl (by
+        simpa [Literal.toConstructor, Expr.natLitToConstructor, Expr.natZero,
+          Expr.natSucc] using er), hrc, hle⟩
   -- Step 3: visitConstructor — via `DataBridgeHyps.constructor_run`, reduces to
   -- `visitAppArgs (.construct iid cidx []) args`; then motive 7 + `ctor_head`.
   · intro vLit vConst vAA ih2 ih4 ih7
-    intro cn args s ctx cctx ref w t s' w' hrun Δ us iid cidx hinv hct hzero hsucc hargfacts
+    intro cn args s ctx cctx ref w t s' w' hrun Δ us iid cidx hinv hct hnatdead hargfacts
     simp only [] at hrun
     -- (1) getConstInfo cn → ctorInfo info  (state-preserving: `run_getConstInfo_state`)
     rw [run_bind_ok] at hrun
@@ -1533,10 +1603,17 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         (NameGenerator.LE.trans hle3 hle4))
     have hrun2 : vAA (.construct iid info.cidx []) args s₄ ctx cctx ref w₄ = .ok (t, s') w' := by
       simp only [← hcidx] at hslice
-      rcases hcnat : ctx.config.nat with _ | _ <;>
-        simp only [hcnat] at hrun <;>
-        · rw [hslice] at hrun
-          exact hrun
+      -- Under `.peano` the machine-`Nat` arms are dead for EVERY `cn` (the config column
+      -- alone selects the fall-through); under `.machine` they are dead because `cn` is
+      -- neither `Nat` constructor, which is what `simp only` reads off the context.
+      rcases hnatdead with hpe | ⟨hzero, hsucc⟩
+      · simp only [hpe] at hrun
+        rw [hslice] at hrun
+        exact hrun
+      · rcases hcnat : ctx.config.nat with _ | _ <;>
+          simp only [hcnat] at hrun <;>
+          · rw [hslice] at hrun
+            exact hrun
     obtain ⟨erap, hs', hle⟩ := ih7 _ _ _ _ _ _ _ _ _ _ hrun2 Δ (Expr.const cn us)
       ((hinv.mono_state hrc3).mono hmono)
       (.ctor_head cn us iid info.cidx (by rw [hcidx]; exact hct)) hargfacts
@@ -1865,7 +1942,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       hzero hsucc hargfacts
     simp only [] at hrun
     rw [if_pos hle] at hrun
-    exact ih3 _ _ _ _ _ _ _ _ _ _ hrun Δ us iid cidx hinv hct hzero hsucc hargfacts
+    exact ih3 _ _ _ _ _ _ _ _ _ _ hrun Δ us iid cidx hinv hct (.inr ⟨hzero, hsucc⟩) hargfacts
   -- Step 15: visitCasesEta — `inferType` (state-preserving, monotone; the type is
   -- discarded on the saturated path), then the `withApp`-decomposed spine goes to
   -- `visitCasesEtaGo`. Mirrors step 13.
@@ -2229,13 +2306,17 @@ non-vacuity lives at its definitions: `Supported.casesApp` in `Bridge.lean`,
 section NonVacuity
 
 /-- (i) `BridgeInv` is satisfiable: the empty-context instance at `Δ = []`,
-`known := fun _ => False`, `fixvars = none`. -/
+`known := fun _ => False`, `fixvars = none`. `hcfg` is the literal fragment's config pin
+(L3), a side condition relating the *parameter* `Γ` to the run's config exactly the way
+`hkn`/`hfv` relate it to the registry and the block; it is vacuous at the default
+`Γ.natPeano = false`. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
-    (cfg : ErasureConfig) :
+    (cfg : ErasureConfig) (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
     BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by intro nm x; rw [hfv]; simp
   fixfresh := by intro nm x hx; rw [hfv] at hx; simp at hx
@@ -2258,6 +2339,7 @@ example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
       ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  natcfg := fun h => absurd h (by simp [ΓfixOpen])
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by
     intro nm y
@@ -2282,6 +2364,7 @@ itself and the trust bundle, which stay hypothetical because the primitives
 are opaque. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (henv : env.Ordered)
@@ -2305,6 +2388,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     { mlc := ⟨(MLCtx.nil).vlam x nm (.sort .zero) (.sort .zero) bi,
         ⟨trivial, hfind, hty, hty'⟩, rfl, rfl⟩
       lparams := rfl
+      natcfg := hcfg
       kfresh := by
         intro fv hfv
         have : fv = x ∨ fv ∈ VLCtx.fvars [] := by simpa using hfv
@@ -2334,8 +2418,13 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
 end NonVacuity
 
 /- Axiom audit (2026-07-07, via temporary `#print axioms`, since removed;
-re-checked 2026-08-10 after the ι widening and 2026-08-12 after the cold-start S2
-widening — **unchanged** in both cases. S2 added no axiom: `Erasure.RunConcl` /
+re-checked 2026-08-10 after the ι widening, 2026-08-12 after the cold-start S2
+widening and again after the Nat-literals L3 widening — **unchanged** every time.
+L3 added no axiom either: the literal path introduces no primitive and no trust
+clause (`visitLiteral` calls `visitConstructor`, whose `DataBridgeHyps` clauses are
+keyed on `Γ.ctors` and already cover `Nat.zero`/`Nat.succ`), and `BridgeInv.natcfg` is
+a side condition on the parameter `Γ` — like S2's `knames` — discharged at every
+construction site. S2 added no axiom: `Erasure.RunConcl` /
 `Erasure.StateLe` / `Erasure.run_register_inductive_runConcl` are pure `EraseM` state
 reasoning (`[propext, Classical.choice, Quot.sound]`), `BridgeInv.mono_state` inherits
 only what `BridgeInv` already did, and the six deleted `s = s₁` bundle clauses were

@@ -421,14 +421,20 @@ its canonical kername. It is a side condition on `Γ` alone, satisfied by every 
 `Γ` in the development (`ΓFOd`/`ΓFOι` define `constants := toKername`), so it is passed
 in rather than baked into a particular `Γ` here. `hnfv` is the same kind of side
 condition for the (W3.1) fixvar agreement: at a top-level entry point neither the run nor
-`Γ` installs a block-local fixvar map, so the agreement is `False ↔ False`. -/
+`Γ` installs a block-local fixvar map, so the agreement is `False ↔ False`. `hcfg` is the
+third of the same kind (Nat-literals wall, L3): if `Γ` declares peano-`Nat` — which only a
+`Γ` carrying `Supported.natLit` derivations does — the run's config must agree. It is
+vacuous at the default `Γ.natPeano = false`, so every existing caller passes
+`(by simp [Γ…])`. -/
 theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (hkn : ∀ n : Name, Γ.constants n = toKername n)
     (hnfv : Γ.fixvars = fun _ => none)
-    (gen : NameGenerator) (cfg : ErasureConfig) :
+    (gen : NameGenerator) (cfg : ErasureConfig)
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
     BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by intro nm x; rw [hnfv]; simp
   fixfresh := by intro nm x hx; rw [hnfv] at hx; simp at hx

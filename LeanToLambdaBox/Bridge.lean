@@ -25,16 +25,15 @@ terms on which the bridge theorem speaks. It deliberately covers
   `.construct iid cidx []` under an application spine, while `Erases.ctor` is the
   args-inside *block* form — bridging those needs an applied-form `Erases` rule
   and an `erases_correct` extension under `construct_app` semantics (future work);
-* **projections**, **literals** (under `nat := .peano` a `Nat` literal routes
-  into the constructor path — the model now covers that via `Erases.lit`, but the
-  `visitExpr` dispatch for it is still open, so the fragment excludes it; under
-  `.machine` it routes into `prim`, out of `Erases` by design), and **`mdata`**
-  (`Erases` has no `mdata` rule);
+* **projections** and **`mdata`** (`Erases` has no rule for either);
+* **`String` literals** (the shipping `visitLiteral` `panic!`s) and **machine-`Nat`
+  literals** (they route into `prim`, out of `Erases` by design);
 * everything `visitExpr` itself panics on (`sort`, `forallE`, `mvar`).
 
-Two spine-shaped rules extend it: `ctorApp` (saturated constructor applications,
-the data fragment) and `casesApp` (saturated `casesOn` applications with
-*manifest* λ minors, the ι fragment). Both are documented at their constructors.
+Three rules extend it: `ctorApp` (saturated constructor applications, the data
+fragment), `casesApp` (saturated `casesOn` applications with *manifest* λ minors, the ι
+fragment) and `natLit` (`Nat` literals at a `Γ` that declares peano mode). All three are
+documented at their constructors.
 
 `bvar` *is* in the fragment even though `visitExpr`'s `.bvar` case is
 `unreachable!` on the locally-closed terms it actually visits: the predicate is
@@ -112,6 +111,29 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
   | letE {v b : Expr} (n : Name) (ty : Expr) (nd : Bool)
       (hv : Supported known Γ v) (hb : Supported known Γ b) :
       Supported known Γ (.letE n ty v b nd)
+  /-- A **`Nat` literal under `nat := .peano`** (Nat-literals wall, L3). `visitExpr`
+      routes `.lit l` to `visitLiteral`, which under peano rebuilds the constructor tower
+      one `visitConstructor` at a time — exactly the one-step unfolding
+      `Literal.toConstructor` that lean4lean's `TrExprS.lit` and `Erases.lit` use. So `Γ`
+      must register `Nat`'s two constructors at their real kernel indices
+      (`Nat.zero ↦ 0`, `Nat.succ ↦ 1`) and `Γ.natPeano` must pin the mode, which the
+      bridge cashes in against the run's own `(← read).config.nat` via
+      `VisitExprRefines.BridgeInv.natcfg`.
+
+      No `ctorArities`/`casesOns` premises: the literal path calls `visitConstructor`
+      **directly**, bypassing `visitCtorEta` (where saturation lives) and `visitConstApp`
+      (where `Γ.casesOns` is consulted) — compare motive 3's premise list, which asks only
+      for `Γ.ctors cn`.
+
+      `.strVal` is deliberately **out** at every `Γ`: the shipping `visitLiteral`
+      `panic!`s on it, returning the `Inhabited` default, i.e. silently wrong output.
+      Machine mode is out too — `.prim` has no `Erases` rule — and stays out because at
+      `Γ.natPeano = false` this rule is unusable. -/
+  | natLit (n : Nat) {iid : InductiveId}
+      (hpeano : Γ.natPeano = true)
+      (hzero : Γ.ctors ``Nat.zero = some (iid, 0))
+      (hsucc : Γ.ctors ``Nat.succ = some (iid, 1)) :
+      Supported known Γ (.lit (.natVal n))
   /-- A **saturated constructor application** (data-fragment extension, A8). The
       head `cn` is a registered constructor (`Γ.ctors`) with declared arity `ar`
       (`Γ.ctorArities`); the spine is exactly saturated (`args.length = ar`), so the
@@ -180,6 +202,7 @@ theorem Supported.instantiate1' {known : Name → Prop} {Γ : ErasureCtx} {e : E
   | app _ _ ihf iha => exact .app (ihf k) (iha k)
   | lam n ty bi _ ihb => exact .lam n _ bi (ihb (k + 1))
   | letE n ty nd _ _ ihv ihb => exact .letE n _ nd (ihv k) (ihb (k + 1))
+  | natLit n hpeano hz hs => exact .natLit n hpeano hz hs
   | ctorApp hc hcases har hsat hzero hsucc _ ihargs =>
     rw [instantiate1'_foldl_app]
     simp only [Expr.instantiate1']
@@ -217,12 +240,11 @@ example : Supported (fun _ => True)
     (.lam `x (.const `Nat []) (.bvar 0) .default) :=
   .lam _ _ _ (.bvar 0)
 
-/-- Literals are still **out** of the fragment: the peano-`Nat` rule `natLit` (gated on
-`Γ.natPeano`, `ErasureContext.lean`) is inseparable from the bridge's literal dispatch
-(motive 2 + `BridgeInv`'s config pin) and lands with it. The model side is already
-there — `Erases.lit` and the source/target literal semantics — so only this predicate
-and the `visitExpr` dispatch are missing. -/
-example {known : Name → Prop} {Γ : ErasureCtx} :
+/-- Literals are out of the fragment at a **machine-mode or unflagged** `Γ`: `natLit` is
+gated on `Γ.natPeano = true`, so at `false` the exclusion the fragment always had is
+intact — in particular the machine path (`.prim`, which has no `Erases` rule) is still
+unreachable from `Supported`. -/
+example {known : Name → Prop} {Γ : ErasureCtx} (hΓ : Γ.natPeano = false) :
     ¬ Supported known Γ (.lit (.natVal 0)) := by
   intro h
   generalize he : (Expr.lit (Literal.natVal 0)) = e at h
@@ -256,6 +278,14 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
         (args := pre ++ discr :: minors) (by simp)
       rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
+
+/-- **`Supported.natLit` is inhabited** (the positive half of the pair above): at the
+peano fixture `ΓnatLit` — the same `Γ` at which `erases_natLit` derives the tower
+(`Erases.lean`) and `sevalData_natLit`/`wcbvEval_natLitTower` run it
+(`ErasesCorrectData.lean`) — every `Nat` literal is in the fragment. So the bridge's
+literal dispatch is not vacuously discharged. -/
+example : Supported (fun _ => True) ΓnatLit (.lit (.natVal 3)) :=
+  .natLit 3 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ
 
 example {known : Name → Prop} {Γ : ErasureCtx} :
     ¬ Supported known Γ (.proj `Prod 0 (.fvar ⟨`p⟩)) := by

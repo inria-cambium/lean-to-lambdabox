@@ -920,3 +920,58 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.shipping_visitExpr_correct_data
 #print axioms LeanToLambdaBox.erases_nonrec_const_body
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_registered
+
+-- ============================================================================
+-- The Nat-literals wall, slice L3 (2026-08-12): the fragment and the bridge.
+--
+-- The literal now has a `Supported` rule and a `visitExpr` dispatch, so the wall's
+-- model core (L1) and its source/target semantics (L2) are reachable from the shipping
+-- eraser. Three statement changes, all additive or vacuous-at-the-default:
+--
+--   * `Supported.natLit` — a `Nat` literal at a `Γ` that declares peano mode
+--     (`Γ.natPeano`, `ErasureContext.lean`) and registers `Nat`'s two constructors at
+--     their real kernel indices. `.strVal` stays out at EVERY `Γ` (the shipping
+--     `visitLiteral` `panic!`s on it); machine-`Nat` stays out because at
+--     `Γ.natPeano = false` the rule is unusable — both are guarded in `Bridge.lean`.
+--
+--   * `BridgeInv.natcfg : Γ.natPeano = true → ctx.config.nat = .peano` — the config pin.
+--     `Supported` is syntactic in `(known, Γ)` and cannot see the reader's config, so
+--     the flag lives in `Γ` and is cashed in here against the run whose branch selection
+--     depends on it. Vacuous at `Γ.natPeano = false`, hence the machine-mode bridge
+--     theorem is EXACTLY as strong as before. It is a side condition on the parameter
+--     `Γ` (like S2's `knames` and W3.1's fixvar agreement), NOT a trust assumption:
+--     the construction sites (`gBridgeInv_nil`, the three in-file guards) take it as an
+--     explicit hypothesis and every existing caller discharges it by `simp`.
+--
+--   * motive 2 (`visitLiteral`) went from `True` to content, and motive 3
+--     (`visitConstructor`) relaxed `cn ≠ Nat.zero → cn ≠ Nat.succ` to the disjunction
+--     `ctx.config.nat = .peano ∨ (cn ≠ Nat.zero ∧ cn ≠ Nat.succ)`. The relaxation only
+--     ADMITS more calls (under peano the machine-`Nat` arms of `visitConstructor` are
+--     dead for every `cn`); `Supported.ctorApp` is NOT relaxed, so motives 13/14 keep
+--     their disequalities and pass the right disjunct.
+--
+-- Expectation: no axiom of ours, and no movement. The literal path introduces no new
+-- primitive and no new trust clause — `visitLiteral` calls `visitConstructor`, whose
+-- `DataBridgeHyps` clauses are keyed on `Γ.ctors` and hence already cover `Nat.zero` /
+-- `Nat.succ` (both are non-`@[extern]` in the real kernel, and the argmask slice is
+-- trivial at `numParams = 0`, `numFields ∈ {0,1}`). The recursion
+-- `visitLiteral → visitConstructor → visitAppArgs → visitExpr → visitLiteral` is carried
+-- by the fixpoint induction itself, so no measure and no new admissibility obligation.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.Supported.instantiate1'
+#print axioms LeanToLambdaBox.Supported.instantiate1
+#print axioms LeanToLambdaBox.BridgeInv
+#print axioms LeanToLambdaBox.BridgeInv.mono
+#print axioms LeanToLambdaBox.BridgeInv.mono_state
+#print axioms LeanToLambdaBox.BridgeInv.mkLocalDecl
+#print axioms LeanToLambdaBox.BridgeInv.mkLetDecl
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.gBridgeInv_nil
+-- The capstones: statements unchanged, so their sets must be unchanged too.
+#print axioms LeanToLambdaBox.shipping_visitExpr_correct
+#print axioms LeanToLambdaBox.shipping_visitExpr_correct_data
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_registered

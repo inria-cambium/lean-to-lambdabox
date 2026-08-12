@@ -467,7 +467,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   -- assumed — its `consts` field is soundness-flavoured (vacuous at `{}`) and its
   -- `knames` side condition is `ΓFOι`'s own `constants := toKername`.
   have hinv : BridgeInv envFO [] (fun _ => False) ΓFOι (gw w) ⟨{}, none, [], cfg⟩ {} [] :=
-    gBridgeInv_nil envFO [] ΓFOι (fun _ => rfl) rfl (gw w) cfg
+    gBridgeInv_nil envFO [] ΓFOι (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOι])
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
