@@ -634,11 +634,11 @@ open LeanToLambdaBox
 --
 --   * `Erasure.run_register_inductive_cold_ok` shows the cold branch conses one
 --     `.inductiveDecl` entry (plus one axiom entry per `@[extern]` constructor).
---     `DataBridgeHyps.reg_run` and `CasesBridgeHyps.casesreg_run` assert
+--     `DataBridgeHyps.reg_run` and `CasesBridgeHyps.casesreg_run` asserted
 --     `s = s₁` for `register_inductive` over an ARBITRARY `s`, which this
---     refutes as a statement about the real function. Repairing those two specs
---     is slice S2; until then the D3/D3ι `_registered` capstones rest on a
---     premise set with a concrete counter-argument.
+--     refutes as a statement about the real function. REPAIRED in slice S2
+--     (below): both clauses are gone, and the counter-argument against the
+--     D3/D3ι `_registered` capstones' premise set is retired with them.
 --
 --   * `Erasure.run_addAxiom_ok` records the panic fall-through (`addAxiom`'s
 --     guard has no `return`, and `panic!` succeeds at `EraseM`), so the post-state
@@ -811,3 +811,72 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.visitExpr_regInvShape
 #print axioms LeanToLambdaBox.visitMutual_regInvShape
 #print axioms LeanToLambdaBox.get_constant_kername_regInvShape
+
+-- ============================================================================
+-- COLD-START SLICE S2 (2026-08-12): the bridge goes cold-startable.
+--
+-- Expectation: the bridge keeps its lean4lean boundary
+-- (`[propext, sorryAx, Classical.choice, Quot.sound]` + the `Expr`/`PersistentX`
+-- modeling axioms); the new `ErasureRun` layer is ⊆ [propext, Classical.choice,
+-- Quot.sound], no `sorryAx` — it is pure `EraseM` state reasoning.
+--
+-- WHAT CHANGED IN THE TRUST LEDGER — six assumed clauses deleted, none added:
+--
+--   * PROVABLE, hence deleted: the `s = s₁` conjuncts of
+--     `DataBridgeHyps.ctorinfo_run` / `indinfo_run` / `extern_run`,
+--     `CasesBridgeHyps.casesind_run`, and `BridgeHyps.fresh_run` /
+--     `ResidualHyps.fresh_run`. The bridge now derives each from
+--     `Erasure.run_getConstInfo_state` / `run_getEnv_state` /
+--     `run_mkFreshFVarId_state`.
+--
+--   * FALSE, hence deleted: the `s = s₁` conjuncts of `DataBridgeHyps.reg_run`
+--     and `CasesBridgeHyps.casesreg_run` (S1's finding above). They are NOT
+--     re-added under a pre-registration precondition — the call sites cannot
+--     establish one — and the remaining content of both fields (`r.1 = iid`, the
+--     trivial argmasks) is branch-independent. What replaces them is a THEOREM,
+--     `Erasure.run_register_inductive_runConcl`, assembled from R5 (hit branch:
+--     state preserved) and R4 (miss branch: state only grows).
+--
+--   * The one side condition ADDED is not a trust assumption but a constraint on
+--     the parameter `Γ`: `BridgeInv.knames` (`Γ.constants = toKername`, the
+--     design's `hknames`). It is discharged at every concrete `Γ` in the
+--     development (`ΓFOd`/`ΓFOι` define `constants := toKername`) and is passed
+--     explicitly through the guards below.
+--
+-- WHAT THE BRIDGE NOW CONCLUDES: `s' = s` widened to `Erasure.RunConcl s s'` —
+-- `StateLe` (both registries grow, `gdecls` is only prepended to) plus
+-- preservation of `CanonicalConstants`. `BridgeInv.consts` went from
+-- completeness (`known n → s.constants.get? n = some (Γ.constants n)`) to
+-- soundness (`s.constants.get? n = some k → k = Γ.constants n`, i.e.
+-- `RegInvShape.kn`), which is what survives state growth; the completeness
+-- direction survives only as `known_dom` (domain membership, monotone in
+-- `StateLe`).
+--
+-- WHAT DID NOT LAND: motive 6 (`visitMutual`) stays `True` and motive 5's MISS
+-- branch stays refuted by `known_dom` rather than proved. The design's §5.3
+-- claim that the miss branch "discharges from slice 1's motive 6" does not go
+-- through: S1's `visitMutual_regInvShape` is about the REAL `visitMutual`, while
+-- the bridge's step 5 sees the fixpoint's abstract approximation, and giving
+-- motive 6 real content inside this induction requires the abstract `visitExpr`
+-- to deliver `NoFix`/`LBClosed` of its output (`RunClosed.nrc`) — i.e. merging
+-- the whole S1d induction into this one. Independently, motive 5's miss branch
+-- would need two facts unavailable here: that `visitMutual n` registers `n`
+-- (its recursive exit registers the block names read out of the opaque
+-- `Compiler.LCNF.getDeclInfo?`) and generator-monotonicity of `visitMutual`'s
+-- primitives. Both are `RegBridgeHyps`-class obligations of the cold-start
+-- entry slice (S4), where the design already places them.
+-- ============================================================================
+
+#print axioms Erasure.StateLe
+#print axioms Erasure.StateLe.trans
+#print axioms Erasure.RunConcl
+#print axioms Erasure.RunConcl.trans
+#print axioms Erasure.run_register_inductive_runConcl
+#print axioms LeanToLambdaBox.BridgeInv
+#print axioms LeanToLambdaBox.BridgeInv.mono_state
+-- The bridge and its consumers, re-checked under the widened conclusion.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.shipping_visitExpr_correct_data
+#print axioms LeanToLambdaBox.erases_nonrec_const_body
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_registered
