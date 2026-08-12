@@ -345,6 +345,17 @@ theorem subst_mkLambdas (s : LBTerm) (d : Nat) (names : List BinderName) (body :
       have h : d + (ns.length + 1) = (d + 1) + ns.length := by omega
       simp only [mkLambdas, LBTerm.subst, List.length_cons, h, ih]
 
+/-- **Inversion of lean4lean's `TrExprS` on a literal.** `TrExprS.lit` is the *only*
+rule whose source is a `.lit`, and it translates the literal *through* its one-step
+constructor unfolding `Literal.toConstructor`, to the **same** `VExpr`. So inverting is
+total, cheap, and — unlike the projection case — involves no `sorry`-carrying lemma.
+This is what makes the literal fragment's subject reduction `refl` (`SubjectReductionFull`)
+and the simulation cases a plain appeal to the IH (`ErasesCorrectData`). -/
+theorem TrExprS.lit_inv' {env : VEnv} {Us : List Name} {Δ : VLCtx} {l : Literal}
+    {ve : VExpr} (h : TrExprS env Us Δ (.lit l) ve) :
+    env.ContainsLits l ∧ TrExprS env Us Δ l.toConstructor ve := by
+  cases h with | lit h1 h2 => exact ⟨h1, h2⟩
+
 /--
 Typed erasure relation between real `Lean.Expr` and `LBTerm`.
 
@@ -360,6 +371,30 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (htr : TrExprS env Us Δ e ve)
       (her : Erasable env Us.length Δ.toCtx ve) :
       Erases env Us Γ Δ e .box
+  /-- **A literal**, modelled exactly as lean4lean models it (`TrExprS.lit`): `.lit l`
+      erases to whatever its one-step constructor unfolding `l.toConstructor` erases to.
+      Under `nat := .peano` that unfolding *is* the shipping `visitLiteral`
+      (`Expr.natLitToConstructor`: `0 ↦ Nat.zero`, `n+1 ↦ Nat.succ (.lit (.natVal n))`),
+      so the applied-form peano tower is produced by the existing `ctor_head`/`app` rules
+      and the rule needs no new target-side machinery. `hcl` mirrors `TrExprS.lit`'s own
+      premise and is free at every construction site (it falls out of the term's
+      translation, via `TrExprS.lit_inv'`).
+
+      **Why "unfold", not a dedicated `natTower` rule.** A rule
+      `Erases Δ (.lit (.natVal n)) (natTower iid n)` would need its own de Bruijn
+      inertness lemmas, its own inversion, its own semantics lemma and its own arity
+      premises, and would *duplicate* the constructor rules. The unfolding rule composes
+      with `ctor_head`/`app` (applied form, what shipping emits) **and** with `ctor`
+      (block form) for free, and mirrors both `TrExprS.lit` and `visitLiteral`. It is
+      literal-agnostic: `strVal` derivations exist but are never produced (shipping
+      `panic!`s, and `Supported` excludes them), which costs nothing.
+
+      Machine-`Nat` (`.prim`) stays **out of scope**: the relation has no `prim` rule, so
+      the machine-mode statements are exactly as strong as before. -/
+  | lit {Δ} {l : Literal} {t : LBTerm}
+      (hcl : env.ContainsLits l)
+      (h : Erases env Us Γ Δ l.toConstructor t) :
+      Erases env Us Γ Δ (.lit l) t
   | bvar {Δ} (i : Nat) :
       Erases env Us Γ Δ (.bvar i) (.bvar i)
   | fvar {Δ} (x : FVarId) :
@@ -510,6 +545,10 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
     Erases env Us Γ Δ' (e.liftLooseBVars' dk dn) (LBTerm.shift dn dk t) := by
   induction h generalizing Δ' dk k with
   | box htr her => exact .box (htr.weakBV henv W) (her.weakN henv W.toCtx)
+  | lit hcl _ ih =>
+    -- `liftLooseBVars'` is the identity on `.lit`, and on the (closed) unfolding.
+    refine .lit hcl (Expr.liftLooseBVars_eq_self ?_ ▸ ih W :)
+    exact Closed.toConstructor.looseBVarRange_le
   | bvar i =>
     simp only [Expr.liftLooseBVars', LBTerm.shift]
     by_cases hlt : i < dk
@@ -577,6 +616,10 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
   induction h generalizing Δ dk k with
   | box htr her =>
       exact .box (TrExprS.instN henv ht₀ t₀ W htr) (her.inst henv W.toCtx t₀)
+  | lit hcl _ ih =>
+      -- `instantiate1'` is the identity on `.lit`, and on the (closed) unfolding.
+      refine .lit hcl (Expr.instantiate1'_eq_self ?_ ▸ ih W :)
+      exact Closed.toConstructor.looseBVarRange_le
   | bvar i =>
       simp only [Expr.instantiate1', LBTerm.subst]
       split <;> rename_i h
@@ -618,6 +661,77 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
       hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
       rw [hinst e₀ dk, hsubst s' dk]
       exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
+
+/-! ### Non-vacuity guard for `Erases.lit`
+
+`Erases.lit` is easy to render *vacuous*: `hcl` needs an `env` that really declares
+`Nat`, and the unfolding's `ctor_head` steps need a `Γ` that really registers `Nat`'s two
+constructors. Both are **constructed** below (nothing is assumed), and the guard exhibits
+the literal `2` erasing to
+
+    T 2 = .app (.construct natLitInd 1 []) (.app (.construct natLitInd 1 [])
+            (.construct natLitInd 0 []))
+
+which is *exactly* the applied-form peano tower the shipping eraser emits for
+`(2 : Nat)` under `nat := .peano`. The context data is shared with the source-side /
+target-side literal guards downstream (`ErasesCorrectData.lean`), so it is public. -/
+
+/-- A minimal `VEnv` declaring `Nat` — enough to *prove* `VEnv.ContainsLits (.natVal n)`,
+which is `TrExprS.lit`'s (and `Erases.lit`'s) premise. -/
+noncomputable def envNatLit : VEnv :=
+  (VEnv.empty.addConst ``Nat ⟨0, .sort (.succ .zero)⟩).getD .empty
+
+theorem envNatLit_Nat : envNatLit.constants ``Nat = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envNatLit VEnv.addConst VEnv.empty; simp
+
+theorem envNatLit_containsLits (n : Nat) : envNatLit.ContainsLits (.natVal n) :=
+  ⟨_, envNatLit_Nat⟩
+
+/-- The target-side `InductiveId` `register_inductive` would assign to `Nat`. -/
+def natLitInd : InductiveId := ⟨toKername ``Nat, 0⟩
+
+/-- A concrete `Γ` in **peano** mode registering `Nat`'s two constructors at their real
+kernel indices and arities (`Nat.zero ↦ cidx 0, arity 0`; `Nat.succ ↦ cidx 1, arity 1` —
+both verified against the kernel: `numParams = 0`, `numFields = 0`/`1`). -/
+def ΓnatLit : ErasureCtx where
+  inductives := fun n => if n = ``Nat then some natLitInd else none
+  constants := toKername
+  ctors := fun n =>
+    if n = ``Nat.zero then some (natLitInd, 0)
+    else if n = ``Nat.succ then some (natLitInd, 1) else none
+  ctorArities := fun n =>
+    if n = ``Nat.zero then some 0 else if n = ``Nat.succ then some 1 else none
+  ctorFields := fun _ => some [0, 1]
+  natPeano := true
+
+theorem ΓnatLit_zero : ΓnatLit.ctors ``Nat.zero = some (natLitInd, 0) := by
+  simp [ΓnatLit]
+
+theorem ΓnatLit_succ : ΓnatLit.ctors ``Nat.succ = some (natLitInd, 1) := by
+  simp [ΓnatLit]
+
+/-- The peano tower `T n` the shipping `visitLiteral` emits in applied form:
+`T 0 = .construct natLitInd 0 []`, `T (n+1) = .app (.construct natLitInd 1 []) (T n)`. -/
+def natLitTower : Nat → LBTerm
+  | 0 => .construct natLitInd 0 []
+  | n + 1 => .app (.construct natLitInd 1 []) (natLitTower n)
+
+/-- **Non-vacuity (`Erases.lit`), at every `n`**: the literal `n` erases to the peano
+tower, by `lit` composing with the existing `app`/`ctor_head` rules — no new target-side
+machinery. -/
+theorem erases_natLit (Us : List Name) (Δ : VLCtx) :
+    ∀ n : Nat, Erases envNatLit Us ΓnatLit Δ (.lit (.natVal n)) (natLitTower n)
+  | 0 => .lit (envNatLit_containsLits 0)
+      (.ctor_head ``Nat.zero [] natLitInd 0 ΓnatLit_zero)
+  | n + 1 => .lit (envNatLit_containsLits (n + 1))
+      (.app (.ctor_head ``Nat.succ [] natLitInd 1 ΓnatLit_succ) (erases_natLit Us Δ n))
+
+/-- The concrete instance the design pins: `2` erases to the three-node tower. -/
+example (Us : List Name) (Δ : VLCtx) :
+    Erases envNatLit Us ΓnatLit Δ (.lit (.natVal 2))
+      (.app (.construct natLitInd 1 [])
+        (.app (.construct natLitInd 1 []) (.construct natLitInd 0 []))) :=
+  erases_natLit Us Δ 2
 
 /-! ### Non-vacuity guard for `Erases.fix`
 

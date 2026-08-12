@@ -126,6 +126,12 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     Erases env Us Γ Δ (e.abstract1 v₀ dk) (toBvar v₀ dk t) := by
   induction H generalizing Δ dk k with
   | box htr her => exact .box (htr.abstract W) (W.toCtx ▸ her)
+  | lit hcl _ ih =>
+    -- `abstract1`/`toBvar` are the identity on `.lit`; the unfolding is closed and
+    -- fvar-free, so `abstract1` is the identity there too (lean4lean's `TrExprS.abstract`
+    -- literal case, verbatim). `hc` at a `.lit` is `True`; the IH gets `Closed.toConstructor`.
+    exact .lit hcl
+      (FVarsIn.toConstructor.abstract_eq_self Closed.toConstructor ▸ ih W Closed.toConstructor)
   | bvar i =>
     have hi : i < dk := hc
     simp only [Expr.abstract1, if_pos hi, toBvar]

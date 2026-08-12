@@ -52,6 +52,16 @@ structure ErasureCtx where
       discriminant is the first minor, which erases to a stuck `.case`).
       Defaulted to `none`. -/
   casesDiscrPos : Name → Option Nat := fun _ => none
+  /-- `true` when the run erases in **peano-`Nat`** mode (`ErasureConfig.nat = .peano`), so
+      `Nat` literals become the constructor tower rather than `.prim`.
+
+      `Supported` (`Bridge.lean`) is purely syntactic in `(known, Γ)` and cannot see the
+      shipping reader's `ctx.config`; registration (`register_inductive`) registers `Nat`'s
+      constructors under *both* configs, so `Γ` alone cannot tell peano from machine. This
+      flag carries that one bit into `Γ`, where `Supported.natLit` reads it (and where the
+      bridge cashes it in against the run). Defaulted to `false`, so every machine-mode
+      consumer is unchanged and the literal rule is unusable at the default `Γ`. -/
+  natPeano : Bool := false
 
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=

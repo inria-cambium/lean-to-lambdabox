@@ -26,7 +26,9 @@ terms on which the bridge theorem speaks. It deliberately covers
   args-inside *block* form — bridging those needs an applied-form `Erases` rule
   and an `erases_correct` extension under `construct_app` semantics (future work);
 * **projections**, **literals** (under `nat := .peano` a `Nat` literal routes
-  into the constructor path; under `.machine` into `prim`), and **`mdata`**
+  into the constructor path — the model now covers that via `Erases.lit`, but the
+  `visitExpr` dispatch for it is still open, so the fragment excludes it; under
+  `.machine` it routes into `prim`, out of `Erases` by design), and **`mdata`**
   (`Erases` has no `mdata` rule);
 * everything `visitExpr` itself panics on (`sort`, `forallE`, `mvar`).
 
@@ -205,14 +207,38 @@ excludes the unsupported constructs. -/
 
 example : Supported (fun _ => True)
     ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none, fun _ => none,
-      fun _ => none, fun _ => none⟩
+      fun _ => none, fun _ => none, false⟩
     (.lam `x (.const `Nat []) (.bvar 0) .default) :=
   .lam _ _ _ (.bvar 0)
 
+/-- Literals are still **out** of the fragment: the peano-`Nat` rule `natLit` (gated on
+`Γ.natPeano`, `ErasureContext.lean`) is inseparable from the bridge's literal dispatch
+(motive 2 + `BridgeInv`'s config pin) and lands with it. The model side is already
+there — `Erases.lit` and the source/target literal semantics — so only this predicate
+and the `visitExpr` dispatch are missing. -/
 example {known : Name → Prop} {Γ : ErasureCtx} :
     ¬ Supported known Γ (.lit (.natVal 0)) := by
   intro h
   generalize he : (Expr.lit (Literal.natVal 0)) = e at h
+  cases h with
+  | @ctorApp cn us iid cidx ar args hc hcases har hsat hz hs hargs =>
+      rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
+        simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
+          List.foldl_cons, List.foldl_nil] at he <;> exact absurd he (by simp)
+  | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
+      hdiscr hlam hminors =>
+      obtain ⟨g, a, hga⟩ := exists_app_of_foldl_app_ne_nil (Expr.const con us)
+        (args := pre ++ discr :: minors) (by simp)
+      rw [hga] at he; exact absurd he (by simp)
+  | _ => simp_all
+
+/-- A **`String` literal** is out, and stays out even once the peano-`Nat` rule lands:
+the shipping `visitLiteral` `panic!`s on `.strVal` (returning the `Inhabited` default —
+silently wrong output), so it must never be inside the fragment. -/
+example {known : Name → Prop} {Γ : ErasureCtx} :
+    ¬ Supported known Γ (.lit (.strVal "x")) := by
+  intro h
+  generalize he : (Expr.lit (Literal.strVal "x")) = e at h
   cases h with
   | @ctorApp cn us iid cidx ar args hc hcases har hsat hz hs hargs =>
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
@@ -248,7 +274,7 @@ example (iid : InductiveId) :
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩,
         fun n => if n = `c then some (iid, 0) else none,
         fun n => if n = `c then some 0 else none, fun _ => none,
-        fun _ => none, fun _ => none⟩
+        fun _ => none, fun _ => none, false⟩
       (.const `c []) := by
   have h : (Expr.const `c []) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   rw [h]
@@ -271,7 +297,7 @@ example (iid : InductiveId) (p m i d : FVarId) :
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none,
         fun n => if n = `J.casesOn then some (iid, 1) else none,
         fun _ => some [1, 2],
-        fun n => if n = `J.casesOn then some 3 else none⟩
+        fun n => if n = `J.casesOn then some 3 else none, false⟩
       ([Expr.fvar p, .fvar m, .fvar i, .fvar d,
           .lam `u (.const `U []) (.bvar 0) .default,
           .lam `u (.const `U []) (.lam `v (.const `V []) (.bvar 1) .default) .default].foldl

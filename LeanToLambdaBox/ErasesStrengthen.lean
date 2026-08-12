@@ -166,6 +166,7 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     Erases env Us Γ Δ e t := by
   induction H generalizing Δ with
   | box htr her => exact .box (TrExprS.thin_vlet W htr sc) (W.toCtx ▸ her)
+  | lit hcl _ ih => exact .lit hcl (ih W .toConstructor)
   | bvar i => exact .bvar i
   | fvar y => exact .fvar y
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases

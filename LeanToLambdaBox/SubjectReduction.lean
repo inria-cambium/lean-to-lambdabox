@@ -147,6 +147,43 @@ theorem foldl_app_cons_ne_lam {pre : Expr} {discr : Expr} {minors : List Expr}
   · rw [heq] at h; simp at h
   · rw [heq] at h; simp [Expr.isApp] at h
 
+/-- A `.const`-headed spine is never a `.lit`. -/
+theorem foldl_app_const_ne_lit {cn : Name} {us : List Level} {args : List Expr}
+    {l : Literal} :
+    args.foldl Expr.app (.const cn us) ≠ .lit l := by
+  intro heq
+  rcases foldl_app_eq_or_isApp (.const cn us) args with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
+/-- A spine `(discr :: minors).foldl Expr.app pre` is never a `.lit`
+(it is a non-empty application spine). -/
+theorem foldl_app_cons_ne_lit {pre : Expr} {discr : Expr} {minors : List Expr}
+    {l : Literal} :
+    (discr :: minors).foldl Expr.app pre ≠ .lit l := by
+  intro heq
+  simp only [List.foldl] at heq
+  rcases foldl_app_eq_or_isApp (pre.app discr) minors with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
+/-- **Inversion of `Erases` on a `.lit` source.** Only `box` and `lit` apply: the
+`ctor`/`cases` rules need a `.const`-headed spine and `fix` a `.lam`. Sibling of
+`Erases.const_inv`; the `lit` disjunct hands back the unfolding's erasure, which is what
+turns the simulation's literal case into a plain appeal to the IH. -/
+theorem Erases.lit_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {l : Literal} {t : LBTerm} (h : Erases env Us Γ Δ (.lit l) t) :
+    (∃ ve, TrExprS env Us Δ (.lit l) ve ∧
+        Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
+    (env.ContainsLits l ∧ Erases env Us Γ Δ l.toConstructor t) := by
+  generalize he : (Expr.lit l) = e₀ at h
+  induction h with
+  | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
+  | lit hcl hC _ => cases he; exact .inr ⟨hcl, hC⟩
+  | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_lit
+  | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_lit
+  | _ => exact absurd he (by simp)
+
 /-- **Inversion of `Erases` on a `.lam` source.** The `box` and `lam` rules apply, and
 — since `Erases.fix`'s source is a syntactic `.lam` (P3) — the environment-level `fix`
 rule too, giving a third disjunct `t = .fix defs idx`. This is the **only** inversion

@@ -219,6 +219,10 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | box htr her =>
       refine .box (TrExprS.instN_let henv ht₀ W htr) ?_
       rwa [W.toCtx] at her
+  | lit hcl _ ih =>
+      -- `instantiate1'` is the identity on `.lit`, and on the (closed) unfolding.
+      refine .lit hcl (Expr.instantiate1'_eq_self ?_ ▸ ih W :)
+      exact Closed.toConstructor.looseBVarRange_le
   | bvar i =>
       simp only [Expr.instantiate1', LBTerm.subst]
       split <;> rename_i h

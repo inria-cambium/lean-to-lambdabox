@@ -1184,6 +1184,7 @@ theorem Erases.defeqDFC {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : Eras
       have hΓ₂ : OnCtx Δ₂.toCtx (env.IsType Us.length) := (hΔ.symm henv.ordered).wf.toCtx
       exact .box htr₂ (Erasable.defeq henv hΓ₂ (VEnv.IsDefEqU.symm hd)
         (Erasable.defeqDFC henv.ordered hΔ.defeqCtx her_e))
+  | lit hcl _ ih => cases htyped with | lit _ h => exact .lit hcl (ih hΔ h)
   | bvar i => exact .bvar i
   | fvar x => exact .fvar x
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
