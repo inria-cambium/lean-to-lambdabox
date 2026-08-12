@@ -614,3 +614,59 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.noFix_natLitTower
 #print axioms LeanToLambdaBox.sevalData_natLit
 #print axioms LeanToLambdaBox.erases_srcNatTower
+
+-- ============================================================================
+-- COLD-START SLICE S1 (2026-08-12): the registration-path run lemmas and the
+-- registry invariant `RegInvShape`.
+--
+-- Everything here is pure `EraseM`-run / `GlobalDeclarations` reasoning: no
+-- `Erases`, no `TrExprS`, no lean4lean. Expected axiom set for every entry below:
+-- ⊆ [propext, Classical.choice, Quot.sound]. **No `sorryAx`** — in particular the
+-- run lemmas do not inherit lean4lean's, since they never touch the model.
+--
+-- What changed in the trust ledger:
+--
+--   * `Erasure.run_getConstInfo_state` (and `run_getEnv_state`,
+--     `run_mkFreshFVarId_state`, `run_logInfo_state`) are THEOREMS. The
+--     `s = s₁` clauses that `DataBridgeHyps.ctorinfo_run`/`indinfo_run`/
+--     `extern_run` and `CasesBridgeHyps.casesind_run` assume for those very
+--     primitives are therefore redundant — they can be dropped from the bundles.
+--
+--   * `Erasure.run_register_inductive_cold_ok` shows the cold branch conses one
+--     `.inductiveDecl` entry (plus one axiom entry per `@[extern]` constructor).
+--     `DataBridgeHyps.reg_run` and `CasesBridgeHyps.casesreg_run` assert
+--     `s = s₁` for `register_inductive` over an ARBITRARY `s`, which this
+--     refutes as a statement about the real function. Repairing those two specs
+--     is slice S2; until then the D3/D3ι `_registered` capstones rest on a
+--     premise set with a concrete counter-argument.
+--
+--   * `Erasure.run_addAxiom_ok` records the panic fall-through (`addAxiom`'s
+--     guard has no `return`, and `panic!` succeeds at `EraseM`), so the post-state
+--     is the modified one on BOTH branches.
+-- ============================================================================
+
+#print axioms Erasure.run_addAxiom_ok
+#print axioms Erasure.run_register_inductive_hit_ok
+#print axioms Erasure.run_register_inductive_cold_ok
+#print axioms Erasure.run_get_constant_kername_ok
+#print axioms Erasure.run_mkDef_ok
+#print axioms Erasure.run_modify_forIn_ok
+#print axioms Erasure.run_getConstInfo_state
+#print axioms Erasure.run_getEnv_state
+#print axioms Erasure.run_logInfo_state
+#print axioms Erasure.run_mkFreshFVarId_state
+
+-- The invariant, its cold-start base case, its collapse to the capstones' premise
+-- set, and its preservation along the registration primitives (from the run).
+#print axioms LeanToLambdaBox.envLookup_append_of_fresh
+#print axioms LeanToLambdaBox.RegInvShape.empty
+#print axioms LeanToLambdaBox.RegInvShape.registeredCtors
+#print axioms LeanToLambdaBox.RegInvShape.registeredCases
+#print axioms LeanToLambdaBox.RegInvShape.registeredCtorFieldsAll
+#print axioms LeanToLambdaBox.RegInvShape.noFixEnv
+#print axioms LeanToLambdaBox.RegInvShape.closedEnv
+#print axioms LeanToLambdaBox.RegInvShape.addAxiom_run
+#print axioms LeanToLambdaBox.RegInvShape.register_inductive_run
+-- Non-vacuity: the invariant survives genuine registration steps.
+#print axioms LeanToLambdaBox.gRegInvShape_addAxiom
+#print axioms LeanToLambdaBox.gRegInvShape_addAxiom₂

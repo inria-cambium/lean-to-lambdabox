@@ -125,3 +125,9 @@ import LeanToLambdaBox.EnvErasureNonrec
 -- forward simulation and D1 uniqueness over `SEvalDataι`, with the whole `Γ`/`E`
 -- certificate block constructed jointly at a registered flat inductive.
 import LeanToLambdaBox.FirstOrderShippingIota
+-- Cold-start slice S1: the registry invariant `RegInvShape` (scoped registration
+-- records + `KeysDistinct` + the disjunctive `NoFixEnvD`), vacuous at the empty state
+-- and preserved by the registration primitives via the *true* run shapes proved in
+-- `ErasureRun` (`run_addAxiom_ok`, `run_register_inductive_cold_ok`) — replacing the
+-- assumed state-preservation of `register_inductive` with its actual `gdecls` cons.
+import LeanToLambdaBox.ColdStartShape

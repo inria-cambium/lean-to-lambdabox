@@ -1401,6 +1401,7 @@ theorem run_register_inductive_cold_ok
       r = sM.inductives[indinfo.name]! ∧
       bodies.length = indinfo.all.length ∧
       ConstExt s sM ∧
+      (∀ {n : Name}, (s.inductives.get? n).isSome → (sM.inductives.get? n).isSome) ∧
       ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, sM.inductives.get? n = some rc →
         s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo bodies n rc := by
   unfold register_inductive at hrun
@@ -1427,23 +1428,25 @@ theorem run_register_inductive_cold_ok
   have key := run_list_mapM_ok ctx cctx ref
     (P := fun (pre : List (Name × Nat)) (outs : List OneInductiveBody) s' _ =>
       outs.length = pre.length ∧ ConstExt s s' ∧
+      (∀ {n : Name}, (s.inductives.get? n).isSome → (s'.inductives.get? n).isSome) ∧
       ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, s'.inductives.get? n = some rc →
         s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo outs n rc)
-    ⟨rfl, ConstExt.rfl' s, fun h => Or.inl h⟩ ?step hmap
-  · obtain ⟨hlen, hce, hreg⟩ := key
-    exact ⟨by rw [hlen, List.length_zipIdx], hce, hreg⟩
+    ⟨rfl, ConstExt.rfl' s, id, fun h => Or.inl h⟩ ?step hmap
+  · obtain ⟨hlen, hce, hgrow, hreg⟩ := key
+    exact ⟨by rw [hlen, List.length_zipIdx], hce, hgrow, hreg⟩
   case step =>
     clear hmap
     intro pre x post outs sP wP b sQ wQ hL hP hbody
-    obtain ⟨hlen, hce, hreg⟩ := hP
+    obtain ⟨hlen, hce, hgrow, hreg⟩ := hP
     have hidx : x.2 = pre.length := zipIdx_split_snd hL
     -- the invariant when the step leaves the state alone
     have htriv : ∀ b' : OneInductiveBody,
         (outs ++ [b']).length = (pre ++ [x]).length ∧ ConstExt s sP ∧
+        (∀ {n : Name}, (s.inductives.get? n).isSome → (sP.inductives.get? n).isSome) ∧
         ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, sP.inductives.get? n = some rc →
           s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo (outs ++ [b']) n rc := by
       intro b'
-      refine ⟨by simp [hlen], hce, ?_⟩
+      refine ⟨by simp [hlen], hce, hgrow, ?_⟩
       intro n rc h
       rcases hreg h with h' | h'
       · exact Or.inl h'
@@ -1483,7 +1486,14 @@ theorem run_register_inductive_cold_ok
           rw [run_pure] at hfin
           cases hfin
           refine ⟨by simp [hlen], hce.trans (hax.toConstExt.trans (ConstExt.of_same rfl rfl)),
-            ?_⟩
+            ?_, ?_⟩
+          · intro n hn
+            show (Std.HashMap.get? (Std.HashMap.insert _ _ _) n).isSome
+            rw [Std.HashMap.get?_insert]
+            split
+            · simp
+            · rw [hax.inds]
+              exact hgrow hn
           intro n rc hn
           simp only [] at hn
           rw [Std.HashMap.get?_insert] at hn
