@@ -167,4 +167,42 @@ theorem lbClosed_foldl_zipIdx {t : LBTerm} (xs : List FVarId) (h : LBClosed t 0)
   have := lbClosed_foldl_toBvar xs.reverse.zipIdx 0 hidx h
   simpa using this
 
+/-- The `mkDef` instance: the block-closing fold indexes its binders by *name* and looks
+each one up in the reader's fixvar map (`Erasure.mkDef` folds
+`toBvar (ctx.fixvars.get![n]!) i`), so the closing list is a `List (Name × Nat)` seen
+through a lookup function. The closedness arithmetic is the same as
+`lbClosed_foldl_zipIdx`'s: a body closed at `0` closes at the binder count. -/
+theorem lbClosed_foldl_zipIdx_map {α : Type} {t : LBTerm} (fv : α → FVarId) (xs : List α)
+    (h : LBClosed t 0) :
+    LBClosed (xs.reverse.zipIdx.foldl (fun b p => toBvar (fv p.1) p.2 b) t) xs.length := by
+  have hmap : xs.reverse.zipIdx.foldl (fun b p => toBvar (fv p.1) p.2 b) t
+      = (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))).foldl
+          (fun b q => toBvar q.1 q.2 b) t := by
+    rw [List.foldl_map]
+  rw [hmap]
+  have hidx : ∀ (j : Nat) (hj : j < (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))).length),
+      (((xs.reverse.zipIdx.map (fun p => (fv p.1, p.2)))[j]'hj)).2 = 0 + j := by
+    intro j hj
+    rw [List.getElem_map]
+    simp only []
+    rw [List.getElem_zipIdx]
+  have := lbClosed_foldl_toBvar (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))) 0 hidx h
+  simpa using this
+
+/-! ### A `.fix` node's own closedness
+
+`LBClosed (.fix defs j) 0` is `LBClosedDefs defs defs.length`: each definition's body is
+closed *below the block's own binders*, one per definition. It is therefore **not** a
+property of an arbitrary `defs` — `[{ body := .bvar 5 }]` is a counterexample — but of a
+block whose bodies were closed over exactly the block's names, which is what
+`Erasure.mkDef` does. -/
+
+/-- A block of bodies closed at the block's own size is a closed `.fix` node, at every
+index (including out-of-range ones, which `LBClosed` does not constrain). -/
+theorem lbClosed_fix_of_bodies {defs : List (@FixDef LBTerm)} {k : Nat}
+    (hlen : defs.length = k) (h : ∀ d ∈ defs, LBClosed d.body k) (j : Nat) :
+    LBClosed (.fix defs j) 0 := by
+  rw [LBClosed_fix, Nat.zero_add, LBClosedDefs_iff, hlen]
+  exact h
+
 end LeanToLambdaBox

@@ -2,7 +2,7 @@ import LeanToLambdaBox.ColdStartShape
 import LeanToLambdaBox.OutputShape
 
 /-!
-# The output-shape induction over the erasure family (slice S1d)
+# The output-shape induction over the erasure family (slices S1d, S1e)
 
 `ColdStartShape.regInvShape_nonrec_cons_iff` shows the cold-start registry invariant
 cannot get past `visitMutual`'s non-recursive constant cons without `NoFix t` and
@@ -20,7 +20,8 @@ The induction is stated in **Hoare form** over an abstract state predicate `Q`, 
 the family that writes to `ErasureState` — must be handled *inside* the induction, where
 the step goal is about the fixpoint's abstract `visitExpr` argument rather than the real
 one. `RunClosed Q` collects the six closure facts `visitMutual`'s four exits and the two
-registration primitives need; `ShapeC Q s s' t` is the per-call conclusion
+registration primitives need — none of them with a freshness side condition, see the S1e
+note below; `ShapeC Q s s' t` is the per-call conclusion
 "`Q` survives, and the produced term is fix-free and closed".
 
 Two motives deviate from `ShapeC`, because their results are not λ□ terms produced from
@@ -55,9 +56,28 @@ unsoundness.
   `fun _ => True` satisfies `RunClosed` outright, so the state half evaporates and the
   shape half survives.) This is the obligation `regInvShape_nonrec_cons_iff` identified.
 * `RunClosed.regInvShape` — `RegInvShape Γ` is `RunClosed`, given the registration-side
-  side conditions bundled as `RegShapeHyps`, and hence
-* `visitExpr_regInvShape` / `visitMutual_regInvShape` — the cold-start registry invariant
-  survives a whole `visitExpr` / `visitMutual` run.
+  side conditions bundled as `RegBridgeHyps`, and hence
+* `visitExpr_regInvShape` / `visitMutual_regInvShape` / `get_constant_kername_regInvShape`
+  — the cold-start registry invariant survives a whole `visitExpr` / `visitMutual` /
+  `get_constant_kername` run.
+
+## Slice S1e: what changed and why
+
+S1d's version of the last three was **vacuous**: its premise record `RegShapeHyps` is
+inconsistent (slice S4 refuted two fields, this slice a third). The repair was not a
+weakening of that record but a change to the invariant and to one `RunClosed` field:
+
+* `RegInvShape` trades `keys : KeysDistinct s.gdecls` for `cover : ConstKeysCovered s`.
+  This is forced, not chosen: `runClosed_keysDistinct_refuted` shows **no** `RunClosed`
+  predicate can contain `KeysDistinct`, because `nrc` is a bare state closure and two
+  conses at one name duplicate a key.
+* `RunClosed.rc` **takes** the closedness of the block being stored, which the `visitMutual`
+  arm now derives per call (`rec_block_closed`) from the block shape
+  `Erasure.run_rec_exit_ok` reports, instead of assuming it of an arbitrary `defs`.
+* the premise record becomes `RegBridgeHyps`, merging what was left of `RegShapeHyps` with
+  slice S4's own bundle, whose `regInv` field is now the theorem `visitExpr_regInvShape`.
+
+Everything else in the 18-motive induction is S1d's, unchanged.
 -/
 
 namespace LeanToLambdaBox
@@ -129,7 +149,8 @@ the erasure family touches `ErasureState`:
   transparency does not follow from the `liftM` lemmas. Epistemic class `PrepareHyps`;
 * `nrc` / `rc` — `visitMutual`'s non-recursive constant cons and its recursive block cons.
   `nrc` is where the output-shape facts are consumed, which is exactly why they have to be
-  proved by the same induction that uses them. -/
+  proved by the same induction that uses them; `rc` is handed the block's closedness
+  rather than demanding it of an arbitrary `defs` (slice S1e — see `rc`). -/
 structure RunClosed (Q : ErasureState → Prop) : Prop where
   inl : ∀ {s : ErasureState} {kn : Kername},
     Q s → Q { s with inlinings := kn :: s.inlinings }
@@ -147,13 +168,35 @@ structure RunClosed (Q : ErasureState → Prop) : Prop where
     prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → Q s → Q s'
   nrc : ∀ {n : Name} {t : LBTerm} {s : ErasureState},
     Q s → NoFix t → LBClosed t 0 → Q (nonrecConstState n t s)
+  /-- The recursive block cons, **given the closedness of the block being stored**.
+  Slice S1d asked for `LBClosed (.fix defs j) 0` at an arbitrary `defs`, which is false
+  (`ColdStart.regShapeHyps_recClosed_refuted`). The induction now *derives* it, per call,
+  from the block's own shape — `Erasure.run_rec_exit_ok` reports that each definition's
+  body is a `mkDef` closure of a closed `visitExpr` output over the block's names, and
+  `lbClosed_fix_of_bodies` does the arithmetic. -/
   rc : ∀ {names : List Name} {defs : List (@FixDef LBTerm)} {s : ErasureState},
-    Q s → Q (recConstState names defs s)
+    Q s → (∀ j : Nat, LBClosed (.fix defs j) 0) → Q (recConstState names defs s)
 
 /-- The per-call conclusion: from `Q` at entry, `Q` at exit **and** the produced λ□ term is
 fix-free and de-Bruijn closed. -/
 def ShapeC (Q : ErasureState → Prop) (s s' : ErasureState) (t : LBTerm) : Prop :=
   Q s → Q s' ∧ NoFix t ∧ LBClosed t 0
+
+/-- **The recursive exit's block is closed.** The bridge between what
+`Erasure.run_rec_exit_ok` hands the `rc` closure — per definition, "my body is the
+`mkDef` closure of a closed erasure output over the block's names" — and what
+`RegInvShape`'s `closed` field needs of the stored node. `hfix` is the shipping code's
+`fixvarnames := names.map remove_unsafe_rec`, i.e. `List.length_map`. -/
+theorem rec_block_closed {names fixnames : List Name} {defs : List (@FixDef LBTerm)}
+    (hfix : fixnames.length = names.length) (hlen : defs.length = names.length)
+    (hbodies : ∀ d ∈ defs, ∃ (t : LBTerm) (fv : Name → FVarId), LBClosed t 0 ∧
+      d.body = fixnames.reverse.zipIdx.foldl (fun b p => toBvar (fv p.1) p.2 b) t)
+    (j : Nat) : LBClosed (.fix defs j) 0 := by
+  refine lbClosed_fix_of_bodies (k := fixnames.length) (hlen.trans hfix.symm) ?_ j
+  intro d hd
+  obtain ⟨t, fv, hcl, hbody⟩ := hbodies d hd
+  rw [hbody]
+  exact lbClosed_foldl_zipIdx_map fv fixnames hcl
 
 /-! ## The induction -/
 
@@ -537,8 +580,10 @@ theorem visitExpr_shape {Q : ErasureState → Prop} (H : RunClosed Q) :
                  (fun hq => H.inl hq) (fun h hq => H.prep h hq) hvE
                  (fun hq hnf hcl => H.nrc hq hnf hcl) hQ' hm
              case isFalse =>
-               exact run_rec_exit_ok (Nf := NoFix) (Cl := fun tt => LBClosed tt 0)
-                 (fun h hq => H.prep h hq) hvE (fun hq => H.rc hq) hQ' hm)
+               refine run_rec_exit_ok (Nf := NoFix) (Cl := fun tt => LBClosed tt 0)
+                 (fun h hq => H.prep h hq) hvE ?_ hQ' hm
+               intro sR defsR hqR hlenR hbodiesR
+               exact H.rc hqR (rec_block_closed (by simp) hlenR hbodiesR))
     case isFalse =>
       split at hrun
       case isTrue =>
@@ -546,8 +591,10 @@ theorem visitExpr_shape {Q : ErasureState → Prop} (H : RunClosed Q) :
           (fun hq => H.inl hq) (fun h hq => H.prep h hq) hvE
           (fun hq hnf hcl => H.nrc hq hnf hcl) hQ hrun
       case isFalse =>
-        exact run_rec_exit_ok (Nf := NoFix) (Cl := fun tt => LBClosed tt 0)
-          (fun h hq => H.prep h hq) hvE (fun hq => H.rc hq) hQ hrun
+        refine run_rec_exit_ok (Nf := NoFix) (Cl := fun tt => LBClosed tt 0)
+          (fun h hq => H.prep h hq) hvE ?_ hQ hrun
+        intro sR defsR hqR hlenR hbodiesR
+        exact H.rc hqR (rec_block_closed (by simp) hlenR hbodiesR)
   -- Step 7: visitAppArgs
   · intro vE ih1
     intro t0 args s ctx cctx ref w t s' w' hrun hnf0 hcl0 hQ
@@ -967,7 +1014,7 @@ theorem runClosed_true : RunClosed (fun _ => True) where
   reg := fun _ _ => trivial
   prep := fun _ _ => trivial
   nrc := fun _ _ _ => trivial
-  rc := fun _ => trivial
+  rc := fun _ _ => trivial
 
 /-- **R11.** Every successful run of the shipping `Erasure.visitExpr` returns a term that
 contains no `.fix` and has no loose de Bruijn index. No hypotheses: not on the state, not
@@ -995,23 +1042,274 @@ theorem visitExpr_output_shape {Q : ErasureState → Prop} (H : RunClosed Q) {e 
 
 /-! ## `RegInvShape` is `RunClosed`
 
-The instantiation the cold-start argument actually wants. Everything about the environment
-plumbing is *proved* — from `ColdStartShape`'s closure lemmas, which in turn run off the
-true run shapes in `ErasureRun` — and what remains is collected in one named record,
-`RegShapeHyps`, rather than smuggled in as an axiom. Its fields are of exactly two kinds:
+The instantiation the cold-start argument actually wants, and the slice that repairs it.
 
-* **key freshness** (`fresh`, `regKeys`, `recKeys`) — not derivable from the code, because
-  `addAxiom` tests `s.constants` and `register_inductive` tests `s.inductives`, never
-  `s.gdecls`, and `Erasure.toKername` is not injective. See `ColdStartShape`'s module
-  docstring;
-* **`Γ`-agreement for the block just registered** (`knames`, `regCtors`, `regCases`,
-  `regFields`) — slice S4's `RegBridgeHyps` obligation; `Γ` is a parameter, so nothing about
-  the run can supply it;
+### What slice S1d got wrong, and how far
 
-plus two carried over from elsewhere: `recClosed`, the recursion wall's `closeFix` result,
-and `prep`, the `PrepareHyps`-class transparency of `prepare_erasure`. -/
+S1d collected the registration-side side conditions in `RegShapeHyps` (kept below as a
+negative guard) and derived `RunClosed (RegInvShape Γ)` from them. Slice S4 refuted two of
+its fields; this slice found the defect is deeper than the record. With S1's `keys :
+KeysDistinct s.gdecls` field in the invariant, **`RunClosed (RegInvShape Γ)` is itself
+false** — `runClosed_keysDistinct_refuted` below proves it, from `nrc` alone, which is a
+bare state closure with no run and hence no side condition that could rescue it. No repair
+of the hypotheses was available; the invariant had to change.
 
-/-- The registration-side side conditions of the cold-start shape argument, named. -/
+### The repaired premise set
+
+`RegInvShape` now carries `cover : ConstKeysCovered s` in place of `keys`, and every
+environment-plumbing obligation is *proved*:
+
+* `inl`, `ax`, `nrc`, `rc` — `ColdStartShape`'s closure lemmas, now with **no** freshness
+  side condition at all (the block records are scoped to `BlockRegistered s.gdecls`, which
+  a `.constantDecl` cons cannot forge, and coverage is preserved outright);
+* `rc` additionally needs the stored block to be closed, which the induction derives per
+  call from `Erasure.run_rec_exit_ok`'s report of the block's shape (`rec_block_closed`) —
+  S1d's `recClosed`, refuted at `.fix [{body := .bvar 5}] 0`, is gone;
+* `reg` — the hit branch is state-preserving and needs nothing; the cold branch needs the
+  `Γ`-agreement for the block it just registered, which is a parameter-side obligation and
+  stays in the bundle, now **guarded by the cold branch's own test**
+  (`s.inductives.get? ii.name = none`). That guard is what makes the field consistent: the
+  *hit* run is constructible in-logic (`run_get`/`run_pure` plus an arbitrary world token),
+  and S1d's unguarded fields were refutable through it at every `Γ` that records a
+  constructor at all. A cold run is not constructible — its body reads the environment
+  through `getConstInfo` — so the guarded field sits in the epistemic class of
+  `BridgeHyps`.
+* `prep` — the `PrepareHyps`-class transparency of `prepare_erasure`, unchanged.
+
+### Scope: what a hostile `Γ` can still do
+
+`Γ` is a *parameter*, and the invariant's `ctors`/`cases`/`fields` are its specification.
+A `Γ` that records a constructor for a block the walk registers *empty* falsifies the
+invariant at the post-state, hence falsifies the bundle: with `ii.all = []` the cold branch
+degenerates to a constructible run that conses `.inductiveDecl ⟨_, []⟩` under
+`rootKername ""`. Nothing here can prevent that, and nothing should: it is the operational
+meaning of "`Γ` is the specification of the registration". Every `Γ` describing a real Lean
+environment is clear of it. -/
+
+/-- **The registration bundle, repaired (slice S1e).** The obligations of a cold-start
+registration argument that are *not* derivable, in one record: the naming convention, the
+`Γ`-agreement for a freshly registered block, the `prepare_erasure` trust item, and the
+completeness ("saturation") facts the capstone needs to collapse the scoped records.
+
+This is the single interface — it replaces both `RegShapeHyps` (refuted) and slice S4's
+`RegBridgeHyps`, whose `regInv` field is now the theorem `visitExpr_regInvShape`. -/
+structure RegBridgeHyps (Γ : ErasureCtx) : Prop where
+  /-- `hknames`: `Γ` files every constant under its canonical kername. A side condition on
+  the parameter `Γ`, `rfl` at every concrete one in this repo. -/
+  knames : ∀ n : Name, Γ.constants n = toKername n
+  /-- `Γ`-agreement for the constructors of a block a **cold** `register_inductive` has
+  just registered. -/
+  regCtors : ∀ {ii : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {r : InductiveId × InductiveArgMasks} {s' : ErasureState} {w' : Void IO.RealWorld},
+    s.inductives.get? ii.name = none →
+    register_inductive ii s ctx cctx ref w = .ok (r, s') w' →
+    ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
+      Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
+      Γ.ctors cn = some (iid, cidx) → RegisteredCtor Γ s'.gdecls cn iid cidx
+  /-- `Γ`-agreement for the `casesOn` data of that block. -/
+  regCases : ∀ {ii : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {r : InductiveId × InductiveArgMasks} {s' : ErasureState} {w' : Void IO.RealWorld},
+    s.inductives.get? ii.name = none →
+    register_inductive ii s ctx cctx ref w = .ok (r, s') w' →
+    ∀ {con : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
+      Γ.casesOns con = some (iid, np) →
+      ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+        LBTerm.envLookup s'.gdecls iid.mutualBlockName = some (.inductiveDecl body) ∧
+        body.bodies[iid.idx]? = some oib ∧ body.npars = np ∧ oib.propositional = false
+  /-- `Γ`-agreement for the field counts of that block. -/
+  regFields : ∀ {ii : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {r : InductiveId × InductiveArgMasks} {s' : ErasureState} {w' : Void IO.RealWorld},
+    s.inductives.get? ii.name = none →
+    register_inductive ii s ctx cctx ref w = .ok (r, s') w' →
+    ∀ {con : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
+      Γ.casesOns con = some (iid, np) → RegisteredCtorFields Γ s'.gdecls iid
+  /-- `PrepareHyps`-class: `prepare_erasure` does not disturb the registry invariant. Its
+  `csimp` branch runs `Lean.Core.transform` at `EraseM` through `MonadControlT`, so state
+  transparency does not follow from the `liftM` lemmas. -/
+  prep : ∀ {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+      {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
+      {s' : ErasureState} {w' : Void IO.RealWorld},
+    prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → RegInvShape Γ s → RegInvShape Γ s'
+  /-- **Completeness.** Every inductive block `Γ` records a constructor for was registered
+  by the walk. `RegInvShape`'s registration records are scoped to
+  `BlockRegistered s.gdecls` precisely because a partial run has registered only part of
+  `Γ`; collapsing them to the unscoped records the capstones consume needs exactly this,
+  and `Γ` being a parameter, nothing about the run can supply it. -/
+  satCtors : ∀ {pe : Expr} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {t : LBTerm} {s' : ErasureState} {w' : Void IO.RealWorld},
+    Erasure.visitExpr pe s ctx cctx ref w = .ok (t, s') w' →
+    ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
+      Γ.ctors cn = some (iid, cidx) → BlockRegistered s'.gdecls iid
+  /-- Every inductive block `Γ` records a `casesOn` head for was registered by the walk. -/
+  satCases : ∀ {pe : Expr} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {t : LBTerm} {s' : ErasureState} {w' : Void IO.RealWorld},
+    Erasure.visitExpr pe s ctx cctx ref w = .ok (t, s') w' →
+    ∀ {con : Name} {iid : InductiveId} {np : Nat},
+      Γ.casesOns con = some (iid, np) → BlockRegistered s'.gdecls iid
+
+/-- **`RegInvShape Γ` is `RunClosed`.** Five of the six fields are discharged from
+`ColdStartShape`'s closure lemmas — including `reg`'s hit branch, which is
+state-preserving; what the bundle supplies is the `Γ`-agreement for a cold registration
+and the `prepare_erasure` trust item. -/
+theorem RunClosed.regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) :
+    RunClosed (RegInvShape Γ) where
+  inl := fun h => h.inlinings
+  ax := fun hrun hQ => (hQ.addAxiom_run (Hg.knames _) hrun).1
+  reg := by
+    intro ii s ctx cctx ref w r s' w' hrun hQ
+    cases hi : s.inductives.get? ii.name with
+    | some rc0 =>
+      obtain ⟨-, hs, -⟩ := run_register_inductive_hit_ok hi hrun
+      subst hs
+      exact hQ
+    | none =>
+      exact (hQ.register_inductive_run Hg.knames (Hg.regCtors hi hrun)
+        (Hg.regCases hi hrun) (Hg.regFields hi hrun) hrun).1
+  prep := fun hrun hQ => Hg.prep hrun hQ
+  nrc := fun hQ hnf hcl => hQ.nonrecConst (Hg.knames _) hnf hcl
+  rc := fun hQ hcl => RegInvShape.recConst Hg.knames hcl hQ
+
+/-- **The registry invariant survives a whole `visitExpr` run** — and the output it
+produces is a legal constant body. This is slice S4's `RegBridgeHyps.regInv` field,
+now a theorem. -/
+theorem visitExpr_regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) {e : Expr}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {t : LBTerm}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : visitExpr e s ctx cctx ref w = .ok (t, s') w') (h : RegInvShape Γ s) :
+    RegInvShape Γ s' ∧ NoFix t ∧ LBClosed t 0 :=
+  visitExpr_output_shape (RunClosed.regInvShape Hg) hrun h
+
+/-- **The registry invariant survives a whole `visitMutual` run** — the DAG walk that
+registers a Lean mutual block and everything it transitively depends on. -/
+theorem visitMutual_regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) {n : Name}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {u : Unit}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : visitMutual n s ctx cctx ref w = .ok (u, s') w') (h : RegInvShape Γ s) :
+    RegInvShape Γ s' :=
+  (visitExpr_shape (RunClosed.regInvShape Hg)).2.2.2.2.2.1 _ _ _ _ _ _ _ _ _ hrun h
+
+/-- Same, for `get_constant_kername` — the memoized entry point the constant cases go
+through. -/
+theorem get_constant_kername_regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) {n : Name}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {kn : Kername}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : get_constant_kername n s ctx cctx ref w = .ok (kn, s') w') (h : RegInvShape Γ s) :
+    RegInvShape Γ s' :=
+  (visitExpr_shape (RunClosed.regInvShape Hg)).2.2.2.2.1 _ _ _ _ _ _ _ _ _ hrun h
+
+/-! ## Guards
+
+### The negative guard: why the invariant lost its `keys` field
+
+Not a design preference — a theorem. `RunClosed.nrc` is a *state* closure: it is applied
+inside `Erasure.run_nonrec_exit_ok` at whatever state the constant body's erasure left
+behind, with no run in scope and hence nothing to condition on. So a predicate that
+contains `KeysDistinct s.gdecls` must be closed under `nonrecConstState n t ·` at every
+state it admits — including the state a first such cons produces, where the second cons
+duplicates the key. -/
+
+/-- **Key distinctness cannot ride along the shape induction.** At **no** `Γ` — no side
+condition, no naming assumption — can a `RunClosed` predicate carry `KeysDistinct` of
+`gdecls`. Two `nrc` steps at the same name are all it takes.
+
+This subsumes slice S4's two refutations of `RegShapeHyps` as an explanation: those
+identified fields that were false, this identifies the field of the *invariant* that made
+`RunClosed (RegInvShape Γ)` unprovable no matter which hypotheses were bundled with it. -/
+theorem runClosed_keysDistinct_refuted {Γ : ErasureCtx}
+    (H : RunClosed (fun s => RegInvShape Γ s ∧ KeysDistinct s.gdecls)) : False := by
+  have h0 : RegInvShape Γ {} ∧ KeysDistinct ({} : ErasureState).gdecls :=
+    ⟨RegInvShape.empty Γ, KeysDistinct.nil⟩
+  have h1 := H.nrc (n := `x) (t := .box) h0 (by simp [NoFix]) (by simp [LBClosed])
+  have h2 := H.nrc (n := `x) (t := .box) h1 (by simp [NoFix]) (by simp [LBClosed])
+  have := (List.pairwise_cons.mp h2.2).1 (toKername `x, .constantDecl ⟨some .box⟩)
+    List.mem_cons_self
+  simp at this
+
+/-! ### The positive guard
+
+The bundle is inhabited, at a concrete `Γ` and with every field that *can* be discharged
+discharged. `prep` is the one residue, and it is hypothetical for the reason its docstring
+gives — it is the same trust item slice S1d carried, and the same one `RunClosed.prep`
+names at every instantiation.
+
+What the guard shows that S1d's could not: the record is **consistent**. Its registration
+fields are vacuous at this `Γ` (which records no constructor), but they are no longer
+*refutable* at a `Γ` that records one, because the cold guard has removed the hit-branch
+instantiation that made S1d's versions false — see the section docstring. -/
+
+/-- A concrete `Γ` filing every constant under its canonical kername. -/
+private def gΓrb : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  ctors := fun _ => none
+  ctorArities := fun _ => none
+  casesOns := fun _ => none
+
+/-- Non-vacuity: the repaired bundle is inhabited, modulo the one documented trust item. -/
+theorem gRegBridgeHyps
+    (hprep : ∀ {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+      {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
+      {s' : ErasureState} {w' : Void IO.RealWorld},
+      prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' →
+      RegInvShape gΓrb s → RegInvShape gΓrb s') :
+    RegBridgeHyps gΓrb where
+  knames := fun _ => rfl
+  regCtors := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  regCases := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  regFields := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  prep := hprep
+  satCtors := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  satCases := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+
+/-- …and the corollaries fire on it: the registry invariant really is carried through a
+`visitExpr` run by the repaired bundle, not vacuously. (The run itself stays hypothetical
+— no run of the erasure family is constructible in-logic.) -/
+theorem gVisitExpr_regInvShape
+    (hprep : ∀ {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+      {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
+      {s' : ErasureState} {w' : Void IO.RealWorld},
+      prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' →
+      RegInvShape gΓrb s → RegInvShape gΓrb s')
+    {e : Expr} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {t : LBTerm}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : visitExpr e {} ctx cctx ref w = .ok (t, s') w') :
+    RegInvShape gΓrb s' ∧ NoFix t ∧ LBClosed t 0 :=
+  visitExpr_regInvShape (gRegBridgeHyps hprep) hrun (RegInvShape.empty gΓrb)
+
+/-! ## The superseded record
+
+`RegShapeHyps` is slice S1d's version of the bundle above. It is **inconsistent** —
+`ColdStart.regShapeHyps_fresh_refuted` and `ColdStart.regShapeHyps_recClosed_refuted`
+prove it two independent ways — and it is kept, unused, as the negative guard those
+refutations are about: the repo's standing rule is that a refuted statement stays with its
+refutation, so that the record of *why* an interface changed is machine-checked rather
+than narrated.
+
+Its defects, one line each:
+
+* `fresh`/`recKeys` — freshness quantified over every state the invariant admits, with
+  nothing tying it to the call. Refuted. The deeper problem was the `keys` field they were
+  serving: `runClosed_keysDistinct_refuted`.
+* `regKeys`/`regCtors`/`regCases`/`regFields` — no cold guard, so the constructible *hit*
+  run instantiates them at a hand-made state with empty `gdecls`.
+* `recClosed` — `LBClosed (.fix defs j) 0` for every `defs`. Refuted at `.bvar 5`.
+* `knames`/`prep` — sound; they survive into `RegBridgeHyps`. -/
+
+/-- The registration-side side conditions of the cold-start shape argument as slice S1d
+stated them. **Inconsistent** — see the section docstring and the two refutations in
+`ColdStart.lean`. Superseded by `RegBridgeHyps`; kept as a negative guard, and not used by
+anything. -/
 structure RegShapeHyps (Γ : ErasureCtx) : Prop where
   /-- `hknames`: `Γ` files every constant under its canonical kername. -/
   knames : ∀ n : Name, Γ.constants n = toKername n
@@ -1060,48 +1358,5 @@ structure RegShapeHyps (Γ : ErasureCtx) : Prop where
       {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
       {s' : ErasureState} {w' : Void IO.RealWorld},
     prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → RegInvShape Γ s → RegInvShape Γ s'
-
-/-- **`RegInvShape Γ` is `RunClosed`.** Four of the six fields are discharged from
-`ColdStartShape`'s closure lemmas; `prep` is passed through as the documented assumption. -/
-theorem RunClosed.regInvShape {Γ : ErasureCtx} (Hg : RegShapeHyps Γ) :
-    RunClosed (RegInvShape Γ) where
-  inl := fun h => h.inlinings
-  ax := fun hrun hQ => (hQ.addAxiom_run (Hg.knames _) (Hg.fresh hQ) hrun).1
-  reg := fun hrun hQ =>
-    (hQ.register_inductive_run Hg.knames (Hg.regKeys hrun) (Hg.regCtors hrun)
-      (Hg.regCases hrun) (Hg.regFields hrun) hrun).1
-  prep := fun hrun hQ => Hg.prep hrun hQ
-  nrc := fun hQ hnf hcl => hQ.nonrecConst (Hg.knames _) (Hg.fresh hQ) hnf hcl
-  rc := fun hQ => RegInvShape.recConst Hg.knames (Hg.recClosed _) hQ (Hg.recKeys hQ)
-
-/-- **The registry invariant survives a whole `visitExpr` run** — and the output it
-produces is a legal constant body. -/
-theorem visitExpr_regInvShape {Γ : ErasureCtx} (Hg : RegShapeHyps Γ) {e : Expr}
-    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
-    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {t : LBTerm}
-    {s' : ErasureState} {w' : Void IO.RealWorld}
-    (hrun : visitExpr e s ctx cctx ref w = .ok (t, s') w') (h : RegInvShape Γ s) :
-    RegInvShape Γ s' ∧ NoFix t ∧ LBClosed t 0 :=
-  visitExpr_output_shape (RunClosed.regInvShape Hg) hrun h
-
-/-- **The registry invariant survives a whole `visitMutual` run** — the DAG walk that
-registers a Lean mutual block and everything it transitively depends on. -/
-theorem visitMutual_regInvShape {Γ : ErasureCtx} (Hg : RegShapeHyps Γ) {n : Name}
-    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
-    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {u : Unit}
-    {s' : ErasureState} {w' : Void IO.RealWorld}
-    (hrun : visitMutual n s ctx cctx ref w = .ok (u, s') w') (h : RegInvShape Γ s) :
-    RegInvShape Γ s' :=
-  (visitExpr_shape (RunClosed.regInvShape Hg)).2.2.2.2.2.1 _ _ _ _ _ _ _ _ _ hrun h
-
-/-- Same, for `get_constant_kername` — the memoized entry point the constant cases go
-through. -/
-theorem get_constant_kername_regInvShape {Γ : ErasureCtx} (Hg : RegShapeHyps Γ) {n : Name}
-    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
-    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {kn : Kername}
-    {s' : ErasureState} {w' : Void IO.RealWorld}
-    (hrun : get_constant_kername n s ctx cctx ref w = .ok (kn, s') w') (h : RegInvShape Γ s) :
-    RegInvShape Γ s' :=
-  (visitExpr_shape (RunClosed.regInvShape Hg)).2.2.2.2.1 _ _ _ _ _ _ _ _ _ hrun h
 
 end LeanToLambdaBox

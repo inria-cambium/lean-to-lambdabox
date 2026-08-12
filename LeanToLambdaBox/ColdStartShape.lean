@@ -2,7 +2,7 @@ import LeanToLambdaBox.EnvErasureNonrec
 import LeanToLambdaBox.ErasesCorrectIota
 
 /-!
-# The cold-start registry invariant — shape half (slice S1)
+# The cold-start registry invariant — shape half (slices S1, S1e)
 
 `EnvErasureNonrec`/`EnvErasureRec` discharge *env-consistency from registration*: given
 `RegisteredCtors`/`RegisteredCases`/`RegisteredCtorFieldsAll`/`RegisteredClosure*`, the
@@ -31,15 +31,25 @@ through has only registered some of it. The `…On` variants restrict the quanti
 resolves to an `.inductiveDecl` in `s.gdecls`" — which makes the scoping *self-*evident
 from the state and needs no extra bookkeeping.
 
-**Key distinctness is part of the invariant.** `LBTerm.envLookup` is first-match-wins
-and every writer *prepends*, so a later registration can silently shadow an earlier one.
-`RegInvShape.keys` (`KeysDistinct`) is what makes `envLookup_append_of_fresh` applicable
-and hence what keeps an established lookup alive to the end of the run. It is not
-derivable from the code — `register_inductive` tests `s.inductives`, never `s.gdecls`,
-and `Erasure.toKername` is not injective (`Name.num p k` and `Name.str p (toString k)`
-collide, as do a mutual block `[A, B]` and a root-level constant `AB`) — so the step
-lemmas take it as an explicit freshness side condition. That is the honest shape of the
-`hkinj` premise the cold-start theorem will carry.
+**Key *coverage* is part of the invariant; key *distinctness* is not.** `LBTerm.envLookup`
+is first-match-wins and every writer *prepends*, so a later registration can silently
+shadow an earlier one. Slice S1 carried `KeysDistinct s.gdecls` as a field and took
+per-call freshness as a side condition; slice S1e removed it, because **no** side
+condition can save it: `RunClosed.nrc` is a bare state closure, so a predicate containing
+`KeysDistinct` is closed under `nonrecConstState n t ·` only if `toKername n` is fresh at
+*every* state the predicate admits — which is false at the state one such cons produces.
+`ColdStartInduction.runClosed_keysDistinct_refuted` proves exactly that, and
+`addAxiom`'s panic fall-through (it conses a *second* entry when the constant is already
+registered) is an independent reason.
+
+What is maintainable is `ConstKeysCovered`: every `.constantDecl` entry is filed under the
+canonical kername of a constant the registry knows. It is preserved at every registration
+site with no side condition at all, and it *yields* freshness exactly where the walk has
+the guard for it — `RegInvShape.fresh_of_unregistered` turns "`n` is not registered here"
+into "`toKername n` is fresh among the constant keys", modulo the naming side condition
+`hkinj` (`Erasure.toKername` is not injective: `Name.num p k` and `Name.str p (toString k)`
+collide). Freshness against *block* keys is a different matter and provably not available
+in that form — see `mutualBlockKn_eq_toKername` at the end of this file.
 
 **The `nofix` field is disjunctive from day one.** `NoFixEnvD` allows each stored
 constant body to be `NoFix` *or* a literal `.fix defs j` — the two shapes
@@ -204,6 +214,50 @@ theorem noFixEnv_of_noFixEnvD {E : GlobalDeclarations} (h : NoFixEnvD E)
   · exact hnf
   · exact absurd hl hnorec
 
+/-! ## Constant-key coverage
+
+The key discipline the walk really maintains. Every `.constantDecl` entry of `gdecls` was
+consed by `addAxiom`, by `visitMutual`'s non-recursive exit, or by its recursive block
+loop — and all three cons `(toKername n, …)` while inserting `n` into `constants`, in that
+one step. So the constant keys are *covered* by the registry, with no side condition.
+
+Coverage is what a freshness argument runs on: a name the registry does not know cannot
+already own a constant key (`RegInvShape.fresh_of_unregistered`). -/
+
+/-- Every `.constantDecl` entry of `s.gdecls` is filed under the canonical kername of a
+constant `s.constants` knows. -/
+def ConstKeysCovered (s : ErasureState) : Prop :=
+  ∀ {kn : Kername} {cb : ConstantBody}, (kn, GlobalDecl.constantDecl cb) ∈ s.gdecls →
+    ∃ m : Name, kn = toKername m ∧ (s.constants.get? m).isSome
+
+/-- The key just inserted is known. -/
+theorem constants_isSome_insert_self (mp : Std.HashMap Name Kername) (n : Name)
+    (k : Kername) : ((mp.insert n k).get? n).isSome := by
+  rw [Std.HashMap.get?_insert]
+  simp
+
+/-- Insertion does not forget. -/
+theorem constants_isSome_insert {mp : Std.HashMap Name Kername} {n m : Name} {k : Kername}
+    (h : (mp.get? m).isSome) : ((mp.insert n k).get? m).isSome := by
+  rw [Std.HashMap.get?_insert]
+  split
+  · simp
+  · exact h
+
+/-- Coverage across a constant cons: the new entry is covered by the name being inserted,
+the old ones survive because the registry only grows. -/
+theorem ConstKeysCovered.cons {s : ErasureState} {n : Name} {cb : ConstantBody}
+    (h : ConstKeysCovered s) :
+    ConstKeysCovered { s with
+      constants := s.constants.insert n (toKername n),
+      gdecls := (toKername n, .constantDecl cb) :: s.gdecls } := by
+  intro kn cb' hmem
+  rcases List.mem_cons.mp hmem with heq | hmem'
+  · cases heq
+    exact ⟨n, rfl, constants_isSome_insert_self _ _ _⟩
+  · obtain ⟨m, hk, hm⟩ := h hmem'
+    exact ⟨m, hk, constants_isSome_insert hm⟩
+
 /-! ## The invariant -/
 
 /-- **The cold-start registry invariant, shape half.** Everything a partial
@@ -217,8 +271,11 @@ structure RegInvShape (Γ : ErasureCtx) (s : ErasureState) : Prop where
   bridge's once completeness-flavoured `BridgeInv.consts`, which slice S2 relaxed to
   exactly this statement). -/
   kn : ∀ {n : Name} {k : Kername}, s.constants.get? n = some k → k = Γ.constants n
-  /-- Key uniqueness — what makes `envLookup` stable under later prepends. -/
-  keys : KeysDistinct s.gdecls
+  /-- Constant-key coverage — the maintainable key discipline, and what freshness for a
+  not-yet-registered name is read off (`RegInvShape.fresh_of_unregistered`). It replaces
+  slice S1's `keys : KeysDistinct s.gdecls`, which no state predicate can carry along the
+  walk (`ColdStartInduction.runClosed_keysDistinct_refuted`). -/
+  cover : ConstKeysCovered s
   /-- The three ι/data registration records, scoped to the blocks already registered. -/
   ctors : RegisteredCtorsOn Γ s.gdecls (BlockRegistered s.gdecls)
   cases : RegisteredCasesOn Γ s.gdecls (BlockRegistered s.gdecls)
@@ -232,7 +289,7 @@ structure RegInvShape (Γ : ErasureCtx) (s : ErasureState) : Prop where
 (`Erasure.run`'s initial state: `constants := ∅`, `inductives := ∅`, `gdecls := []`). -/
 theorem RegInvShape.empty (Γ : ErasureCtx) : RegInvShape Γ {} where
   kn := by intro n k hk; simp at hk
-  keys := KeysDistinct.nil
+  cover := by intro kn cb hmem; simp at hmem
   ctors := by intro cn iid cidx hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
   cases := by intro con iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
   fields := by intro con iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
@@ -270,13 +327,17 @@ theorem RegInvShape.noFixEnv {Γ : ErasureCtx} {s : ErasureState} (h : RegInvSha
 
 /-! ## Step lemmas: the invariant travels along the registration primitives
 
-These are the *from-the-run* half of slice S1: the environment plumbing (lookup
-stability, key distinctness, the target-body shape facts, and preservation of every
-already-established block record) is **proved** from `ErasureRun.lean`'s run shapes.
-What each step lemma still takes as a premise is exactly two things, both of which the
-cold-start theorem will carry as named, honest hypotheses rather than hide:
+These are the *from-the-run* half of slice S1: the environment plumbing (key coverage,
+the target-body shape facts, and preservation of every already-established block record)
+is **proved** from `ErasureRun.lean`'s run shapes. Note what is *not* needed: a freshness
+side condition. A block record is scoped to `BlockRegistered s.gdecls`, which is
+re-evaluated at the current state, so a `.constantDecl` cons cannot shadow a block it
+still resolves (`blockRegistered_cons_constantDecl` reads the key inequality *off* the
+scoping), and a second `.inductiveDecl` for the same block falls to the `hnew…` premises.
+Freshness was only ever needed for the `keys` field slice S1e removed.
 
-* **freshness** of the kername being registered (§"Key distinctness" above), and
+What each step lemma still takes as a premise, besides `hknames`, is one thing:
+
 * **`Γ`-agreement for the newly registered block** — that `Γ`'s recorded
   arity/field/parameter data is the data the call computed. That is the
   `RegBridgeHyps` obligation of slice S4; nothing about the run can supply it, since
@@ -333,16 +394,17 @@ theorem RegisteredCtorFields.cons {Γ : ErasureCtx} {kn₀ : Kername} {d : Globa
 
 /-- **`RegInvShape` is preserved by `addAxiom`.** The post-state is the one
 `Erasure.run_addAxiom_ok` computes — *including* the panic fall-through, so this holds
-whether or not the constant was already registered.
+whether or not the constant was already registered. (With slice S1's `keys` field it did
+*not*: on the panic path a second entry under the same key is consed. That is one of the
+two reasons the field is gone.)
 
-Premises: `hΓ` says `Γ` files this constant under its canonical kername (the `hknames`
-premise of the cold-start theorem), and `hfresh` is the key-freshness side condition
-discussed in the module docstring. Every other field is discharged outright: the new
-entry is a `.constantDecl` with a `none` body, so it can neither register a block nor
-carry a `NoFix`/`LBClosed` obligation. -/
+The only premise is `hΓ`: `Γ` files this constant under its canonical kername (the
+`hknames` premise of the cold-start theorem). Every other field is discharged outright:
+the new entry is a `.constantDecl` with a `none` body, so it can neither register a block
+nor carry a `NoFix`/`LBClosed` obligation, and its key is covered by the very name being
+inserted. -/
 theorem RegInvShape.addAxiom {Γ : ErasureCtx} {s : ErasureState} {n : Name}
-    (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
-    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false) :
+    (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n) :
     RegInvShape Γ (addAxiomState n s) where
   kn := by
     intro m k hm
@@ -355,7 +417,7 @@ theorem RegInvShape.addAxiom {Γ : ErasureCtx} {s : ErasureState} {n : Name}
       subst hnm
       exact hΓ.symm
     · exact h.kn hm
-  keys := KeysDistinct.cons hfresh h.keys
+  cover := ConstKeysCovered.cons h.cover
   ctors := by
     intro cn iid cidx hdom hc
     obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
@@ -384,8 +446,10 @@ theorem RegInvShape.addAxiom {Γ : ErasureCtx} {s : ErasureState} {n : Name}
 
 `register_inductive`'s cold branch may emit an `addAxiom` per `@[extern]` constructor
 before consing the block. `Erasure.run_register_inductive_cold_ok` reports that as a
-`ConstExt`, whose `gdecls` clause says the prefix consists entirely of axiom entries.
-`RegInvShape.constExt` walks the invariant across such a prefix in one step. -/
+`ConstExt`, whose `gdecls` clause says the prefix consists entirely of axiom entries
+**and names their keys** — the S1e strengthening of `ConstExt`, without which coverage
+could not cross a `register_inductive` call. `RegInvShape.constExt` walks the invariant
+across such a prefix in one step. -/
 
 /-- Every entry of `pre` is an axiom declaration. -/
 def AxiomPrefix (pre : GlobalDeclarations) : Prop :=
@@ -425,22 +489,30 @@ theorem envLookup_append_axioms_body {pre E : GlobalDeclarations} {kn : Kername}
 /-- **`RegInvShape` travels along an axiom-only state extension** — the `ConstExt`
 that `Erasure.run_register_inductive_cold_ok` (and `Erasure.run_addAxiom_ok`) report.
 
-`hΓ` is `hknames`, and `hkeys` is the freshness side condition in its accumulated
-form; canonicity of the extended constant registry comes from `ConstExt.canon`. -/
+`hΓ` is `hknames`; canonicity of the extended constant registry comes from
+`ConstExt.canon`, and coverage of the prefix's own keys from the strengthened
+`ConstExt.gdecls`. No side condition. -/
 theorem RegInvShape.constExt {Γ : ErasureCtx} {s s' : ErasureState}
     (h : RegInvShape Γ s) (hext : ConstExt s s')
-    (hΓ : ∀ n : Name, Γ.constants n = toKername n)
-    (hkeys : KeysDistinct s'.gdecls) : RegInvShape Γ s' := by
+    (hΓ : ∀ n : Name, Γ.constants n = toKername n) : RegInvShape Γ s' := by
   obtain ⟨pre, hpre, hax⟩ := hext.gdecls
+  have haxp : AxiomPrefix pre := fun p hp => (hax p hp).1
   have hcanon : CanonicalConstants s' :=
     hext.canon (fun {n} {k} hk => (h.kn hk).trans (hΓ n))
+  have hcover : ConstKeysCovered s' := by
+    intro kn cb hmem
+    rw [hpre] at hmem
+    rcases List.mem_append.mp hmem with hp | hp
+    · exact (hax _ hp).2
+    · obtain ⟨m, hk, hm⟩ := h.cover hp
+      exact ⟨m, hk, hext.dom hm⟩
   have hlift : ∀ {iid : InductiveId}, BlockRegistered s'.gdecls iid →
       (∀ p ∈ pre, Kername.beq p.1 iid.mutualBlockName = false) ∧
         BlockRegistered s.gdecls iid := by
     intro iid hd
     rw [hpre] at hd
-    exact blockRegistered_append_axioms hax hd
-  refine ⟨fun {n} {k} hk => (hcanon hk).trans (hΓ n).symm, hkeys, ?_, ?_, ?_, ?_, ?_⟩
+    exact blockRegistered_append_axioms haxp hd
+  refine ⟨fun {n} {k} hk => (hcanon hk).trans (hΓ n).symm, hcover, ?_, ?_, ?_, ?_, ?_⟩
   · intro cn iid cidx hdom hc
     obtain ⟨hfr, hdom'⟩ := hlift hdom
     obtain ⟨body, oib, cb, hlk, hbod, hctor, harity⟩ := h.ctors hdom' hc
@@ -456,10 +528,10 @@ theorem RegInvShape.constExt {Γ : ErasureCtx} {s s' : ErasureState}
     exact ⟨body, oib, by rw [hpre]; exact envLookup_append_of_fresh hlk hfr, hbod, hfields⟩
   · intro kn body' hl
     rw [hpre] at hl
-    exact h.nofix (envLookup_append_axioms_body hax hl)
+    exact h.nofix (envLookup_append_axioms_body haxp hl)
   · intro kn body hl
     rw [hpre] at hl
-    exact h.closed (envLookup_append_axioms_body hax hl)
+    exact h.closed (envLookup_append_axioms_body haxp hl)
 
 /-- **`RegInvShape` is preserved by the block cons of a cold `register_inductive`.**
 
@@ -467,13 +539,13 @@ The state is the one `Erasure.run_register_inductive_cold_ok` computes
 (`registerIndState`), applied at the post-`ConstExt` state `sM`. Everything about the
 *previously* registered blocks and about the target-body shape facts is discharged
 outright — the new entry is an `.inductiveDecl`, so it carries no `NoFix`/`LBClosed`
-obligation, and `hfresh` keeps it from shadowing an existing block. The three `hnew…`
-premises are the `Γ`-agreement for the block just registered: slice S4's
+obligation and no coverage obligation, and a block whose *current* registration goes
+through the new entry is exactly a block the `hnew…` premises speak about. The three
+`hnew…` premises are the `Γ`-agreement for the block just registered: slice S4's
 `RegBridgeHyps` obligation, isolated here to exactly one place. -/
 theorem RegInvShape.registerInd {Γ : ErasureCtx} {sM : ErasureState}
     {indinfo : InductiveVal} {bodies : List OneInductiveBody}
     (h : RegInvShape Γ sM)
-    (hfresh : ∀ p ∈ sM.gdecls, Kername.beq (mutualBlockKn indinfo) p.1 = false)
     (hnewC : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
       Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
       Γ.ctors cn = some (iid, cidx) →
@@ -491,7 +563,11 @@ theorem RegInvShape.registerInd {Γ : ErasureCtx} {sM : ErasureState}
       RegisteredCtorFields Γ (registerIndState indinfo bodies sM).gdecls iid) :
     RegInvShape Γ (registerIndState indinfo bodies sM) where
   kn := h.kn
-  keys := KeysDistinct.cons hfresh h.keys
+  cover := by
+    intro kn cb hmem
+    rcases List.mem_cons.mp hmem with heq | hmem'
+    · exact absurd heq (by simp)
+    · exact h.cover hmem'
   ctors := by
     intro cn iid cidx hdom hc
     cases hb : Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName with
@@ -543,12 +619,11 @@ theorem RegInvShape.addAxiom_run {Γ : ErasureCtx} {n : Name} {s : ErasureState}
     {ctx : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld} {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
     (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
-    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
     (hrun : Erasure.addAxiom n s ctx cctx ref w = .ok (u, s₁) w₁) :
     RegInvShape Γ s₁ ∧ StateLe s s₁ ∧ w₁ = w := by
   obtain ⟨hst, hw⟩ := run_addAxiom_ok hrun
   subst hst
-  exact ⟨h.addAxiom hΓ hfresh,
+  exact ⟨h.addAxiom hΓ,
     ⟨(AxiomExt.addAxiom n s).dom, id, ⟨[(toKername n, .constantDecl ⟨none⟩)], rfl⟩⟩, hw⟩
 
 /-- **From the run — `register_inductive`, both branches.** The hit branch preserves
@@ -556,15 +631,12 @@ the state outright (`Erasure.run_register_inductive_hit_ok`); the cold branch is
 by `RegInvShape.constExt` (over the `@[extern]`-constructor axiom prefix) followed by
 `RegInvShape.registerInd` (the block cons).
 
-`hkeys` is the freshness side condition, stated at the *post*-state so a single
-hypothesis covers both the axiom prefix and the block key. `hΓ`/`hnew…` are as in the
-step lemmas. -/
+`hΓ`/`hnew…` are as in the step lemmas; there is no freshness side condition left. -/
 theorem RegInvShape.register_inductive_run {Γ : ErasureCtx} {indinfo : InductiveVal}
     {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
     {r : InductiveId × InductiveArgMasks} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
     (h : RegInvShape Γ s) (hΓ : ∀ n : Name, Γ.constants n = toKername n)
-    (hkeys : KeysDistinct s₁.gdecls)
     (hnewC : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
       Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
       Γ.ctors cn = some (iid, cidx) → RegisteredCtor Γ s₁.gdecls cn iid cidx)
@@ -589,12 +661,8 @@ theorem RegInvShape.register_inductive_run {Γ : ErasureCtx} {indinfo : Inductiv
       run_register_inductive_cold_ok hi hrun
     clear hr hlen hreg
     subst hs1
-    have hkeys' : KeysDistinct
-        ((mutualBlockKn indinfo,
-          GlobalDecl.inductiveDecl { npars := indinfo.numParams, bodies := bodies })
-            :: sM.gdecls) := hkeys
-    have hM : RegInvShape Γ sM := h.constExt hext hΓ (KeysDistinct.of_cons hkeys')
-    refine ⟨hM.registerInd (List.pairwise_cons.mp hkeys').1 hnewC hnewK hnewF, ?_⟩
+    have hM : RegInvShape Γ sM := h.constExt hext hΓ
+    refine ⟨hM.registerInd hnewC hnewK hnewF, ?_⟩
     obtain ⟨pre, hpre, -⟩ := hext.gdecls
     refine ⟨hext.dom, hgrow, ⟨(mutualBlockKn indinfo,
       GlobalDecl.inductiveDecl { npars := indinfo.numParams, bodies := bodies }) :: pre, ?_⟩⟩
@@ -643,16 +711,15 @@ theorem regInvShape_nonrec_cons_iff {Γ : ErasureCtx} {s : ErasureState} {n : Na
 `Erasure.run_visitMutual_ok` (R7) discharges a state predicate through `visitMutual`
 given one closure lemma per exit. Two of the four are already above (`addAxiom`, and
 `register_inductive` is not on this path); the inlining-bookkeeping exit and the
-non-recursive constant exit are here. The recursive exit's closure lemma
-(`RegInvShape` under `Erasure.recConstState`) is the one piece of the interface still
-open — see the module note below. -/
+non-recursive constant exit are here, and the recursive exit (`RegInvShape` under
+`Erasure.recConstState`) closes the section. -/
 
 /-- **The inlining-bookkeeping exit.** `RegInvShape` mentions only `constants` and
 `gdecls`, so the `inlinings` cons is invisible to it — which is the formal counterpart
 of `Program` dropping that field (`erase` returns `s.inlinings` separately). -/
 theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername}
     (h : RegInvShape Γ s) : RegInvShape Γ { s with inlinings := kn :: s.inlinings } :=
-  ⟨h.kn, h.keys, h.ctors, h.cases, h.fields, h.nofix, h.closed⟩
+  ⟨h.kn, h.cover, h.ctors, h.cases, h.fields, h.nofix, h.closed⟩
 
 /-- **The non-recursive constant exit.** The stored body is a `visitExpr` output, so its
 `NoFix`/`LBClosed` obligations (`regInvShape_nonrec_cons_iff`) must be supplied — that is
@@ -660,7 +727,6 @@ theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername
 result induction produce. Everything else mirrors `RegInvShape.addAxiom`. -/
 theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
     (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
-    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
     (hnf : NoFix t ∨ ∃ (defs : List (@FixDef LBTerm)) (j : Nat), t = .fix defs j)
     (hcl : LBClosed t 0) :
     RegInvShape Γ (nonrecConstState n t s) where
@@ -675,7 +741,7 @@ theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t
       subst hnm
       exact hΓ.symm
     · exact h.kn hm
-  keys := KeysDistinct.cons hfresh h.keys
+  cover := ConstKeysCovered.cons h.cover
   ctors := by
     intro cn iid cidx hdom hc
     obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
@@ -703,21 +769,21 @@ theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t
 /-- The non-recursive exit proper: the stored body is a plain `visitExpr` output. -/
 theorem RegInvShape.nonrecConst {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
     (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
-    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
     (hnf : NoFix t) (hcl : LBClosed t 0) :
     RegInvShape Γ (nonrecConstState n t s) :=
-  h.constCons hΓ hfresh (Or.inl hnf) hcl
+  h.constCons hΓ (Or.inl hnf) hcl
 
 /-! ### The recursive exit
 
 `Erasure.recConstState` conses one `.fix` body per name of the mutual block, left to
-right. Walking `RegInvShape` across it is a `List.foldl` induction whose only real work
-is threading the key-freshness condition: at each step the name being registered must
-not already be a key of the accumulated `gdecls`. That is *not* derivable from the code
-(`visitMutual` tests neither `s.gdecls` nor `s.constants` before consing), so it is an
-input — supplied here in the form the S4 capstone can actually produce, namely
-`KeysDistinct` of the **final** `gdecls`, from which each step's freshness is read off
-by `List.pairwise_append`. -/
+right — each cons is literally the non-recursive exit's cons at a `.fix` body
+(`Erasure.recConstStep`), so the fold is a `List.foldl` induction over `constCons`.
+
+Its one real input is `hcl`, the closedness of the stored node. Slice S1d asked for it
+of an *arbitrary* `defs` and was refuted (`ColdStart.regShapeHyps_recClosed_refuted`:
+`.fix [{body := .bvar 5}] 0` is not closed). Here it is a hypothesis of the fold, which
+`RunClosed.rc` takes and `Erasure.run_rec_exit_ok` supplies from the shape of the block
+it is actually storing. -/
 
 /-- `recConstState` only prepends to `gdecls`. -/
 theorem recConstFold_gdecls (defs : List (@FixDef LBTerm)) :
@@ -735,37 +801,81 @@ theorem RegInvShape.recConstFold {Γ : ErasureCtx} {defs : List (@FixDef LBTerm)
     (hΓ : ∀ m : Name, Γ.constants m = toKername m)
     (hcl : ∀ j : Nat, LBClosed (LBTerm.fix defs j) 0) :
     ∀ (L : List (Name × Nat)) (s : ErasureState), RegInvShape Γ s →
-      KeysDistinct (L.foldl (Erasure.recConstStep defs) s).gdecls →
       RegInvShape Γ (L.foldl (Erasure.recConstStep defs) s)
-  | [], s, h, _ => h
-  | p :: rest, s, h, hkeys => by
-    rw [List.foldl_cons] at hkeys ⊢
-    refine RegInvShape.recConstFold hΓ hcl rest _ ?_ hkeys
-    refine h.constCons (hΓ p.1) ?_ (Or.inr ⟨defs, p.2, rfl⟩) (hcl p.2)
-    -- freshness of this step's key, read off the final `KeysDistinct`
-    obtain ⟨pre, hpre⟩ := recConstFold_gdecls defs rest (Erasure.recConstStep defs s p)
-    rw [hpre] at hkeys
-    have hsuf : KeysDistinct
-        ((toKername p.1, GlobalDecl.constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls) :=
-      (List.pairwise_append.mp hkeys).2.1
-    exact (List.pairwise_cons.mp hsuf).1
+  | [], _, h => h
+  | p :: rest, s, h => by
+    rw [List.foldl_cons]
+    exact RegInvShape.recConstFold hΓ hcl rest _
+      (h.constCons (hΓ p.1) (Or.inr ⟨defs, p.2, rfl⟩) (hcl p.2))
 
 /-- The form `Erasure.run_visitMutual_ok`'s `hrec` premise wants. -/
 theorem RegInvShape.recConst {Γ : ErasureCtx} {names : List Name}
     {defs : List (@FixDef LBTerm)} {s : ErasureState}
     (hΓ : ∀ m : Name, Γ.constants m = toKername m)
     (hcl : ∀ j : Nat, LBClosed (LBTerm.fix defs j) 0)
-    (h : RegInvShape Γ s) (hkeys : KeysDistinct (recConstState names defs s).gdecls) :
+    (h : RegInvShape Γ s) :
     RegInvShape Γ (recConstState names defs s) := by
-  rw [recConstState_eq] at hkeys ⊢
-  exact RegInvShape.recConstFold hΓ hcl _ s h hkeys
+  rw [recConstState_eq]
+  exact RegInvShape.recConstFold hΓ hcl _ s h
+
+/-! ### What coverage buys: freshness where the walk has a guard
+
+The invariant no longer *asserts* key freshness, it *derives* it — from the one guard the
+code really tests. `get_constant_kername` enters `visitMutual n` only on
+`s.constants.get? n = none`, and coverage says the constant keys are exactly the
+canonical kernames of registered constants; so an unregistered name owns no constant key.
+
+Two side conditions are visible here and both are honest:
+
+* `hkinj` — `Erasure.toKername` is not injective (`Name.num p k` and
+  `Name.str p (toString k)` have the same image), so "distinct names, distinct keys" is a
+  naming assumption about the program being erased, not a theorem;
+* the conclusion is about the `.constantDecl` entries **only**. Freshness against block
+  keys is *unavailable in this form*, and not for want of bookkeeping:
+  `mutualBlockKn_eq_toKername` shows every block key is itself the canonical kername of a
+  root-level name, so the two key spaces genuinely overlap. -/
+
+/-- **An unregistered name owns no constant key.** -/
+theorem RegInvShape.fresh_of_unregistered {Γ : ErasureCtx} {s : ErasureState} {n : Name}
+    (h : RegInvShape Γ s)
+    (hkinj : ∀ m : Name, Kername.beq (toKername n) (toKername m) = true → n = m)
+    (hn : s.constants.get? n = none) {kn : Kername} {cb : ConstantBody}
+    (hmem : (kn, GlobalDecl.constantDecl cb) ∈ s.gdecls) :
+    Kername.beq (toKername n) kn = false := by
+  obtain ⟨m, rfl, hm⟩ := h.cover hmem
+  cases hb : Kername.beq (toKername n) (toKername m) with
+  | false => rfl
+  | true =>
+    obtain rfl := hkinj m hb
+    rw [hn] at hm
+    simp at hm
+
+/-- `Erasure.rootKername` is `Erasure.toKername` at a root-level name — definitionally,
+both being `⟨.MPfile [], cleanIdent s⟩`. -/
+theorem rootKername_eq_toKername (s : String) :
+    rootKername s = toKername (.str .anonymous s) := rfl
+
+/-- **The two key spaces are not disjoint — the block keys are *inside* the constant
+keys.** `Erasure.mutualBlockKn` is `rootKername` of the block's printed names, hence the
+canonical kername of a root-level name; for a one-name block `A` that name is `A` itself,
+so the block entry and a constant entry for `A` collide in `gdecls`, where
+`LBTerm.envLookup` is first-match-wins.
+
+This is why coverage is stated about the `.constantDecl` entries: a "block keys are fresh
+for constant names" side condition is *false*, not merely unproved. (Whether the
+collision is reachable is a question about the shipping eraser, not about this invariant:
+it needs a bare inductive type constant to survive the erasability gate into
+`visitMutual`, where `addAxiom` would cons an axiom entry under the block's own key.) -/
+theorem mutualBlockKn_eq_toKername (ii : InductiveVal) :
+    mutualBlockKn ii = toKername (.str .anonymous (String.join (ii.all.map toString))) := rfl
 
 /-! ### Non-vacuity
 
 `RegInvShape.empty` is constructed, so the invariant is inhabited. The guards below add
 the fact the design asks for: preservation is not vacuous *because nothing ever
-registers* — a concrete `addAxiom` step really does extend `gdecls` and the invariant
-really does survive it, twice in a row at distinct names. -/
+registers* — a concrete `addAxiom` step really does extend `gdecls`, the invariant
+survives it twice in a row, and coverage really does separate a fresh name from the keys
+already there. -/
 
 /-- A concrete `Γ` filing every constant under its canonical kername (`hknames`). -/
 private def gΓcs : ErasureCtx where
@@ -779,18 +889,29 @@ private def gΓcs : ErasureCtx where
 and genuinely extends `gdecls`. -/
 theorem gRegInvShape_addAxiom (n : Name) :
     RegInvShape gΓcs (addAxiomState n {}) ∧ (addAxiomState n {}).gdecls ≠ [] :=
-  ⟨(RegInvShape.empty gΓcs).addAxiom rfl (by simp), by simp [addAxiomState]⟩
+  ⟨(RegInvShape.empty gΓcs).addAxiom rfl, by simp [addAxiomState]⟩
 
-/-- Non-vacuity: two `addAxiom` steps at kernames the freshness condition separates —
-so the `keys` field is genuinely exercised, not satisfied by an empty list. -/
-theorem gRegInvShape_addAxiom₂ (n m : Name)
-    (hne : Kername.beq (toKername m) (toKername n) = false) :
-    RegInvShape gΓcs (addAxiomState m (addAxiomState n {})) := by
-  refine ((RegInvShape.empty gΓcs).addAxiom (n := n) rfl (by simp)).addAxiom rfl ?_
-  intro p hp
-  simp only [addAxiomState] at hp
-  rcases List.mem_cons.mp hp with rfl | hp'
-  · exact hne
-  · simp at hp'
+/-- Non-vacuity: two `addAxiom` steps in a row, at any two names. Slice S1d needed the
+second step's key to be fresh; it no longer does, which is the point — the invariant
+survives even the re-registration that refutes `KeysDistinct`. -/
+theorem gRegInvShape_addAxiom₂ (n m : Name) :
+    RegInvShape gΓcs (addAxiomState m (addAxiomState n {})) :=
+  ((RegInvShape.empty gΓcs).addAxiom (n := n) rfl).addAxiom rfl
+
+/-- Non-vacuity of coverage: at a state with a real entry, a name the registry does not
+know is separated from the key that is there — so `fresh_of_unregistered` is not true
+merely because `gdecls` is empty. -/
+theorem gRegInvShape_fresh (n m : Name) (hne : n ≠ m)
+    (hkinj : ∀ k : Name, Kername.beq (toKername n) (toKername k) = true → n = k) :
+    Kername.beq (toKername n) (toKername m) = false := by
+  have hn : (addAxiomState m {}).constants.get? n = none := by
+    simp only [addAxiomState, Std.HashMap.get?_insert]
+    split
+    · rename_i heq
+      exact absurd (by simpa using heq : m = n).symm hne
+    · simp
+  have hmem : (toKername m, GlobalDecl.constantDecl ⟨none⟩) ∈ (addAxiomState m {}).gdecls :=
+    List.mem_cons_self
+  exact (gRegInvShape_addAxiom m).1.fresh_of_unregistered hkinj hn hmem
 
 end LeanToLambdaBox

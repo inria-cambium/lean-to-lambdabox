@@ -67,10 +67,16 @@ theorem envLookup_of_mem_of_keys : ∀ {E : GlobalDeclarations} {kn : Kername}
       exact envLookup_of_mem_of_keys hmem' (KeysDistinct.of_cons hkeys)
 
 /-- **Lookup stability along the walk.** An entry established at an intermediate state
-survives to the final one, provided the final `gdecls` still has distinct keys — which is
-`RegInvShape.keys`, i.e. exactly the invariant the shape half carries. This is the lemma
-that makes a registration record proved *at the moment of registration* usable *at the end
-of the run*. -/
+survives to the final one, provided the final `gdecls` still has distinct keys. This is the
+lemma that makes a registration record proved *at the moment of registration* usable *at
+the end of the run*.
+
+`hkeys` is a premise here and stays one: slice S1e removed `KeysDistinct` from
+`RegInvShape`, having proved that no state predicate carried along the shape induction can
+maintain it (`ColdStartInduction.runClosed_keysDistinct_refuted`). What the invariant does
+give a caller is `RegInvShape.fresh_of_unregistered`: freshness of a not-yet-registered
+name against the constant keys, which is the step from which a `KeysDistinct` is *built*
+when the caller knows the walk does not re-register. -/
 theorem envLookup_mono_of_keys {E E' : GlobalDeclarations} {kn : Kername} {d : GlobalDecl}
     (hgrow : ∃ pre, E' = pre ++ E) (hkeys : KeysDistinct E')
     (h : LBTerm.envLookup E kn = some d) : LBTerm.envLookup E' kn = some d := by
@@ -153,8 +159,8 @@ theorem mem_recConstState_gdecls (defs : List (@FixDef LBTerm)) :
 /-- **The recursive block is registered.** For every `(m, j)` of the block, the final
 `gdecls` looks up `Erasure.toKername m` to the stored `.fix defs j` — the `envLookup`
 conjunct of `RegisteredClosureRec.erase` and of `RecEnvConsistent.reg`, proved from the
-run rather than assumed. Key distinctness (`RegInvShape.keys`) is what turns membership
-into lookup. -/
+run rather than assumed. Key distinctness — a premise of the caller since slice S1e, see
+`envLookup_mono_of_keys` — is what turns membership into lookup. -/
 theorem recConstState_envLookup {names : List Name} {defs : List (@FixDef LBTerm)}
     {s : ErasureState} {m : Name} {j : Nat} (hmem : (m, j) ∈ names.zipIdx)
     (hkeys : KeysDistinct (recConstState names defs s).gdecls) :
@@ -281,7 +287,7 @@ theorem gRecConstState_lookups :
   ⟨recConstState_envLookup (by simp) gRecKeys, recConstState_envLookup (by simp) gRecKeys⟩
 
 /-- Non-vacuity: the *later*-consed sibling does not shadow the earlier one — which is
-what `envLookup_of_mem_of_keys` buys and what `KeysDistinct` is in the invariant for. -/
+what `envLookup_of_mem_of_keys` buys, and what a caller's `KeysDistinct` premise is for. -/
 theorem gRecConstState_no_shadow :
     LBTerm.envLookup (recConstState [`f, `g] gRecDefs {}).gdecls (toKername `f)
       ≠ LBTerm.envLookup (recConstState [`f, `g] gRecDefs {}).gdecls (toKername `g) := by

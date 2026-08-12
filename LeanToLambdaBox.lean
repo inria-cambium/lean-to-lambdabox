@@ -125,11 +125,14 @@ import LeanToLambdaBox.EnvErasureNonrec
 -- forward simulation and D1 uniqueness over `SEvalDataι`, with the whole `Γ`/`E`
 -- certificate block constructed jointly at a registered flat inductive.
 import LeanToLambdaBox.FirstOrderShippingIota
--- Cold-start slice S1: the registry invariant `RegInvShape` (scoped registration
--- records + `KeysDistinct` + the disjunctive `NoFixEnvD`), vacuous at the empty state
--- and preserved by the registration primitives via the *true* run shapes proved in
+-- Cold-start slice S1 (+ S1e): the registry invariant `RegInvShape` (scoped registration
+-- records + constant-key coverage + the disjunctive `NoFixEnvD`), vacuous at the empty
+-- state and preserved by the registration primitives via the *true* run shapes proved in
 -- `ErasureRun` (`run_addAxiom_ok`, `run_register_inductive_cold_ok`) — replacing the
 -- assumed state-preservation of `register_inductive` with its actual `gdecls` cons.
+-- S1e traded the `KeysDistinct` field for `ConstKeysCovered`, which no registration site
+-- needs a freshness side condition to maintain and from which freshness for a
+-- not-yet-registered name follows (`RegInvShape.fresh_of_unregistered`).
 import LeanToLambdaBox.ColdStartShape
 -- Output-shape metatheory for the binder-closing operations (`toBvar` preserves
 -- `NoFix`; it takes a body closed at `k` to one closed at `k+1`), plus the fold forms
@@ -140,7 +143,10 @@ import LeanToLambdaBox.OutputShape
 -- erasure family in Hoare form over a `RunClosed` state predicate. Yields
 -- `visitExpr_noFix_closed` — every successful `visitExpr` run returns a fix-free,
 -- de-Bruijn-closed term, with no hypotheses — and, at `Q := RegInvShape Γ`, the
--- preservation of the cold-start registry invariant across a whole run.
+-- preservation of the cold-start registry invariant across a whole run (slice S1e: from
+-- the repaired `RegBridgeHyps`, replacing the refuted `RegShapeHyps`, which is kept with
+-- its refutations as a negative guard; `runClosed_keysDistinct_refuted` records why the
+-- invariant cannot carry key distinctness at all).
 import LeanToLambdaBox.ColdStartInduction
 -- Cold-start slice S3: the entry point and the registration exits, decomposed
 -- (`erase_run_ok` (R1), `run_prepare_erasure_ok` (R2) — which also *derives*
@@ -151,7 +157,7 @@ import LeanToLambdaBox.ColdStartInduction
 import LeanToLambdaBox.ColdStartRun
 import LeanToLambdaBox.ColdStartDelta
 -- Cold-start slice S4: the capstone whose subject is the real `Erasure.erase e cfg`, from
--- the empty state, producing `E` and `t` instead of consuming them — plus `RegBridgeHyps`
--- (registry-invariant preservation along a run + registration completeness) and the
--- refutation of slice S1d's `RegShapeHyps`, which that bundle replaces.
+-- the empty state, producing `E` and `t` instead of consuming them — and the three
+-- refutations of slice S1d's `RegShapeHyps`. Since S1e the registry invariant is carried
+-- by the theorem `visitExpr_regInvShape` rather than by a bundle field.
 import LeanToLambdaBox.ColdStart
