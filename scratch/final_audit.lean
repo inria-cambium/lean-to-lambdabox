@@ -717,3 +717,42 @@ open LeanToLambdaBox
 -- piece of the R7 interface still open.
 #print axioms LeanToLambdaBox.RegInvShape.inlinings
 #print axioms LeanToLambdaBox.RegInvShape.nonrecConst
+
+-- ============================================================================
+-- COLD-START SLICE S1c (2026-08-12): the recursive exit's closure lemma, and the
+-- binder-helper run lemmas the output-shape induction steps through.
+--
+-- Same expectation: ⊆ [propext, Classical.choice, Quot.sound], no `sorryAx`.
+--
+--   * `RegInvShape.recConst` completes the `run_visitMutual_ok` interface: all
+--     four exits now have their closure lemma. Its two inputs are honest
+--     assumptions, not gaps in the argument: `KeysDistinct` of the final
+--     `gdecls` (nothing in `visitMutual` rules out shadowing — it tests neither
+--     `s.gdecls` nor `s.constants` before consing), and closedness of the stored
+--     `.fix` bodies (the recursion wall's `closeFix` result).
+--
+--   * `RegInvShape.constCons` generalises `nonrecConst`: the stored body may be
+--     plain (`NoFix`) or a literal `.fix`, which is exactly the disjunction
+--     `NoFixEnvD` carries. The recursive and non-recursive exits are then the
+--     same lemma at the two disjuncts.
+--
+--   * The binder-helper run lemmas each carry an `r = default` fall-through
+--     disjunct: every destructuring helper `panic!`s on a shape mismatch, and a
+--     panic SUCCEEDS at `EraseM`. That is the code's real behaviour.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.RegInvShape.constCons
+#print axioms LeanToLambdaBox.recConstFold_gdecls
+#print axioms LeanToLambdaBox.RegInvShape.recConstFold
+#print axioms LeanToLambdaBox.RegInvShape.recConst
+#print axioms Erasure.run_withLocalDecl_ok
+#print axioms Erasure.run_withLocalDef_ok
+#print axioms Erasure.run_lambdaMonocular_ok
+#print axioms Erasure.run_letMonocular_ok
+#print axioms Erasure.run_forallMonocular_ok
+#print axioms Erasure.run_lambdaMonocularOrIntro_ok
+#print axioms Erasure.run_lambdaOrIntroToArity_ok
+#print axioms Erasure.run_fvar_to_name_ok
+#print axioms Erasure.run_mkLambda_ok
+#print axioms Erasure.run_mkLetIn_ok
+#print axioms Erasure.run_mkAlt_ok
