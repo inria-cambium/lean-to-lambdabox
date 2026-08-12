@@ -45,7 +45,7 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   equations; guards `betaN_casesOn_guard` / `betaN_ruleTemplate_{,eta_,rec_}guard`),
   `IotaArityCoherent`, `CtorFieldsCoherent`, `ErasesEnvCases`
   (hence `ErasesEnvCasesι`, via `ErasesEnvCases.nonProp`), `ErasesEnvCtor`, `ClosedEnv`,
-  `NoFixEnv`, and the constructor/`casesOn` disjointness `hcc`. In the `_registered`
+  `RecEnvConsistent`, and the constructor/`casesOn` disjointness `hcc`. In the `_registered`
   form all of the `Γ`/`E` ones are *derived* from the registration records. All of them
   are constructed jointly at one registered inductive in the guard below.
 * **Runtime Hoare assumptions — specs about opaque `IO` primitives, the documented
@@ -61,8 +61,8 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   `visitCases` never emits, and under which the target `.case` is provably stuck
   (`SubjectReductionIota.lean`). Not a typing assumption.
 * **Pre-existing D3 premises, unchanged**: `env.WF`, `SEnvConsistent`,
-  `ErasesEnvDeltaData` (or `RegisteredClosureData`), `NoFixEnv E`, `Supported`,
-  `TrExprS`, `NoBlock t`, `NoFix t`, `FirstOrderValue`.
+  `ErasesEnvDeltaData` (or `RegisteredClosureData`), `RecEnvConsistent`, `Supported`,
+  `TrExprS`, `NoBlock t`, `FirstOrderValue`.
 * **New relative to D3**: the closedness thread `LBClosed t 0` / `ClosedEnv E`. It is
   MetaRocq's own `closedn 0` convention, not a modelling shortcut — see
   `ErasesCorrectIota.lean` for the two-field counterexample that forces it. The
@@ -131,7 +131,7 @@ theorem shipping_erase_correct_firstorderι
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
-    (hnfenv : NoFixEnv E)
+    (hrec : RecEnvConsistent env Us Γ Esrc E)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -143,7 +143,6 @@ theorem shipping_erase_correct_firstorderι
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
-    (hnfx : NoFix t)
     (hcl : LBClosed t 0)
     (hev : SEvalDataι Γ ia Esrc e v)
     (hfo : FirstOrderValue env Us Γ [] v) :
@@ -151,12 +150,12 @@ theorem shipping_erase_correct_firstorderι
       (∃ vve, TrExprS env Us [] v vve) ∧
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
-  obtain ⟨t', vve, heval, htrv, herv, hnbv, _, hclv⟩ :=
+  obtain ⟨t', vve, heval, htrv, herv, hnbv, hclv⟩ :=
     erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
-      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hnfenv hclenv hev htr
+      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hclenv hev htr
       (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
         [] hinv hsup ⟨ve, htr⟩).1
-      hnb hnfx hcl
+      hnb hcl
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv, hclv,
     fun tu hertu hnbtu =>
       firstOrder_value_erases_unique henv (Δ := []) trivial hfo hertu hnbtu herv hnbv⟩
@@ -194,7 +193,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
-    (hnfenv : NoFixEnv E)
+    (hrec : RecEnvConsistent env Us Γ Esrc E)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -206,7 +205,6 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
-    (hnfx : NoFix t)
     (hcl : LBClosed t 0)
     (hev : SEvalDataι Γ ia Esrc e v)
     (hfo : FirstOrderValue env Us Γ [] v) :
@@ -216,8 +214,8 @@ theorem shipping_erase_correct_firstorderι_of_shape
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
     (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hnfenv hclenv H HD C
-    hrun hinv hsup htr hnb hnfx hcl hev hfo
+    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hclenv H HD C
+    hrun hinv hsup htr hnb hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
 analogue of `shipping_erase_correct_firstorder_registered`, and a step further: not only
@@ -237,7 +235,7 @@ direct env premise would buy nothing.
 
 What is **not** registration-derived, by nature: `IotaArityCoherent` (a fact about
 `CasesInfo`, i.e. the `casesOn`'s telescope, not about the target env),
-`ClosedEnv`/`NoFixEnv` (target-body facts), the disjointness
+`ClosedEnv` (a target-body fact), `RecEnvConsistent`, the disjointness
 `hcc`, and the ι interface premise. -/
 theorem shipping_erase_correct_firstorderι_registered
     {env : VEnv} (henv : env.WF) {Us : List Name}
@@ -253,7 +251,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
-    (hnfenv : NoFixEnv E)
+    (hrec : RecEnvConsistent env Us Γ Esrc E)
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
@@ -265,7 +263,6 @@ theorem shipping_erase_correct_firstorderι_registered
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
-    (hnfx : NoFix t)
     (hcl : LBClosed t 0)
     (hev : SEvalDataι Γ ia Esrc e v)
     (hfo : FirstOrderValue env Us Γ [] v) :
@@ -278,7 +275,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
-    hiacoh hrel hcc hnfenv hclenv H HD C hrun hinv hsup htr hnb hnfx hcl hev hfo
+    hiacoh hrel hcc hrec hclenv H HD C hrun hinv hsup htr hnb hcl hev hfo
 
 /-! ## Non-vacuity guards
 
@@ -424,17 +421,18 @@ actually carry; see the section docstring for the one that it cannot. -/
 theorem ΓFOι_certificates :
     ErasesEnvCtor ΓFOι EFOd ∧ ErasesEnvCases ΓFOι EFOd ∧ ErasesEnvCasesι ΓFOι EFOd ∧
       CtorFieldsCoherent ΓFOι ∧ IotaArityCoherent ΓFOι iaFOι ∧
-      NoFixEnv EFOd ∧ ClosedEnv EFOd ∧
+      RecEnvConsistent envFO [] ΓFOι (fun _ => none) EFOd ∧ ClosedEnv EFOd ∧
       (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
         ΓFOι.ctors cn = some (iid, cidx) → ΓFOι.casesOns cn = none) :=
   ⟨ΓFOι_erasesEnvCtor, ΓFOι_erasesEnvCases, ΓFOι_erasesEnvCasesι, ΓFOι_ctorFieldsCoherent,
-    ΓFOι_iotaArityCoherent, EFOd_noFixEnv, EFOd_closedEnv, ΓFOι_cc⟩
+    ΓFOι_iotaArityCoherent, recEnvConsistent_of_noRec (Γ := ΓFOι) rfl, EFOd_closedEnv,
+    ΓFOι_cc⟩
 
 /-- **D3ι fires.** On the first-order constructor `c` at the registered inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
 certificate block is `ΓFOι_certificates`, the source `c` `SEvalDataι`-evaluates to
 itself, and the theorem produces `t'` together with its uniqueness. Hypothetical: the run
 (`hrun`/`hinv`/`hsup`), the three runtime bundles, the target-side structural facts about
-the run's output `t` (`NoBlock`/`NoFix`/`LBClosed`), and the two ι trust items
+the run's output `t` (`NoBlock`/`LBClosed`), and the two ι trust items
 (`IotaConsistent`, `IotaRelevant`). -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hiota : IotaConsistent envFO [] ΓFOι iaFOι)
@@ -447,7 +445,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
     (hinv : BridgeInv envFO [] (fun _ => True) ΓFOι (gw w) ctx s [])
     (hsup : Supported (fun _ => True) ΓFOι (.const `c []))
-    (hnb : NoBlock t) (hnfx : NoFix t) (hcl : LBClosed t 0) :
+    (hnb : NoBlock t) (hcl : LBClosed t 0) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
@@ -456,7 +454,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
-    EFOd_noFixEnv EFOd_closedEnv H HD C hrun hinv hsup envFO_trC hnb hnfx hcl ?_
+    (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl)
+    EFOd_closedEnv H HD C hrun hinv hsup envFO_trC hnb hcl ?_
     (envFO_foC_ι harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro Δ n body h; exact absurd h (by simp)          -- ErasesEnvDeltaData, vacuous

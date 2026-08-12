@@ -188,9 +188,10 @@ theorem Erases.lit_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
 — since `Erases.fix`'s source is a syntactic `.lam` (P3) — the environment-level `fix`
 rule too, giving a third disjunct `t = .fix defs idx`. This is the **only** inversion
 that widens for `Erases.fix`: every other inversion's catch-all refutes a `.lam`-headed
-source by head mismatch (`.app`/`.letE`/`.const`/spine ≠ `.lam`). Forward-simulation
-callers in the fix-free fragment discharge the new disjunct via a `NoFix t` premise
-(`NoFix (.fix …)` is `False`). -/
+source by head mismatch (`.app`/`.letE`/`.const`/spine ≠ `.lam`). Since the recursion
+wall's slice W2 the forward simulations *handle* that disjunct rather than discharge it:
+at a λ-value the target block is already a value (`WcbvEval.fix_atom`), and at a β-redex
+head it is unfolded by `Erases.fix_unfold`/`erases_lam_head_step` (`ErasesCorrect`). -/
 theorem Erases.lam_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {ty b : Expr} {bi : BinderInfo} {t : LBTerm}
     (h : Erases env Us Γ Δ (.lam n ty b bi) t) :
@@ -345,10 +346,11 @@ the `const` rule (`t = .const kn`), a *nullary* `ctor` spine (`args = []`,
 (`t = .fix defs idx`). The `cases` rule needs a non-empty spine, so it is
 excluded; a non-nullary `ctor` would make the source an `.app`, also excluded.
 
-The fourth disjunct is the price of `const_fix`, and it is cheap: in the fix-free
-fragment the forward simulations kill it with their `NoFix t` premise
-(`NoFix (.fix …)` is `False`), and the spine inversions kill it with its own
-`Γ.ctors`/`Γ.casesOns`-disjointness witnesses (which `const_inv_full` keeps). -/
+The fourth disjunct is the price of `const_fix`, and it is cheap: the spine inversions
+kill it with its own `Γ.ctors`/`Γ.casesOns`-disjointness witnesses (which
+`const_inv_full` keeps), and the δ case of each forward simulation *uses* it — since the
+recursion wall's slice W2, `RecEnvConsistent` turns the recorded block back into the
+source body's erasure, and the target's own step is `WcbvEval.fix_atom`. -/
 theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {us : List Level} {t : LBTerm}
     (h : Erases env Us Γ Δ (.const n us) t) :

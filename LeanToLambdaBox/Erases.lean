@@ -160,9 +160,17 @@ theorem LBTerm.substDefs_eq_map (s : LBTerm) (d : Nat) (l : List (@FixDef LBTerm
 
 /-! ### `NoFix`: fix-free target terms
 
-`NoFix t` holds when `t` contains no `.fix` node in relevant (spine) position. The
-shipping `visitExpr` **never** emits `.fix` (only the environment-level `visitMutual`
-does — P3), so every `visitExpr` output is `NoFix`. It is threaded through the
+`NoFix t` holds when `t` contains no `.fix` node in relevant (spine) position.
+
+**Status (recursion wall, slice W2).** `NoFix` is no longer a hypothesis of the forward
+simulations — they accept `.fix` targets, and what replaces it is the registration-level
+`RecEnvConsistent` (`ErasesCorrect`). The predicate and its shift/subst/mkApps kit stay:
+they are still the right tool wherever a genuinely fix-free fragment is wanted
+(`erases_correct_beta`, which has no environment at all, still carries `NoFix t`), and
+the historical record of why it *was* load-bearing lives in `EnvErasureRec`.
+
+The shipping `visitExpr` **never** emits `.fix` (only the environment-level `visitMutual`
+does — P3), so every `visitExpr` output is `NoFix`. It *was* threaded through the
 forward-simulation theorems purely to discharge the (vacuous, in that fragment) `.fix`
 disjunct that `Erases.lam_inv` gains once `Erases.fix` is added: a `.lam`-source that
 erases via the fix rule has target `.fix …`, and `NoFix (.fix …)` is `False`.

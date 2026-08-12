@@ -576,4 +576,167 @@ theorem erasesEnvDelta_of_registeredClosureRec' {env : VEnv} {Us : List Name}
     (h : RegisteredClosureRec env Us Γ Esrc E) : ErasesEnvDelta env Us Γ Esrc E :=
   erasesEnvDelta_of_registeredClosure (registeredClosure_of_registeredClosureRec h)
 
+/-! ## Part 5 — feeding the forward simulations (recursion wall, slice W2)
+
+The simulations' new premise `RecEnvConsistent` (`ErasesCorrect.lean`) is this file's
+`RegisteredClosureRec` **re-keyed on `Γ.recBodies`**: the registration record is indexed
+by *source unfoldings* (`Esrc n = some body`, the direction a cold-start walk produces),
+while the δ case of a simulation holds the `const_fix` leaf's witness
+(`Γ.recBodies n = some (defs, idx)`) and must go the other way.
+
+One fact bridges them and `RegisteredClosureRec` does not contain it: that `Γ`'s
+registration for `n` names *the same* block `E` stores under `Γ.constants n`. That is a
+statement about the run (`visitMutual` conses the decl and records the block in the same
+breath), so it is taken here as the explicit `hkey` premise, in the shape the cold-start
+walk will discharge. Given it, the block identity follows by injectivity of the stored
+decl and the adapter is mechanical. -/
+
+/-- **`RecEnvConsistent` from the recursive registration record.** `hkey` is the
+`Γ.recBodies`-to-`Esrc`/`E` agreement the run establishes at `Erasure.visitMutual`'s
+registration line; everything else comes from `RegisteredClosureRec`. -/
+theorem recEnvConsistent_of_registeredClosureRec {env : VEnv} {Us : List Name}
+    {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations}
+    (h : RegisteredClosureRec env Us Γ Esrc E)
+    (hkey : ∀ {n : Name} {defs : List (@FixDef LBTerm)} {idx : Nat},
+      Γ.recBodies n = some (defs, idx) →
+        ∃ body, Esrc n = some body ∧
+          LBTerm.envLookup E (Γ.constants n)
+            = some (.constantDecl ⟨some (.fix defs idx)⟩)) :
+    RecEnvConsistent env Us Γ Esrc E where
+  reg := by
+    intro n defs idx hreg
+    obtain ⟨body, hunf, hlook⟩ := hkey hreg
+    obtain ⟨defs', idx', hlook', her⟩ := h.erase hunf
+    obtain ⟨rfl, rfl⟩ : defs' = defs ∧ idx' = idx := by
+      rw [hlook] at hlook'
+      have := (by simpa using hlook' : defs = defs' ∧ idx = idx')
+      exact ⟨this.1.symm, this.2.symm⟩
+    exact ⟨hlook, (h.disj hunf).1, (h.disj hunf).2, body, hunf, her⟩
+
+/-! ### The W2 acceptance test: a `.fix`-headed application that really runs
+
+The wall is only *witnessed* if the data simulation fires on a program whose target head
+is a genuine `.fix` node and whose target step is therefore
+`WcbvEval.fix_guarded` — the rule the whole slice exists to reach. Part 3's fixture
+(`def f (a : Prop) := f a`) cannot serve: it diverges, so it has no `SEvalDataC`
+derivation to feed the simulation. What is needed is a recursive *registration* over a
+terminating program, and the shipping eraser produces exactly that whenever a **mutual
+block has more than one name** — `visitMutual` takes the fix path on `single_decl` alone,
+without checking self-reference (`Erasure.lean`'s `nonrecursive` conjunct), so a block
+member that happens not to call itself is still stored as a `.fix` decl.
+
+So: `f := fun (h : Prop → Prop) => h`, stored as the one-def block `fix f. λh. h`, applied
+to `fun (a : Prop) => a`. The source is the already-typed redex `gCxApp` of Part 3b (the
+counterexample's own term, reused: the *target* differs, and that is the point — Part 3b's
+block was the contentless `fix f. f`, this one's body is the head's real erasure). The
+target run is
+
+    (fix f. λh. h) (λa. a)  --fix_guarded-->  (λh. h) (λa. a)  --beta-->  λa. a
+
+with the source `SEvalDataC`-evaluating to `fun (a : Prop) => a`, which erases to the same
+`λa. a`. Every premise of `erases_correct_data` is *constructed*, including
+`RecEnvConsistent` at a `Γ` that genuinely registers recursion. -/
+
+/-- The W2 guard's block: `fix f. λh. h` — a one-def block whose body is the head's real
+erasure, not a self-loop. -/
+private def gRecDefs : List (@FixDef LBTerm) :=
+  [{ name := .named "f", body := .lambda (nameToBinder `h) (.bvar 0) }]
+
+/-- Its stored decl body. -/
+private def gRecFix : LBTerm := .fix gRecDefs 0
+
+/-- A `Γ` that genuinely registers recursion: every name is bound to the block above
+(as in Part 3's fixture, the maps are total so no case analysis is needed). -/
+private def gRecΓ : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => rootKername "f"
+  ctors := fun _ => none
+  ctorArities := fun _ => none
+  casesOns := fun _ => none
+  recBodies := fun _ => some (gRecDefs, 0)
+
+/-- The source environment: the constant unfolds to the head lambda. -/
+private def gRecEsrc : SEnv := fun _ => some gCxHId
+
+/-- The target environment: the kername is bound to the block. -/
+private def gRecE : GlobalDeclarations :=
+  [(rootKername "f", .constantDecl ⟨some gRecFix⟩)]
+
+/-- The head erases to the block, at any context — through the Part 2 reconciliation, so
+the guard exercises `erases_fix_of_closed` too. The `mkDef` closing is trivial here (the
+body mentions no sibling), which is exactly what makes the program terminate. -/
+private theorem gRecErasesHead {Δ : VLCtx} :
+    Erases .empty [] gRecΓ Δ gCxHId gRecFix := by
+  have hsort : ∀ {Γ : List VExpr},
+      VEnv.HasType .empty 0 Γ (.sort .zero) (.sort (.succ .zero)) :=
+    .sortDF trivial trivial rfl
+  refine erases_fix_of_closed (nms := [`f]) (ids := [⟨`x⟩]) (srcs := [gCxHId])
+    (obodies := [.lambda (nameToBinder `h) (.bvar 0)])
+    Nat.zero_lt_one rfl rfl rfl rfl rfl (fun j h => ?_) (fun d hd => ?_)
+    gCxHId_closed gCxHId_fvarFree ⟨Nat.zero_lt_two, trivial⟩ ?_
+    (fun j h => ?_) (fun j h => ?_) (fun j h Δf => ?_)
+  · obtain rfl : j = 0 := by simp only [gRecDefs, List.length_cons, List.length_nil] at h; omega
+    rfl
+  · simp only [gRecDefs, List.mem_cons, List.not_mem_nil, or_false] at hd
+    subst hd; rfl
+  · intro x; simp [gRecDefs, hasFVarDefs]
+  · obtain rfl : j = 0 := by simp only [gRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact Nat.zero_lt_one
+  · obtain rfl : j = 0 := by simp only [gRecDefs, List.length_cons, List.length_nil] at h; omega
+    simp [gRecDefs, closeFix, closeFixFold, toBvar]
+  · obtain rfl : j = 0 := by simp only [gRecDefs, List.length_cons, List.length_nil] at h; omega
+    show Erases .empty [] gRecΓ Δf gCxHId (.lambda (nameToBinder `h) (.bvar 0))
+    exact .lam (.forallE ⟨_, hsort⟩ ⟨_, hsort⟩ (.sort rfl) (.sort rfl)) (.bvar 0)
+
+/-- The whole redex erases to `(fix f. λh. h) (λa. a)` — applied form. -/
+private theorem gRecErases :
+    Erases .empty [] gRecΓ [] gCxApp (.app gRecFix gCxId') :=
+  .app gRecErasesHead (.lam (.sort rfl) (.bvar 0))
+
+private theorem gRecNoBlock : NoBlock (.app gRecFix gCxId') := by
+  refine ⟨?_, ?_⟩ <;> simp [gRecFix, gRecDefs, gCxId']
+
+/-- `SEnvConsistent` holds **vacuously** at the empty `VEnv`: it fires only on a
+`TrExprS` of a `.const`, and `.empty` declares nothing. So a genuinely non-`none` `Esrc`
+costs the guard nothing. -/
+private theorem gRecSEnvConsistent : SEnvConsistent .empty [] gRecEsrc := by
+  intro Δ n us body cve _ htr
+  cases htr with
+  | const h1 _ _ => simp [VEnv.empty] at h1
+
+private theorem gRecErasesEnvDeltaData :
+    ErasesEnvDeltaData .empty [] gRecΓ gRecEsrc gRecE := by
+  intro Δ n body hunf
+  obtain rfl : body = gCxHId := by simpa [gRecEsrc] using hunf.symm
+  exact ⟨rfl, rfl, gRecFix, rfl, gRecErasesHead, by simp [gRecFix, gRecDefs]⟩
+
+private theorem gRecRecEnvConsistent :
+    RecEnvConsistent .empty [] gRecΓ gRecEsrc gRecE where
+  reg := by
+    intro n defs idx hreg
+    obtain ⟨rfl, rfl⟩ : defs = gRecDefs ∧ idx = 0 := by
+      have h2 := (by simpa [gRecΓ] using hreg : gRecDefs = defs ∧ 0 = idx)
+      exact ⟨h2.1.symm, h2.2.symm⟩
+    exact ⟨rfl, rfl, rfl, gCxHId, rfl, fun {_} => gRecErasesHead⟩
+
+/-- **The recursion wall fires end-to-end at the term level.** `erases_correct_data`,
+with `NoFixEnv` gone and `RecEnvConsistent` in its place, delivers a target evaluation of
+a `.fix`-headed application — so the new `fix_guarded` branch of the β case is on a real
+execution path, not merely reachable in principle. Every premise is constructed. -/
+theorem erases_correct_data_recursive_fires :
+    ∃ t' vve, WcbvEval gRecE appliedFlags (.app gRecFix gCxId') t' ∧
+      TrExprS .empty [] [] gCxId vve ∧
+      Erases .empty [] gRecΓ [] gCxId t' ∧ NoBlock t' :=
+  erases_correct_data (env := .empty) ⟨[], .empty⟩ (Us := []) (Δ := []) trivial
+    gRecSEnvConsistent gRecErasesEnvDeltaData (fun h => by simp [gRecΓ] at h)
+    (fun h => by simp [gRecΓ] at h) gRecRecEnvConsistent
+    gCxSEval gCxTrExprS gRecErases gRecNoBlock
+
+/-- …and the value it produces is exactly the erasure of the source value: the run is
+`(fix f. λh. h) (λa. a) ⇓ λa. a`, one `fix_guarded` and one `beta`. -/
+theorem erases_correct_data_recursive_value :
+    WcbvEval gRecE appliedFlags (.app gRecFix gCxId') gCxId' :=
+  .fix_guarded (argsv := []) rfl (.fix_atom _ _) (.lam _ _) rfl rfl
+    (.beta (.lam _ _) (.lam _ _) (.lam _ _))
+
 end LeanToLambdaBox

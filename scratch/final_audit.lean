@@ -173,6 +173,33 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.erases_fixRec
 #print axioms noFix_subst1
 #print axioms noFix_mkApps
+-- Recursion wall, W2: the simulations unfold fix. `NoFixEnv E` and the `NoFix t`/
+-- `NoFix t'` slots are GONE from `erases_correct`, `erases_correct_data`,
+-- `erases_correct_data_zeta`, `erases_correct_dataι` and every capstone above; the
+-- replacement is the registration-level `RecEnvConsistent`. (`erases_correct_beta` keeps
+-- `NoFix t`: it has no environment at all, so its β-only fragment cannot meet a fix.
+-- `NoFix` the predicate and its kit survive — see `noFix_subst1`/`noFix_mkApps` above —
+-- they are simply no longer hypotheses of the general theorems.)
+--
+-- The chain kit is pure LBTerm/`WcbvEval` and must be sorryAx-free; `Erases.fix_unfold`
+-- and `erases_lam_head_step` mention `Erases` and so inherit the standing lean4lean
+-- boundary, exactly as their neighbours do. No new axiom of ours.
+#print axioms LeanToLambdaBox.LBTerm.fix_or_not
+#print axioms LeanToLambdaBox.FixUnfoldChain
+#print axioms LeanToLambdaBox.FixUnfoldChain.eval
+#print axioms LeanToLambdaBox.FixUnfoldChain.lbClosed
+#print axioms LeanToLambdaBox.FixUnfoldChain.noBlock
+#print axioms LeanToLambdaBox.fixUnfoldChain_selfLoop_step
+#print axioms LeanToLambdaBox.Erases.fix_unfold
+#print axioms LeanToLambdaBox.erases_lam_head_step
+#print axioms LeanToLambdaBox.RecEnvConsistent
+#print axioms LeanToLambdaBox.recEnvConsistent_of_noRec
+#print axioms LeanToLambdaBox.recEnvConsistent_of_registeredClosureRec
+-- W2's non-vacuity: the data simulation fires on a genuinely RECURSIVE program —
+-- `def f (a : Prop) := f a` applied to a proof — where the target head is a `.fix` and the
+-- step really is `fix_guarded` + `app_box`. This is the guard that makes the whole wall
+-- witnessed rather than merely un-blocked.
+#print axioms LeanToLambdaBox.erases_correct_data_recursive_fires
 -- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
 -- Prop hypotheses (`PrepareHyps`, `Registered*`), NEVER axioms. Expected axiom set:
 -- 4 standard [propext, Classical.choice, Quot.sound] (+ sorryAx via the lean4lean Expr
@@ -509,6 +536,15 @@ open LeanToLambdaBox
 -- (`ΓFOι`/`iaFOι`/`EFOd`) — the guard the ι capstone can carry. The end-to-end guard in
 -- which the ι rule itself contracts a real pattern match is blocked by the upstream
 -- `VEnv.WF`-unconstructible-for-`pats` obstruction; see `FirstOrderShippingIota.lean`.
+--
+-- Recursion wall, W2: the block's `NoFixEnv EFOd` conjunct became
+-- `RecEnvConsistent envFO [] ΓFOι (fun _ => none) EFOd` (the sims' new premise), so the
+-- block's *statement* now mentions `Erases` and therefore inherits the standing lean4lean
+-- boundary — `ΓFOι_certificates` picks up `sorryAx` where it previously had none. This is
+-- statement-level inheritance, not a new proof obligation: the witness is
+-- `recEnvConsistent_of_noRec rfl` (`ΓFOι` registers no recursion), and `Erases` itself has
+-- carried `sorryAx` since it was defined (see `#print axioms Erases`). Every capstone that
+-- consumes this block already had the same set.
 #print axioms LeanToLambdaBox.ΓFOι_certificates
 #print axioms LeanToLambdaBox.ΓFOι_registeredCtors
 #print axioms LeanToLambdaBox.ΓFOι_registeredCases

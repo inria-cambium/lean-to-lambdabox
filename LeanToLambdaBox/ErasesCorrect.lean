@@ -29,10 +29,12 @@ open Lean Lean4Lean
 /-- A target global environment with **no `.fix` constant bodies**: every stored
 constant body is `NoFix`. This holds of any environment `erase` builds for a program
 whose dependency closure has no *value* recursion (`visitMutual`'s recursive branch is
-the sole source of `.fix`). It is threaded through the δ case of the forward-sims so the
-recursive IH stays in the fix-free fragment (the unfolded body erasure must be `NoFix`
-for `Erases.lam_inv`'s fix disjunct to be discharged on it). Trivially true for the
-empty env `E = []`. -/
+the sole source of `.fix`). Trivially true for the empty env `E = []`.
+
+**No longer a premise of anything** (recursion wall, slice W2): it used to be threaded
+through the δ case of the forward simulations so the recursive IH stayed in the fix-free
+fragment, and `RecEnvConsistent` below replaces it. Kept as the predicate the fix-free
+fixtures and the W0 counterexample record are stated with. -/
 def NoFixEnv (E : GlobalDeclarations) : Prop :=
   ∀ {kn : Kername} {body' : LBTerm},
     LBTerm.envLookup E kn = some (.constantDecl ⟨some body'⟩) → NoFix body'
