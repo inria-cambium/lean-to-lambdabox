@@ -1142,5 +1142,572 @@ theorem visitExpr_run_shape :
   · intros; trivial
   · intros; trivial
 
+/-! ## Registration-path run lemmas (cold start, slice S1)
+
+The `visitExpr` family is only half of what a cold `Erasure.erase` run does: the
+other half is the *registration path* — `addAxiom`, `register_inductive`,
+`get_constant_kername`, `visitMutual`, `mkDef` — which is what actually populates
+`ErasureState.constants`, `ErasureState.inductives` and `ErasureState.gdecls`. The
+warm bridge (`VisitExprRefines.lean`) never had to model it: its conclusion is
+`s' = s` and its invariant demands every referenced constant be pre-registered.
+
+This section proves the **true** state effects of those primitives, so that a
+cold-start argument can carry a registry invariant through the run instead of
+assuming one. Three facts here are load-bearing and worth flagging:
+
+* `run_addAxiom_ok` models the **panic fall-through**: `addAxiom`'s
+  "already defined" guard has no `return`, and `panic!` *succeeds* at `EraseM`
+  (`run_panicWithPosWithDecl`), so the `modify` runs on both branches and a second
+  entry is consed. The lemma states the post-state unconditionally.
+* `run_register_inductive_cold_ok` (the miss branch) is **not** state-preserving:
+  it conses one `.inductiveDecl` entry (plus one axiom entry per `@[extern]`
+  constructor). Any spec asserting `s = s₁` for `register_inductive` over an
+  arbitrary `s` is false about the real function.
+* `run_getConstInfo_state` is a *theorem*, not an assumption: `getConstInfo`,
+  `getEnv`, `mkFreshFVarId` and `logInfo` are all lifted `CoreM` actions and hence
+  leave the `ErasureState` alone (`run_liftCoreM_state`).
+-/
+
+section Prims
+variable (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
+  (ref : ST.Ref IO.RealWorld Core.State) (w : Void IO.RealWorld)
+
+theorem run_monadRefWithRef {α : Type} (r : Syntax) (x : EraseM α) :
+    (MonadRef.withRef r x : EraseM α) s ctx cctx ref w = x s ctx { cctx with ref := r } ref w :=
+  rfl
+
+theorem run_logInfo_state {m : MessageData} {u : Unit} {s₁ : ErasureState}
+    {w₁ : Void IO.RealWorld}
+    (h : (logInfo m : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) : s₁ = s :=
+  run_liftCoreM_state (x := (logInfo m : CoreM Unit)) s ctx cctx ref w h
+
+theorem run_getEnv_state {e : Environment} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (h : (getEnv : EraseM Environment) s ctx cctx ref w = .ok (e, s₁) w₁) : s₁ = s :=
+  run_liftCoreM_state (x := (getEnv : CoreM Environment)) s ctx cctx ref w h
+
+theorem run_mkFreshFVarId_state {x : FVarId} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (h : (mkFreshFVarId : EraseM FVarId) s ctx cctx ref w = .ok (x, s₁) w₁) : s₁ = s :=
+  run_liftCoreM_state (x := (mkFreshFVarId : CoreM FVarId)) s ctx cctx ref w h
+
+set_option maxHeartbeats 1000000 in
+theorem run_getConstInfo_state {nm : Name} {ci : ConstantInfo} {s₁ : ErasureState}
+    {w₁ : Void IO.RealWorld}
+    (h : (getConstInfo nm : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s₁) w₁) :
+    s₁ = s := by
+  unfold Lean.getConstInfo at h
+  rw [run_bind_ok] at h
+  obtain ⟨e, s₂, w₂, henv, hk⟩ := h
+  have hs2 : s₂ = s := run_getEnv_state s ctx cctx ref w henv
+  subst hs2
+  cases hfind : e.find? nm with
+  | some info =>
+    rw [hfind] at hk
+    simp only [] at hk
+    rw [run_pure] at hk
+    cases hk
+    rfl
+  | none =>
+    rw [hfind] at hk
+    simp only [] at hk
+    unfold Lean.throwUnknownConstant at hk
+    refine absurd hk (run_bind_ne_ok _ ctx cctx ref w₂ ?_ _ _ _)
+    intro a s₃ w₃ b s₄ w₄
+    unfold Lean.throwUnknownConstantAt Lean.throwUnknownIdentifierAt
+    refine run_bind_ne_ok _ ctx cctx ref w₃ ?_ _ _ _
+    intro a' s₅ w₅ b' s₆ w₆
+    unfold Lean.throwErrorAt Lean.withRef
+    refine run_bind_ne_ok _ ctx cctx ref w₅ ?_ _ _ _
+    intro a'' s₇ w₇ b'' s₈ w₈
+    rw [run_monadRefWithRef]
+    exact run_throwError_ne_ok s₇ ctx _ ref w₇ _ _ _ _
+
+end Prims
+
+/-! ### state deltas -/
+
+def CanonicalConstants (s : ErasureState) : Prop :=
+  ∀ {n : Name} {k : Kername}, s.constants.get? n = some k → k = toKername n
+
+def addAxiomState (n : Name) (s : ErasureState) : ErasureState :=
+  { s with
+    constants := s.constants.insert n (toKername n),
+    gdecls := (toKername n, .constantDecl ⟨none⟩) :: s.gdecls }
+
+structure ConstExt (s s' : ErasureState) : Prop where
+  canon : CanonicalConstants s → CanonicalConstants s'
+  dom : ∀ {n : Name}, (s.constants.get? n).isSome → (s'.constants.get? n).isSome
+  gdecls : ∃ pre : GlobalDeclarations, s'.gdecls = pre ++ s.gdecls ∧
+    ∀ p ∈ pre, p.2 = GlobalDecl.constantDecl ⟨none⟩
+
+structure AxiomExt (s s' : ErasureState) : Prop extends ConstExt s s' where
+  inds : s'.inductives = s.inductives
+
+theorem ConstExt.rfl' (s : ErasureState) : ConstExt s s where
+  canon := id
+  dom := id
+  gdecls := ⟨[], rfl, by simp⟩
+
+theorem ConstExt.of_same {s s' : ErasureState} (hc : s'.constants = s.constants)
+    (hg : s'.gdecls = s.gdecls) : ConstExt s s' where
+  canon := by intro h n k hk; rw [hc] at hk; exact h hk
+  dom := by intro n hn; rw [hc]; exact hn
+  gdecls := ⟨[], by simpa using hg, by simp⟩
+
+theorem ConstExt.trans {s s' s'' : ErasureState} (h : ConstExt s s') (h' : ConstExt s' s'') :
+    ConstExt s s'' where
+  canon hc := h'.canon (h.canon hc)
+  dom hd := h'.dom (h.dom hd)
+  gdecls := by
+    obtain ⟨pre, hpre, hax⟩ := h.gdecls
+    obtain ⟨pre', hpre', hax'⟩ := h'.gdecls
+    refine ⟨pre' ++ pre, ?_, ?_⟩
+    · rw [hpre', hpre, List.append_assoc]
+    · intro p hp
+      rcases List.mem_append.mp hp with h1 | h1
+      · exact hax' p h1
+      · exact hax p h1
+
+theorem AxiomExt.rfl' (s : ErasureState) : AxiomExt s s where
+  toConstExt := ConstExt.rfl' s
+  inds := rfl
+
+theorem AxiomExt.trans {s s' s'' : ErasureState} (h : AxiomExt s s') (h' : AxiomExt s' s'') :
+    AxiomExt s s'' where
+  toConstExt := h.toConstExt.trans h'.toConstExt
+  inds := h'.inds.trans h.inds
+
+theorem AxiomExt.addAxiom (n : Name) (s : ErasureState) : AxiomExt s (addAxiomState n s) where
+  inds := rfl
+  canon := by
+    intro hc m k hm
+    simp only [addAxiomState] at hm
+    rw [Std.HashMap.get?_insert] at hm
+    split at hm
+    · rename_i heq
+      cases hm
+      have : n = m := by simpa using heq
+      subst this
+      rfl
+    · exact hc hm
+  dom := by
+    intro m hm
+    simp only [addAxiomState]
+    rw [Std.HashMap.get?_insert]
+    split
+    · simp
+    · exact hm
+  gdecls := ⟨[(toKername n, .constantDecl ⟨none⟩)], rfl, by simp⟩
+
+/-! ### registration shapes -/
+
+def mutualBlockKn (indinfo : InductiveVal) : Kername :=
+  rootKername (String.join (indinfo.all.map toString))
+
+def registerIndState (indinfo : InductiveVal) (bodies : List OneInductiveBody)
+    (s : ErasureState) : ErasureState :=
+  { s with
+    gdecls := (mutualBlockKn indinfo,
+      .inductiveDecl { npars := indinfo.numParams, bodies := bodies }) :: s.gdecls }
+
+def RegisteredBodyAt (indinfo : InductiveVal) (bodies : List OneInductiveBody)
+    (n : Name) (rc : InductiveId × InductiveArgMasks) : Prop :=
+  ∃ oib : OneInductiveBody,
+    rc.1.mutualBlockName = mutualBlockKn indinfo ∧
+    bodies[rc.1.idx]? = some oib ∧
+    oib.name = toString n ∧
+    oib.ctors.map (·.nargs) = rc.2.map (fun m => Array.count ConstructorArgRelevance.keep m)
+
+theorem RegisteredBodyAt.mono {indinfo : InductiveVal} {bodies more : List OneInductiveBody}
+    {n : Name} {rc : InductiveId × InductiveArgMasks}
+    (h : RegisteredBodyAt indinfo bodies n rc) :
+    RegisteredBodyAt indinfo (bodies ++ more) n rc := by
+  obtain ⟨oib, h1, h2, h3, h4⟩ := h
+  refine ⟨oib, h1, ?_, h3, h4⟩
+  have hlt : rc.1.idx < bodies.length := by
+    rcases List.getElem?_eq_some_iff.mp h2 with ⟨hlt, -⟩
+    exact hlt
+  rw [List.getElem?_append_left hlt]
+  exact h2
+
+theorem zipIdx_split_snd {α : Type _} {l : List α} {pre post : List (α × Nat)} {x : α × Nat}
+    (h : l.zipIdx = pre ++ x :: post) : x.2 = pre.length := by
+  have hx : (l.zipIdx)[pre.length]? = some x := by
+    rw [h]; simp
+  rw [List.getElem?_zipIdx] at hx
+  cases hl : l[pre.length]? with
+  | none => rw [hl] at hx; simp at hx
+  | some a =>
+    rw [hl] at hx
+    simp only [Option.map_some, Option.some.injEq] at hx
+    rw [← hx]
+    simp
+
+/-! ### R3 / R5 -/
+
+theorem run_addAxiom_ok {n : Name} {s : ErasureState} {ctx : ErasureContext}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : addAxiom n s ctx cctx ref w = .ok (u, s₁) w₁) :
+    s₁ = addAxiomState n s ∧ w₁ = w := by
+  unfold addAxiom at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨s0, sA, wA, hget, hk⟩ := hrun
+  rw [run_get] at hget
+  cases hget
+  by_cases hc : s.constants.contains n = true
+  · rw [if_pos hc, run_bind_ok] at hk
+    obtain ⟨_, sB, wB, hpanic, hmod⟩ := hk
+    rw [run_panicWithPosWithDecl] at hpanic
+    cases hpanic
+    rw [run_modify] at hmod
+    cases hmod
+    exact ⟨rfl, rfl⟩
+  · rw [if_neg hc, run_modify] at hk
+    cases hk
+    exact ⟨rfl, rfl⟩
+
+theorem run_register_inductive_hit_ok {indinfo : InductiveVal}
+    {rc0 : InductiveId × InductiveArgMasks}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : InductiveId × InductiveArgMasks} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hhit : s.inductives.get? indinfo.name = some rc0)
+    (hrun : register_inductive indinfo s ctx cctx ref w = .ok (r, s₁) w₁) :
+    r = rc0 ∧ s₁ = s ∧ w₁ = w := by
+  unfold register_inductive at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨s0, sA, wA, hget, hk⟩ := hrun
+  rw [run_get] at hget
+  cases hget
+  rw [hhit] at hk
+  simp only [] at hk
+  rw [run_pure] at hk
+  cases hk
+  exact ⟨rfl, rfl, rfl⟩
+
+/-! ### R4 -/
+
+set_option maxHeartbeats 2000000 in
+theorem run_register_inductive_cold_ok
+    {indinfo : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : InductiveId × InductiveArgMasks} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hmiss : s.inductives.get? indinfo.name = none)
+    (hrun : register_inductive indinfo s ctx cctx ref w = .ok (r, s₁) w₁) :
+    ∃ (bodies : List OneInductiveBody) (sM : ErasureState),
+      s₁ = registerIndState indinfo bodies sM ∧
+      r = sM.inductives[indinfo.name]! ∧
+      bodies.length = indinfo.all.length ∧
+      ConstExt s sM ∧
+      ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, sM.inductives.get? n = some rc →
+        s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo bodies n rc := by
+  unfold register_inductive at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨s0, sA, wA, hget, hk⟩ := hrun
+  rw [run_get] at hget
+  cases hget
+  rw [hmiss] at hk
+  simp only [] at hk
+  rw [run_bind_ok] at hk
+  obtain ⟨bodies, sM, wM, hmap, htail⟩ := hk
+  rw [run_bind_ok] at htail
+  obtain ⟨u, sN, wN, hmod, htail2⟩ := htail
+  rw [run_modify] at hmod
+  cases hmod
+  rw [run_bind_ok] at htail2
+  obtain ⟨sX, sY, wY, hget2, hp⟩ := htail2
+  rw [run_get] at hget2
+  cases hget2
+  rw [run_pure] at hp
+  cases hp
+  refine ⟨bodies, sM, rfl, rfl, ?_⟩
+  have key := run_list_mapM_ok ctx cctx ref
+    (P := fun (pre : List (Name × Nat)) (outs : List OneInductiveBody) s' _ =>
+      outs.length = pre.length ∧ ConstExt s s' ∧
+      ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, s'.inductives.get? n = some rc →
+        s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo outs n rc)
+    ⟨rfl, ConstExt.rfl' s, fun h => Or.inl h⟩ ?step hmap
+  · obtain ⟨hlen, hce, hreg⟩ := key
+    exact ⟨by rw [hlen, List.length_zipIdx], hce, hreg⟩
+  case step =>
+    clear hmap
+    intro pre x post outs sP wP b sQ wQ hL hP hbody
+    obtain ⟨hlen, hce, hreg⟩ := hP
+    have hidx : x.2 = pre.length := zipIdx_split_snd hL
+    -- the invariant when the step leaves the state alone
+    have htriv : ∀ b' : OneInductiveBody,
+        (outs ++ [b']).length = (pre ++ [x]).length ∧ ConstExt s sP ∧
+        ∀ {n : Name} {rc : InductiveId × InductiveArgMasks}, sP.inductives.get? n = some rc →
+          s.inductives.get? n = some rc ∨ RegisteredBodyAt indinfo (outs ++ [b']) n rc := by
+      intro b'
+      refine ⟨by simp [hlen], hce, ?_⟩
+      intro n rc h
+      rcases hreg h with h' | h'
+      · exact Or.inl h'
+      · exact Or.inr h'.mono
+    rw [run_bind_ok] at hbody
+    obtain ⟨ci, sa, wa, hci, hrest⟩ := hbody
+    have hsa : sa = sP := run_getConstInfo_state sP ctx cctx ref wP hci
+    subst hsa
+    clear hci
+    split at hrest
+    case _ inf _ =>
+      rw [run_bind_ok] at hrest
+      obtain ⟨res, sb, wb, hctors, hrest2⟩ := hrest
+      have hQ := run_list_mapM_ok ctx cctx ref
+        (P := fun (_ : List Name) (outs' : List (ConstructorBody × ConstructorArgMask)) s' _ =>
+          (∀ p ∈ outs', p.1.nargs = Array.count ConstructorArgRelevance.keep p.2) ∧
+            AxiomExt sa s')
+        ⟨by simp, AxiomExt.rfl' sa⟩ ?inner hctors
+      · obtain ⟨hnargs, hax⟩ := hQ
+        have hmapeq : res.unzip.fst.map (·.nargs)
+            = res.unzip.snd.map (fun m => Array.count ConstructorArgRelevance.keep m) := by
+          rw [List.unzip_fst, List.unzip_snd, List.map_map, List.map_map]
+          exact List.map_congr_left (fun p hp => hnargs p hp)
+        split at hrest2
+        all_goals
+          rw [run_bind_ok] at hrest2
+          obtain ⟨projs, sc, wc, hpr, hrest3⟩ := hrest2
+          rw [run_pure] at hpr
+          have hsc : sc = sb := by cases hpr; rfl
+          have hwc : wc = wb := by cases hpr; rfl
+          subst hsc
+          subst hwc
+          rw [run_bind_ok] at hrest3
+          obtain ⟨uu, sd, wd, hmod2, hfin⟩ := hrest3
+          rw [run_modify] at hmod2
+          cases hmod2
+          rw [run_pure] at hfin
+          cases hfin
+          refine ⟨by simp [hlen], hce.trans (hax.toConstExt.trans (ConstExt.of_same rfl rfl)),
+            ?_⟩
+          intro n rc hn
+          simp only [] at hn
+          rw [Std.HashMap.get?_insert] at hn
+          split at hn
+          · rename_i heq
+            cases hn
+            refine Or.inr ⟨{ name := toString x.1, ctors := res.unzip.fst, projs := projs },
+              rfl, ?_, ?_, hmapeq⟩
+            · simp [hidx, hlen]
+            · have : x.1 = n := by simpa using heq
+              rw [this]
+          · rw [hax.inds] at hn
+            rcases hreg hn with h' | h'
+            · exact Or.inl h'
+            · exact Or.inr h'.mono
+      case inner =>
+        clear hctors
+        intro pre' cn post' outs' sA' wA' bres sB' wB' hL' hP' hb
+        obtain ⟨hn', hax'⟩ := hP'
+        rw [run_bind_ok] at hb
+        obtain ⟨envv, se, we, henv, h2⟩ := hb
+        have hse : se = sA' := run_getEnv_state sA' ctx cctx ref wA' henv
+        subst hse
+        rw [run_bind_ok] at h2
+        obtain ⟨c1, sr, wr, hread, h3⟩ := h2
+        rw [run_read] at hread
+        cases hread
+        split at h3
+        · -- @[extern] constructor: logInfo, addAxiom, then the ctor-info tail
+          rw [run_bind_ok] at h3
+          obtain ⟨u1, sl, wl, hlog, h4⟩ := h3
+          have hsl := run_logInfo_state _ ctx cctx ref _ hlog
+          subst hsl
+          rw [run_bind_ok] at h4
+          obtain ⟨u2, sax, wax, hadd, h5⟩ := h4
+          obtain ⟨hst, hwt⟩ := run_addAxiom_ok hadd
+          subst hst
+          subst hwt
+          rw [run_bind_ok] at h5
+          obtain ⟨ci2, s6, w6, hci2, h6⟩ := h5
+          have h6s := run_getConstInfo_state _ ctx cctx ref _ hci2
+          subst h6s
+          split at h6
+          case _ cinf _ =>
+            rw [run_bind_ok] at h6
+            obtain ⟨c2, s7, w7, hread2, h7⟩ := h6
+            rw [run_read] at hread2
+            cases hread2
+            split at h7
+            all_goals
+              rw [run_bind_ok] at h7
+              obtain ⟨am, s8, w8, ham, h8⟩ := h7
+              first
+                | (have hs8 := run_liftMetaM_state _ ctx cctx ref _ ham; subst hs8)
+                | (rw [run_pure] at ham; cases ham)
+              rw [run_pure] at h8
+              cases h8
+              refine ⟨?_, hax'.trans (AxiomExt.addAxiom cn _)⟩
+              intro p hp
+              rcases List.mem_append.mp hp with hp' | hp'
+              · exact hn' p hp'
+              · simp only [List.mem_singleton] at hp'
+                subst hp'
+                first | rfl | simp
+          all_goals
+            rw [run_panicWithPosWithDecl] at h6
+            cases h6
+            refine ⟨?_, hax'.trans (AxiomExt.addAxiom cn _)⟩
+            intro p hp
+            rcases List.mem_append.mp hp with hp' | hp'
+            · exact hn' p hp'
+            · simp only [List.mem_singleton] at hp'
+              subst hp'
+              first | rfl | simp
+        · -- plain constructor: just the ctor-info tail
+          rw [run_bind_ok] at h3
+          obtain ⟨ci2, s6, w6, hci2, h6⟩ := h3
+          have h6s := run_getConstInfo_state _ ctx cctx ref _ hci2
+          subst h6s
+          split at h6
+          case _ cinf _ =>
+            rw [run_bind_ok] at h6
+            obtain ⟨c2, s7, w7, hread2, h7⟩ := h6
+            rw [run_read] at hread2
+            cases hread2
+            split at h7
+            all_goals
+              rw [run_bind_ok] at h7
+              obtain ⟨am, s8, w8, ham, h8⟩ := h7
+              first
+                | (have hs8 := run_liftMetaM_state _ ctx cctx ref _ ham; subst hs8)
+                | (rw [run_pure] at ham; cases ham)
+              rw [run_pure] at h8
+              cases h8
+              refine ⟨?_, hax'⟩
+              intro p hp
+              rcases List.mem_append.mp hp with hp' | hp'
+              · exact hn' p hp'
+              · simp only [List.mem_singleton] at hp'
+                subst hp'
+                first | rfl | simp
+          all_goals
+            rw [run_panicWithPosWithDecl] at h6
+            cases h6
+            refine ⟨?_, hax'⟩
+            intro p hp
+            rcases List.mem_append.mp hp with hp' | hp'
+            · exact hn' p hp'
+            · simp only [List.mem_singleton] at hp'
+              subst hp'
+              first | rfl | simp
+    all_goals
+      rw [run_panicWithPosWithDecl] at hrest
+      cases hrest
+      exact htriv _
+
+/-- **R9.** -/
+theorem run_mkDef_ok {nm : Name} {fixvarnames : List Name} {body : LBTerm}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : @FixDef LBTerm} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : mkDef nm fixvarnames body s ctx cctx ref w = .ok (r, s₁) w₁) :
+    r.name = .named nm.toString ∧
+    r.body = fixvarnames.reverse.zipIdx.foldl
+      (fun b p => toBvar (ctx.fixvars.get![p.1]!) p.2 b) body ∧
+    s₁ = s ∧ w₁ = w := by
+  unfold mkDef at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨acc, sa, wa, hloop, hp⟩ := hrun
+  rw [run_pure] at hp
+  cases hp
+  have key := run_list_forIn_ok' ctx cctx ref
+    (P := fun (pre : List (Name × Nat)) (b : LBTerm) s' w' =>
+      b = pre.foldl (fun b p => toBvar (ctx.fixvars.get![p.1]!) p.2 b) body ∧ s' = s ∧ w' = w)
+    ⟨rfl, rfl, rfl⟩ ?yield ?done hloop
+  · obtain ⟨hb, hs, hw⟩ := key
+    exact ⟨rfl, hb, hs, hw⟩
+  case yield =>
+    intro pre y post acc' sa' wa' b' sb' wb' hL ⟨hacc, hs, hw⟩ hbody
+    subst hs
+    subst hw
+    rw [run_bind_ok] at hbody
+    obtain ⟨c, sc, wc, hread, hp2⟩ := hbody
+    rw [run_read] at hread
+    cases hread
+    rw [run_pure] at hp2
+    cases hp2
+    exact ⟨by rw [List.foldl_append, hacc]; rfl, rfl, rfl⟩
+  case done =>
+    intro pre y post acc' sa' wa' b' sb' wb' hL hP hbody
+    rw [run_bind_ok] at hbody
+    obtain ⟨c, sc, wc, hread, hp2⟩ := hbody
+    rw [run_read] at hread
+    cases hread
+    rw [run_pure] at hp2
+    exact nomatch hp2
+
+/-- **R10.** -/
+theorem run_modify_forIn_ok {γ : Type} {L : List γ} {g : γ → ErasureState → ErasureState}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {u : PUnit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : (forIn L PUnit.unit (fun x _ => do modify (g x); pure (.yield PUnit.unit)) :
+        EraseM PUnit) s ctx cctx ref w = .ok (u, s₁) w₁) :
+    s₁ = L.foldl (fun st x => g x st) s ∧ w₁ = w := by
+  have key := run_list_forIn_ok' ctx cctx ref
+    (P := fun (pre : List γ) (_ : PUnit) s' w' =>
+      s' = pre.foldl (fun st x => g x st) s ∧ w' = w)
+    ⟨rfl, rfl⟩ ?yield ?done hrun
+  · exact key
+  case yield =>
+    intro pre y post acc' sa' wa' b' sb' wb' hL ⟨hs, hw⟩ hbody
+    subst hs
+    subst hw
+    rw [run_bind_ok] at hbody
+    obtain ⟨uu, sc, wc, hmod, hp2⟩ := hbody
+    rw [run_modify] at hmod
+    cases hmod
+    rw [run_pure] at hp2
+    cases hp2
+    exact ⟨by rw [List.foldl_append]; rfl, rfl⟩
+  case done =>
+    intro pre y post acc' sa' wa' b' sb' wb' hL hP hbody
+    rw [run_bind_ok] at hbody
+    obtain ⟨uu, sc, wc, hmod, hp2⟩ := hbody
+    rw [run_modify] at hmod
+    cases hmod
+    rw [run_pure] at hp2
+    exact nomatch hp2
+
+/-- **R6.** -/
+theorem run_get_constant_kername_ok {n : Name}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : Kername} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : get_constant_kername n s ctx cctx ref w = .ok (r, s₁) w₁) :
+    (s.constants.get? n = some r ∧ s₁ = s ∧ w₁ = w) ∨
+    (s.constants.get? n = none ∧ ∃ u : Unit,
+      visitMutual n s ctx cctx ref w = .ok (u, s₁) w₁ ∧ r = s₁.constants[n]!) := by
+  unfold get_constant_kername at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨s0, sa, wa, hget, hk⟩ := hrun
+  rw [run_get] at hget
+  cases hget
+  cases hc : s.constants.get? n with
+  | some kn =>
+    rw [hc] at hk
+    simp only [] at hk
+    rw [run_pure] at hk
+    cases hk
+    exact Or.inl ⟨rfl, rfl, rfl⟩
+  | none =>
+    rw [hc] at hk
+    simp only [] at hk
+    rw [run_bind_ok] at hk
+    obtain ⟨uu, sb, wb, hvm, hk2⟩ := hk
+    rw [run_bind_ok] at hk2
+    obtain ⟨sc, sd, wd, hget2, hp⟩ := hk2
+    rw [run_get] at hget2
+    cases hget2
+    rw [run_pure] at hp
+    cases hp
+    exact Or.inr ⟨rfl, uu, hvm, rfl⟩
+
 end Erasure
 
