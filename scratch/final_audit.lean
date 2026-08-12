@@ -756,3 +756,58 @@ open LeanToLambdaBox
 #print axioms Erasure.run_mkLambda_ok
 #print axioms Erasure.run_mkLetIn_ok
 #print axioms Erasure.run_mkAlt_ok
+
+-- ============================================================================
+-- COLD-START SLICE S1d (2026-08-12): the output-shape induction (R11).
+--
+-- Same expectation: ⊆ [propext, Classical.choice, Quot.sound], no `sorryAx`.
+-- This layer is pure `LBTerm`/`EraseM` reasoning — it touches neither lean4lean
+-- nor the `Erases` relation — so the bound is tight, not inherited.
+--
+--   * `visitExpr_shape` is the 18-motive fixpoint induction over the erasure
+--     family, in Hoare form over a state predicate `Q` closed under the six
+--     places the family writes to `ErasureState` (`RunClosed`). Stating it over
+--     an abstract `Q` is what lets `visitMutual` — the only writer — be handled
+--     INSIDE the induction, where the step goal mentions the fixpoint's abstract
+--     `visitExpr` argument rather than the real function.
+--
+--   * `visitExpr_noFix_closed` is R11 with NO hypotheses: `RunClosed` holds
+--     outright at `fun _ => True` (`runClosed_true`), which collapses the state
+--     half and leaves "every successful `visitExpr` run returns a fix-free,
+--     de-Bruijn-closed term". That is exactly the obligation
+--     `regInvShape_nonrec_cons_iff` proved the registry invariant owes at
+--     `visitMutual`'s non-recursive constant cons — so S1's last prerequisite is
+--     discharged, and `runClosed_true` doubles as the class's non-vacuity guard.
+--
+--   * `RunClosed.regInvShape` instantiates the induction at `RegInvShape Γ`.
+--     Four of the six closure fields are PROVED from S1's step lemmas; what is
+--     left sits in one named record, `RegShapeHyps`, of exactly two kinds — key
+--     freshness (the code tests neither `s.gdecls` nor injectivity of
+--     `toKername`) and `Γ`-agreement for the block being registered (slice S4's
+--     `RegBridgeHyps`) — plus `recClosed` (the recursion wall's `closeFix`
+--     result) and `prep` (`PrepareHyps` class, as in R7).
+--
+--   * The two matcher lemmas are stated against elaborator-generated matchers
+--     (`visitCases.match_7`, `visitConstructor.match_1`): name-pattern matchers
+--     compile to `Name.rec` + `String` `dite`s that `split` cannot take apart at
+--     a hypothesis whose subject is the match APPLIED to the monad's arguments.
+--     If either shipping match is edited the index moves — build error, not
+--     unsoundness.
+--
+--   * `run_nonrec_exit_ok` / `run_rec_exit_ok` were generalized over the erasure
+--     function (`{vE : Expr → EraseM LBTerm}`) for this induction; strictly more
+--     general, `run_visitMutual_ok` instantiates `vE := visitExpr`.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.noFix_default
+#print axioms LeanToLambdaBox.lbClosed_default
+#print axioms LeanToLambdaBox.visitCases_match_tri
+#print axioms LeanToLambdaBox.visitConstructor_match_quad
+#print axioms LeanToLambdaBox.visitExpr_shape
+#print axioms LeanToLambdaBox.runClosed_true
+#print axioms LeanToLambdaBox.visitExpr_noFix_closed
+#print axioms LeanToLambdaBox.visitExpr_output_shape
+#print axioms LeanToLambdaBox.RunClosed.regInvShape
+#print axioms LeanToLambdaBox.visitExpr_regInvShape
+#print axioms LeanToLambdaBox.visitMutual_regInvShape
+#print axioms LeanToLambdaBox.get_constant_kername_regInvShape
