@@ -222,6 +222,24 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.Supported.const_inv'
 #print axioms LeanToLambdaBox.BridgeInv.mkLocalDecl
 #print axioms LeanToLambdaBox.BridgeInv.mkLetDecl
+-- …and the Erases-level `visitMutual` correspondence, W3.1's last piece: the pure
+-- `substFix` push-through kit (must be sorryAx-free — pure LBTerm), then
+-- `Erases.instFixvars` (block-local erasure ⟹ erasure at the outer `Γ` with the fixvars
+-- replaced by the block) and `erases_fix_of_open` (`erases_fix_of_closed` already composed
+-- with it). `instFixvars` carries ONE `Prop` residue, `hnest` (a *nested* block inside a
+-- body): `Erases.fix` records no fvar-freeness for its sibling **sources**, so its
+-- `hbodies` cannot be transported. It is unreachable in the intended use — the eraser
+-- emits `.const kn` at a call site, never a nested `.fix` — and it is a `Prop` hypothesis,
+-- NEVER an axiom. `gInstFixvarsR` discharges it (by `id`) on the real fixture.
+#print axioms LeanToLambdaBox.substFVar_eq_of_not_hasFVar
+#print axioms LeanToLambdaBox.not_hasFVar_of_toBvar_eq_self
+#print axioms LeanToLambdaBox.substFVarList_eq_self_of_not_hasFVar
+#print axioms LeanToLambdaBox.substFix_fvar_getElem
+#print axioms LeanToLambdaBox.substFix_mkLambdas
+#print axioms LeanToLambdaBox.Erases.instFixvars
+#print axioms LeanToLambdaBox.erases_fix_of_open
+#print axioms LeanToLambdaBox.gErasesOpenR
+#print axioms LeanToLambdaBox.gInstFixvarsR
 -- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
 -- Prop hypotheses (`PrepareHyps`, `Registered*`), NEVER axioms. Expected axiom set:
 -- 4 standard [propext, Classical.choice, Quot.sound] (+ sorryAx via the lean4lean Expr

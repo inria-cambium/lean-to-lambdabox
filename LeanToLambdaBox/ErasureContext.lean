@@ -87,6 +87,32 @@ structure ErasureCtx where
       (Recursion wall, slice W1.) -/
   recBodies : Name → Option (List (@FixDef LBTerm) × Nat) := fun _ => none
 
+/-- **The block-local context**: `Γ` with a fixvar map installed, and *nothing else*
+changed — the model of `visitMutual`'s
+`withReader (fun env => { env with fixvars := … })` (`Erasure.lean`).
+
+Every other registration field is literally `Γ`'s, which is what makes
+`Erases.instFixvars`' non-fixvar arms `rfl` transports between the two contexts.
+(Recursion wall, slice W3.1.) -/
+def ErasureCtx.withFixvars (Γ : ErasureCtx) (fv : Name → Option FVarId) : ErasureCtx :=
+  { Γ with fixvars := fv }
+
+@[simp] theorem ErasureCtx.withFixvars_fixvars (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).fixvars = fv := rfl
+@[simp] theorem ErasureCtx.withFixvars_constants (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).constants = Γ.constants := rfl
+@[simp] theorem ErasureCtx.withFixvars_ctors (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).ctors = Γ.ctors := rfl
+@[simp] theorem ErasureCtx.withFixvars_casesOns (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).casesOns = Γ.casesOns := rfl
+@[simp] theorem ErasureCtx.withFixvars_casesDiscrPos (Γ : ErasureCtx)
+    (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).casesDiscrPos = Γ.casesDiscrPos := rfl
+@[simp] theorem ErasureCtx.withFixvars_ctorFields (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).ctorFields = Γ.ctorFields := rfl
+@[simp] theorem ErasureCtx.withFixvars_recBodies (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).recBodies = Γ.recBodies := rfl
+
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
   let s := n.toString

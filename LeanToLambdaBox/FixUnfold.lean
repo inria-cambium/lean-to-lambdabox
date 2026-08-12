@@ -156,6 +156,137 @@ theorem LBClosed.substFVar {x : FVarId} {s : LBTerm} (hs : LBClosed s 0) :
       exact ih y hy _ (h y hy)
   | _ => exact fun _ _ => trivial
 
+/-! ### `substFVar` is the identity where the variable does not occur
+
+Mirror of `Abstract.lean`'s `toBvar_eq_of_not_hasFVar`, by the same mutual structural
+recursion. Used by `Erases.instFixvars` at the `const_fix`/`fix` arms, where the target is
+a closed fvar-free block that the fixvar substitution must leave alone. -/
+
+mutual
+theorem substFVar_eq_of_not_hasFVar (x : FVarId) (s : LBTerm) :
+    ∀ (t : LBTerm), ¬ hasFVar x t → substFVar x s t = t
+  | .box, _ => rfl
+  | .bvar _, _ => rfl
+  | .fvar y, h => by
+    simp only [hasFVar_fvar] at h
+    show (if y == x then s else LBTerm.fvar y) = _
+    simp [h]
+  | .lambda nm body, h => by
+    simp only [hasFVar_lambda] at h
+    simp only [substFVar, substFVar_eq_of_not_hasFVar x s body h]
+  | .letIn nm val body, h => by
+    simp only [hasFVar_letIn, not_or] at h
+    simp only [substFVar, substFVar_eq_of_not_hasFVar x s val h.1,
+      substFVar_eq_of_not_hasFVar x s body h.2]
+  | .app a b, h => by
+    simp only [hasFVar_app, not_or] at h
+    simp only [substFVar, substFVar_eq_of_not_hasFVar x s a h.1,
+      substFVar_eq_of_not_hasFVar x s b h.2]
+  | .const _, _ => rfl
+  | .construct indid k args, h => by
+    simp only [hasFVar_construct] at h
+    simp only [substFVar, substFVarArgs_eq_of_not_hasFVarArgs x s args h]
+  | .case (indid, np) discr alts, h => by
+    simp only [hasFVar_case, not_or] at h
+    simp only [substFVar, substFVar_eq_of_not_hasFVar x s discr h.1,
+      substFVarAlts_eq_of_not_hasFVarAlts x s alts h.2]
+  | .proj pinfo e, h => by
+    simp only [hasFVar_proj] at h
+    simp only [substFVar, substFVar_eq_of_not_hasFVar x s e h]
+  | .fix defs i, h => by
+    simp only [hasFVar_fix] at h
+    simp only [substFVar, substFVarDefs_eq_of_not_hasFVarDefs x s defs h]
+  | .prim _, _ => rfl
+
+theorem substFVarArgs_eq_of_not_hasFVarArgs (x : FVarId) (s : LBTerm) :
+    ∀ (l : List LBTerm), ¬ hasFVarArgs x l → substFVarArgs x s l = l
+  | [], _ => rfl
+  | t :: rest, h => by
+    simp only [hasFVarArgs, not_or] at h
+    simp only [substFVarArgs, substFVar_eq_of_not_hasFVar x s t h.1,
+      substFVarArgs_eq_of_not_hasFVarArgs x s rest h.2]
+
+theorem substFVarAlts_eq_of_not_hasFVarAlts (x : FVarId) (s : LBTerm) :
+    ∀ (l : List (List BinderName × LBTerm)), ¬ hasFVarAlts x l → substFVarAlts x s l = l
+  | [], _ => rfl
+  | (ns, b) :: rest, h => by
+    simp only [hasFVarAlts, not_or] at h
+    simp only [substFVarAlts, substFVar_eq_of_not_hasFVar x s b h.1,
+      substFVarAlts_eq_of_not_hasFVarAlts x s rest h.2]
+
+theorem substFVarDefs_eq_of_not_hasFVarDefs (x : FVarId) (s : LBTerm) :
+    ∀ (l : List (@FixDef LBTerm)), ¬ hasFVarDefs x l → substFVarDefs x s l = l
+  | [], _ => rfl
+  | fd :: rest, h => by
+    simp only [hasFVarDefs, not_or] at h
+    simp only [substFVarDefs, substFVar_eq_of_not_hasFVar x s fd.body h.1,
+      substFVarDefs_eq_of_not_hasFVarDefs x s rest h.2]
+end
+
+/-- From `l.map f = l` and `u ∈ l`, `f u = u` (elementwise readback of a map fixed
+point). Used to descend into the list helpers of `not_hasFVar_of_toBvar_eq_self`. -/
+private theorem map_eq_self_elem {α : Type} {f : α → α} {l : List α} (h : l.map f = l)
+    {u : α} (hu : u ∈ l) : f u = u := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hu
+  have h2 : (l.map f)[i]? = l[i]? := by rw [h]
+  rw [List.getElem?_map, List.getElem?_eq_getElem hi] at h2
+  simpa using h2
+
+/-- **The converse of `toBvar_eq_of_not_hasFVar`**: `toBvar` is the identity *only* where
+the variable does not occur (otherwise it would have turned an `.fvar` into a `.bvar`).
+This is what turns the `const_fix`/`fix` rules' `htobv` inertness premise — all a
+derivation carries about its block — into the fvar-freeness `substFVar` needs. The level
+is quantified inside the statement, which is what makes the binder cases go through. -/
+theorem not_hasFVar_of_toBvar_eq_self (x : FVarId) :
+    ∀ (t : LBTerm) (lvl : Nat), toBvar x lvl t = t → ¬ hasFVar x t := by
+  intro t
+  induction t using LBTerm.recData with
+  | hfvar y =>
+      intro lvl h
+      simp only [hasFVar_fvar]
+      intro hy
+      rw [show toBvar x lvl (LBTerm.fvar y) = (if y == x then LBTerm.bvar lvl else .fvar y) from rfl,
+        if_pos (fvarId_beq_iff_eq.mpr hy)] at h
+      exact absurd h (by simp)
+  | hlam nm body ih =>
+      intro lvl h
+      simp only [toBvar, LBTerm.lambda.injEq, true_and] at h
+      exact ih (lvl + 1) h
+  | hletIn nm val body ihv ihb =>
+      intro lvl h
+      simp only [toBvar, LBTerm.letIn.injEq, true_and] at h
+      simp only [hasFVar_letIn, not_or]
+      exact ⟨ihv lvl h.1, ihb (lvl + 1) h.2⟩
+  | happ a b iha ihb =>
+      intro lvl h
+      simp only [toBvar, LBTerm.app.injEq] at h
+      simp only [hasFVar_app, not_or]
+      exact ⟨iha lvl h.1, ihb lvl h.2⟩
+  | hconstruct iid k args ih =>
+      intro lvl h
+      simp only [toBvar, LBTerm.construct.injEq, true_and, toBvarArgs_eq_map] at h
+      simp only [hasFVar_construct, hasFVarArgs_iff]
+      rintro ⟨u, hu, hfu⟩
+      exact ih u hu lvl (map_eq_self_elem h hu) hfu
+  | hcase info discr alts ihd iha =>
+      intro lvl h
+      simp only [toBvar, LBTerm.case.injEq, true_and, toBvarAlts_eq_map] at h
+      simp only [hasFVar_case, not_or, hasFVarAlts_iff]
+      refine ⟨ihd lvl h.1, ?_⟩
+      rintro ⟨a, ha, hfa⟩
+      exact iha a ha (lvl + a.1.length) (congrArg Prod.snd (map_eq_self_elem h.2 ha)) hfa
+  | hproj p e ih =>
+      intro lvl h
+      simp only [toBvar, LBTerm.proj.injEq, true_and] at h
+      exact ih lvl h
+  | hfix defs i ih =>
+      intro lvl h
+      simp only [toBvar, LBTerm.fix.injEq, and_true, toBvarDefs_eq_map] at h
+      simp only [hasFVar_fix, hasFVarDefs_iff]
+      rintro ⟨d, hd, hfd⟩
+      exact ih d hd (lvl + defs.length) (congrArg FixDef.body (map_eq_self_elem h hd)) hfd
+  | _ => intro _ _; simp
+
 /-! ## Part 2 — the `toBvar` ↔ `subst` commutation pair -/
 
 /-- **Levels agree: the fresh binder is consumed.** Abstracting `x` to level `d` and then
@@ -355,6 +486,144 @@ fixvars: `.fvar ids[j] ↦ .fix defs j`. This is the *static* counterpart of
 `WcbvEval.fix_guarded`'s dynamic `LBTerm.substList (LBTerm.fixSubst defs)`. -/
 def substFix (ids : List FVarId) (defs : List (@FixDef LBTerm)) (t : LBTerm) : LBTerm :=
   substFVarList (ids.zipIdx.map (fun p => (p.1, LBTerm.fix defs p.2))) t
+
+/-! ## Part 3b — `substFVarList`/`substFix` push through every node (recursion wall, W3.1)
+
+`Erases.instFixvars` (`EnvErasureRec`) is an induction over an erasure derivation whose
+*target* is being rewritten by `substFix`, so every structural rule needs the matching
+"`substFix` commutes with this node" equation. Each is the corresponding `substFVar`
+clause, iterated down the substitution list. -/
+
+@[simp] theorem substFVarList_box (L : List (FVarId × LBTerm)) :
+    substFVarList L .box = .box := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+@[simp] theorem substFVarList_bvar (L : List (FVarId × LBTerm)) (i : Nat) :
+    substFVarList L (.bvar i) = .bvar i := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+@[simp] theorem substFVarList_const (L : List (FVarId × LBTerm)) (kn : Kername) :
+    substFVarList L (.const kn) = .const kn := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+@[simp] theorem substFVarList_lambda (L : List (FVarId × LBTerm)) (n : BinderName)
+    (b : LBTerm) : substFVarList L (.lambda n b) = .lambda n (substFVarList L b) := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+@[simp] theorem substFVarList_letIn (L : List (FVarId × LBTerm)) (n : BinderName)
+    (v b : LBTerm) :
+    substFVarList L (.letIn n v b) = .letIn n (substFVarList L v) (substFVarList L b) := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+@[simp] theorem substFVarList_app (L : List (FVarId × LBTerm)) (f a : LBTerm) :
+    substFVarList L (.app f a) = .app (substFVarList L f) (substFVarList L a) := by
+  induction L with
+  | nil => rfl
+  | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
+
+theorem substFVarList_construct (L : List (FVarId × LBTerm)) (iid : InductiveId) (k : Nat)
+    (args : List LBTerm) :
+    substFVarList L (.construct iid k args) = .construct iid k (args.map (substFVarList L)) := by
+  induction L with
+  | nil => simp [substFVarList]
+  | cons p rest ih =>
+      obtain ⟨y, s⟩ := p
+      simp only [substFVarList, ih]
+      show LBTerm.construct iid k (substFVarArgs y s _) = _
+      simp only [substFVarArgs_eq_map, List.map_map]
+      rfl
+
+theorem substFVarList_case (L : List (FVarId × LBTerm)) (info : InductiveId × Nat)
+    (discr : LBTerm) (alts : List (List BinderName × LBTerm)) :
+    substFVarList L (.case info discr alts)
+      = .case info (substFVarList L discr) (alts.map (fun a => (a.1, substFVarList L a.2))) := by
+  induction L with
+  | nil => simp [substFVarList]
+  | cons p rest ih =>
+      obtain ⟨y, s⟩ := p
+      simp only [substFVarList, ih]
+      show LBTerm.case info _ (substFVarAlts y s _) = _
+      simp only [substFVarAlts_eq_map, List.map_map]
+      rfl
+
+/-- On a term the substitution list does not mention, it is the identity. -/
+theorem substFVarList_eq_self_of_not_hasFVar :
+    ∀ (L : List (FVarId × LBTerm)) (t : LBTerm), (∀ p ∈ L, ¬ hasFVar p.1 t) →
+      substFVarList L t = t := by
+  intro L
+  induction L with
+  | nil => intro _ _; rfl
+  | cons p rest ih =>
+      intro t h
+      obtain ⟨y, s⟩ := p
+      show substFVar y s (substFVarList rest t) = t
+      rw [ih t (fun q hq => h q (List.mem_cons_of_mem _ hq))]
+      exact substFVar_eq_of_not_hasFVar y s t (h (y, s) (List.mem_cons_self ..))
+
+/-- `substFix ids defs` sends `.fvar ids[j]` to the block's `j`-th node — the whole point
+of the operation. Generalised over the window's base index, as `closeFix`'s capstone is;
+`hfv` (the block does not mention the fixvars) is the same hypothesis, and it is what lets
+an already-substituted sibling pass through the remaining substitutions untouched. -/
+theorem substFVarList_zipIdx_fvar {defs : List (@FixDef LBTerm)} :
+    ∀ (ids : List FVarId), ids.Nodup → (∀ x ∈ ids, ∀ j, ¬ hasFVar x (LBTerm.fix defs j)) →
+      ∀ (base j : Nat) (h : j < ids.length),
+        substFVarList ((ids.zipIdx base).map (fun p => (p.1, LBTerm.fix defs p.2)))
+            (.fvar (ids[j]'h))
+          = .fix defs (base + j) := by
+  intro ids
+  induction ids with
+  | nil => intro _ _ base j h; exact absurd h (by simp)
+  | cons x rest ih =>
+      intro hnd hfv base j h
+      have hxr : x ∉ rest := by simpa using (List.nodup_cons.mp hnd).1
+      have hnd' : rest.Nodup := (List.nodup_cons.mp hnd).2
+      have hfv' : ∀ y ∈ rest, ∀ j, ¬ hasFVar y (LBTerm.fix defs j) :=
+        fun y hy => hfv y (List.mem_cons_of_mem _ hy)
+      rw [List.zipIdx_cons, List.map_cons]
+      show substFVar x (LBTerm.fix defs base)
+        (substFVarList ((rest.zipIdx (base + 1)).map (fun p => (p.1, LBTerm.fix defs p.2))) _) = _
+      match j, h with
+      | 0, _ =>
+          have hinner : substFVarList
+              ((rest.zipIdx (base + 1)).map (fun p => (p.1, LBTerm.fix defs p.2)))
+              (.fvar x) = .fvar x := by
+            refine substFVarList_eq_self_of_not_hasFVar _ _ (fun p hp => ?_)
+            obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hp
+            have : q.1 ∈ rest := List.fst_mem_of_mem_zipIdx hq
+            simp only [hasFVar_fvar]
+            intro he; exact hxr (he ▸ this)
+          show substFVar x (LBTerm.fix defs base) (substFVarList _ (LBTerm.fvar x)) = _
+          rw [hinner]
+          show (if x == x then LBTerm.fix defs base else LBTerm.fvar x) = _
+          simp
+      | k + 1, h =>
+          have hk : k < rest.length := by simpa using h
+          show substFVar x (LBTerm.fix defs base)
+            (substFVarList _ (LBTerm.fvar (rest[k]'hk))) = _
+          rw [ih hnd' hfv' (base + 1) k hk]
+          rw [substFVar_eq_of_not_hasFVar x _ _ (hfv x (List.mem_cons_self ..) _)]
+          congr 1
+          omega
+
+/-- The `base = 0` instance, in the `substFix` spelling. -/
+theorem substFix_fvar_getElem {ids : List FVarId} {defs : List (@FixDef LBTerm)}
+    (hnd : ids.Nodup) (hfv : ∀ x ∈ ids, ∀ j, ¬ hasFVar x (LBTerm.fix defs j))
+    (j : Nat) (h : j < ids.length) :
+    substFix ids defs (.fvar (ids[j]'h)) = .fix defs j := by
+  show substFVarList ((ids.zipIdx).map (fun p => (p.1, LBTerm.fix defs p.2))) _ = _
+  rw [show ids.zipIdx = ids.zipIdx 0 from rfl,
+    substFVarList_zipIdx_fvar ids hnd hfv 0 j h]
+  simp
 
 /-! ## Part 4 — `closeFix`'s structural recursion
 

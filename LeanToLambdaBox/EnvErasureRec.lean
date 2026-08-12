@@ -19,9 +19,12 @@ derivation from
   own names (`hreg`), and every def's `principalArgIdx` is the `mkDef` default `0`
   (`hrarg`);
 * the **bridge facts** — each sibling source body `srcs[j]` erases, at every context, to
-  the fvar-instantiated opened body `substFix ids defs obodies[j]` (`hbodies`), supplied
-  by the (deferred, bridge-sized) `visitConst`-fixvar extension of
-  `visitExpr_refines_erases` composed with the fvar→block instantiation;
+  the fvar-instantiated opened body `substFix ids defs obodies[j]` (`hbodies`). Since
+  slice W3.1 the fvar→block instantiation is *proved* (`Erases.instFixvars`, Part 1b), so
+  what is left to supply is the run's own output at the block-local `Γ` — the bridge's
+  motive 4 gives it per term, `visitMutual`'s motive (W3.2) would give it per block.
+  `erases_fix_of_open` is `erases_fix_of_closed` already composed with the
+  instantiation, i.e. the form that correspondence hands over;
 * the **closing fact** — `defs[j].body = closeFix ids 0 obodies[j]` (`hclose`), from the
   `mkDef` `toBvar`-loop (`FixMetatheory.closeFixFold_eq_foldl`), which
   `closeFix_substList_fixSubst` (`FixUnfold`) turns into the dynamic unfolding the rule
@@ -52,6 +55,176 @@ shift/subst bound laws, the spine/telescope helpers) used to live here; they are
 target-side de-Bruijn facts with no `Erases` content, so they now live in
 `LeanToLambdaBox/Closed.lean` (imported above) where the ι-bridge can share them.
 -/
+
+/-! ## Part 1b — `Erases.instFixvars`: instantiating the block's own fixvars (W3.1)
+
+This is the `visitMutual` → registration correspondence at the `Erases` level.
+
+The shipping run erases sibling `j`'s body under
+`withReader (fun env => { env with fixvars := nms.zip ids })`, so an in-block reference
+comes out as `.fvar ids[k]` (`visitConst`, modelled by the `Erases.fixvar` leaf); `mkDef`
+then closes those fvars with `closeFix ids`. `Erases.fix`, by contrast, wants each body's
+erasure against the def's *dynamic* unfolding `substList (fixSubst defs) defs[j].body` —
+what `WcbvEval.fix_guarded` actually produces. Slice W0's `closeFix_substList_fixSubst`
+already reduces the closing to the static `substFix ids defs`; the missing move was the
+corresponding one on the **derivation**:
+
+    Erases … (Γ.withFixvars fv) Δ e t   ⟹   Erases … Γ Δ e (substFix ids defs t)
+
+The fixvar leaf is where the two registrations meet: `fv nm = some ids[j]` becomes
+`Γ.recBodies nm = some (defs, j)`, so `Erases.fixvar` becomes `Erases.const_fix` and the
+target `.fvar ids[j]` becomes `.fix defs j`. Every other rule is structural — `substFix`
+commutes with every node (`FixUnfold`, Part 3b) and is the identity on the closed,
+fvar-free blocks the `const_fix` arm carries.
+
+## The two side conditions, and the one residue
+
+* `hsc : FVarsIn (· ∉ ids) e` — the *source* must not itself mention a fixvar. It is the
+  `fvar` arm: `Erases.fvar` relates `.fvar y` to `.fvar y`, and if `y` were a fixvar the
+  conclusion would demand `Erases … (.fvar y) (.fix defs j)`, which no rule provides. Free
+  at the call site: an `_unsafe_rec` body is a closed, fvar-free `Expr`, and the run's
+  fixvars are minted fresh.
+* `hlink` — the block-local map and `Γ.recBodies` agree. This is exactly what
+  `visitMutual` establishes: it mints `ids`, erases under them, then files `(defs, j)`
+  for each of the block's names.
+* `hnest` — **the residue**, and the one obligation this induction cannot discharge.
+  `Erases.fix`'s `hbodies` premise lives at the rule's own `Γ`, so rebuilding a *nested*
+  block at the outer `Γ` would need each of its sibling bodies transported too — and the
+  rule carries neither the source-side fvar-freeness `hsc` needs for those bodies nor the
+  target-side inertness of their (already unfolded) targets. Carrying it as a `Prop`
+  hypothesis is the honest shape, and it is **unreachable in the intended use**: the
+  shipping eraser never nests a `.fix` inside a body, because a reference to an
+  unregistered constant is erased to `.const kn` (`get_constant_kername`'s miss branch
+  runs `visitMutual` and returns a *kername*), never to a block node. The `const_fix` arm
+  needs no such hypothesis — its premises are `Γ`-blind apart from `recBodies`, which
+  `withFixvars` leaves alone. -/
+
+/-- `substFix` pushes under a re-wrapped `casesOn` alternative (mirror of
+`shift_mkLambdas`/`toBvar_mkLambdas`; the substituted nodes are closed, so no level
+bookkeeping happens). -/
+theorem substFix_mkLambdas (ids : List FVarId) (defs : List (@FixDef LBTerm))
+    (names : List BinderName) (body : LBTerm) :
+    substFix ids defs (mkLambdas names body) = mkLambdas names (substFix ids defs body) := by
+  induction names with
+  | nil => rfl
+  | cons n ns ih =>
+      show substFVarList _ (LBTerm.lambda n (mkLambdas ns body)) = _
+      rw [substFVarList_lambda]
+      show LBTerm.lambda n (substFix ids defs (mkLambdas ns body)) = _
+      rw [ih]; rfl
+
+/-- **Instantiate the block's fixvars with the block's own nodes.** An erasure derived
+*inside* the block (at `Γ.withFixvars fv`) becomes one at the plain `Γ`, with every
+`.fvar ids[j]` replaced by `.fix defs j` — which is precisely the `hbodies` shape
+`erases_fix_of_closed` consumes. See the section docstring for the three hypotheses. -/
+theorem Erases.instFixvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {fv : Name → Option FVarId} {ids : List FVarId} {defs : List (@FixDef LBTerm)}
+    (hnd : ids.Nodup)
+    (hfcl : LBClosed (LBTerm.fix defs 0) 0)
+    (hffv : ∀ x, ¬ hasFVar x (LBTerm.fix defs 0))
+    (hlink : ∀ (nm : Name) (x : FVarId), fv nm = some x →
+      ∃ j, ∃ h : j < ids.length, (ids[j]'h) = x ∧ Γ.recBodies nm = some (defs, j))
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (Γ.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i'))
+    {Δ : VLCtx} {e : Expr} {t : LBTerm}
+    (h : Erases env Us (Γ.withFixvars fv) Δ e t) :
+    FVarsIn (· ∉ ids) e → Erases env Us Γ Δ e (substFix ids defs t) := by
+  -- `LBClosed`/`hasFVar` on a `.fix` node do not look at the index, so one witness each
+  -- serves every sibling (same trick as `erases_fix_of_closed`).
+  have hfclj : ∀ j, LBClosed (LBTerm.fix defs j) 0 := fun _ => hfcl
+  have hffvj : ∀ (x : FVarId) (j : Nat), ¬ hasFVar x (LBTerm.fix defs j) := fun x _ => hffv x
+  -- `substFix` is the identity on a block the derivation certifies fvar-free.
+  have hinert : ∀ (d' : List (@FixDef LBTerm)) (i' : Nat),
+      (∀ (y : FVarId) (l : Nat), toBvar y l (LBTerm.fix d' i') = .fix d' i') →
+      substFix ids defs (.fix d' i') = .fix d' i' := fun d' i' htobv =>
+    substFVarList_eq_self_of_not_hasFVar _ _ (fun p _ =>
+      not_hasFVar_of_toBvar_eq_self p.1 _ 0 (htobv p.1 0))
+  -- …and on an fvar that is not one of the block's.
+  have hfvarid : ∀ (y : FVarId), y ∉ ids → substFix ids defs (.fvar y) = .fvar y := by
+    intro y hy
+    refine substFVarList_eq_self_of_not_hasFVar _ _ (fun p hp => ?_)
+    obtain ⟨q, hq, rfl⟩ := List.mem_map.mp hp
+    simp only [hasFVar_fvar]
+    intro he
+    exact hy (by rw [he]; exact List.fst_mem_of_mem_zipIdx hq)
+  induction h with
+  | box htr her =>
+      intro _
+      simp only [substFix, substFVarList_box]
+      exact .box htr her
+  | lit hcl _ ih => intro _; exact .lit hcl (ih FVarsIn.toConstructor)
+  | bvar i =>
+      intro _
+      simp only [substFix, substFVarList_bvar]
+      exact .bvar i
+  | fvar y => intro hsc; rw [hfvarid y hsc]; exact .fvar y
+  | const n us kn hkn hctor hcases =>
+      intro _
+      simp only [substFix, substFVarList_const]
+      exact .const n us kn hkn hctor hcases
+  | app _ _ ihf iha =>
+      intro hsc
+      simp only [substFix, substFVarList_app]
+      exact .app (ihf hsc.1) (iha hsc.2)
+  | lam hty _ ihb =>
+      intro hsc
+      simp only [substFix, substFVarList_lambda]
+      exact .lam hty (ihb hsc.2)
+  | letE hty hval _ _ ihv ihb =>
+      intro hsc
+      simp only [substFix, substFVarList_letIn]
+      exact .letE hty hval (ihv hsc.2.1) (ihb hsc.2.2)
+  | ctor_head cn us iid cidx hc =>
+      intro _
+      simp only [substFix, substFVarList_construct, List.map_nil]
+      exact .ctor_head cn us iid cidx hc
+  | @ctor _ cn us iid cidx args args' hc hlen _ ihargs =>
+      intro hsc
+      obtain ⟨-, hall⟩ := fvarsIn_foldl_app hsc
+      simp only [substFix, substFVarList_construct]
+      refine .ctor cn us iid cidx hc (by simp [hlen]) (fun i hi => ?_)
+      rw [List.getElem_map]
+      exact ihargs i hi (hall _ (List.getElem_mem hi))
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
+      intro hsc
+      obtain ⟨-, hall⟩ := fvarsIn_foldl_app hsc
+      simp only [substFix, substFVarList_case]
+      refine Erases.cases (Γ := Γ) con us iid numParams pre
+        (hc : Γ.casesOns con = some (iid, numParams))
+        (hpre : Γ.casesDiscrPos con = some pre.length)
+        (hnfs : Γ.ctorFields iid = some nfs)
+        (ihd (hall _ (List.mem_cons_self ..)))
+        (alts' := alts'.map (fun a => (a.1, substFix ids defs a.2)))
+        (by simpa using hlen) (by simpa using hnlen)
+        (fun j hj => by rw [List.getElem_map]; exact harity j (by simpa using hj))
+        (fun j hj => ?_)
+      rw [List.getElem_map]
+      show Erases env Us Γ _ _ (mkLambdas (alts'[j]'(hlen ▸ hj)).1
+        (substFix ids defs (alts'[j]'(hlen ▸ hj)).2))
+      rw [← substFix_mkLambdas]
+      exact ihalts j hj (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj)))
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      intro _
+      rw [hinert _ _ htobv]
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm' tty tb tbi nms srcs d' hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      intro _
+      rw [hinert _ _ htobv]
+      exact hnest (.fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst
+        htobv hbodies)
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      -- The leaf the whole lemma exists for: the block-local fvar becomes the block.
+      intro _
+      obtain ⟨j, hj, rfl, hrec⟩ := hlink nm _ hfx
+      rw [substFix_fvar_getElem hnd (fun y _ => hffvj y) j hj]
+      exact .const_fix nm us hrec hctor hcases
+        (fun d c => LBClosed.shift_eq (hfclj j) (Nat.zero_le c) d)
+        (fun s d => LBClosed.subst_eq (hfclj j) (Nat.zero_le d) s)
+        (fun y l => toBvar_eq_of_not_hasFVar y l _ (hffvj y j))
 
 /-! ## Part 2 — the `Erases.fix` reconciliation from closedness + bridge facts
 
@@ -127,6 +300,55 @@ theorem erases_fix_of_closed {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   -- static closing ↦ dynamic unfolding, discharged once (slice W0's capstone)
   rw [hclose j h, closeFix_substList_fixSubst hilen hdefs hidsfv (hoclosed j h)]
   exact hbodies j h Δf
+
+/-- **The `visitMutual` correspondence, packaged** (recursion wall, W3.1). Same conclusion
+as `erases_fix_of_closed`, but the bodies premise is the one a run actually produces: each
+sibling body erases *inside the block*, i.e. at `Γ.withFixvars fv`, with in-block
+references still sitting as the run's fresh fvars. `Erases.instFixvars` closes the gap.
+
+So the whole chain from a `visitMutual` run to `Erases.fix` is: `visitExpr` refines
+`Erases` at the block-local `Γ` (the bridge's motive 4, whose fixvar branch W3.1 gave
+content) ⟹ `instFixvars` instantiates the fixvars ⟹ `closeFix_substList_fixSubst` turns
+`mkDef`'s closing into the dynamic unfolding ⟹ `Erases.fix`. What is *not* here is the
+environment-level walk that supplies the per-sibling run facts — `visitMutual`'s own
+bridge motive, which is W3.2's (the cold-start/DAG slice's). -/
+theorem erases_fix_of_open {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {fv : Name → Option FVarId}
+    {Δ : VLCtx} {n : Name} {ty b : Expr} {bi : BinderInfo}
+    {nms : List Name} {ids : List FVarId} {srcs : List Expr} {obodies : List LBTerm}
+    {defs : List (@FixDef LBTerm)} {idx : Nat}
+    (hidx : idx < defs.length)
+    (hnlen : nms.length = defs.length)
+    (hslen : srcs.length = defs.length)
+    (hblen : obodies.length = defs.length)
+    (hilen : ids.length = defs.length)
+    (hnd : ids.Nodup)
+    (hsrc : (srcs[idx]'(hslen ▸ hidx)) = .lam n ty b bi)
+    (hreg : ∀ j (h : j < defs.length), Γ.recBodies (nms[j]'(hnlen ▸ h)) = some (defs, j))
+    (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
+    (heclosed : Closed (.lam n ty b bi) 0)
+    (henofv : FVarsIn (fun _ => False) (.lam n ty b bi))
+    (hfclosed : LBClosed (.fix defs idx) 0)
+    (hffv : ∀ x, ¬ hasFVar x (.fix defs idx))
+    (hoclosed : ∀ j (h : j < defs.length), LBClosed (obodies[j]'(hblen ▸ h)) 0)
+    (hclose : ∀ j (h : j < defs.length),
+        (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
+    (hlink : ∀ (nm : Name) (x : FVarId), fv nm = some x →
+      ∃ j, ∃ h : j < ids.length, (ids[j]'h) = x ∧ Γ.recBodies nm = some (defs, j))
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (Γ.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i'))
+    (hsrcfv : ∀ j (h : j < defs.length),
+        FVarsIn (fun _ => False) (srcs[j]'(hslen ▸ h)))
+    (hopen : ∀ j (h : j < defs.length) (Δf : VLCtx),
+        Erases env Us (Γ.withFixvars fv) Δf (srcs[j]'(hslen ▸ h))
+          (obodies[j]'(hblen ▸ h))) :
+    Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx) :=
+  erases_fix_of_closed hidx hnlen hslen hblen hilen hsrc hreg hrarg heclosed henofv
+    hfclosed hffv hoclosed hclose
+    (fun j h Δf => Erases.instFixvars hnd hfclosed hffv hlink hnest (hopen j h Δf)
+      ((hsrcfv j h).mono (fun _ hf => hf.elim)))
 
 /-! ## Part 3 — recursive `ErasesEnvDelta` discharge
 
@@ -267,6 +489,49 @@ theorem gErases_fix (env : VEnv) (Us : List Name) {Δ : VLCtx} :
     exact .lam (ty' := .sort .zero) (.sort rfl)
       (.app (.const_fix `f [] hrec (by simp [gΓR]) (by simp [gΓR]) hshift hsubst
         (fun x l => rfl)) (.bvar 0))
+
+/-! ### `Erases.instFixvars` fires on the same fixture (recursion wall, W3.1)
+
+`gErases_fix` above starts from the *instantiated* body (`substFix [gIdR] gFixDefsR
+gObodyR`), i.e. from the point where the sibling reference has already become the block.
+The run produces the stage before that: the body erased **inside** the block, where the
+sibling is still the fresh fvar `gIdR` and the derivation lives at a `Γ` carrying the
+fixvar map. The two theorems below take that stage and walk it forward, so the
+open→instantiated chain is witnessed on a genuinely recursive one-def block.
+
+The guard is stated at `gΓOpenR = gΓR.withFixvars gFvR`, which is its own
+`withFixvars gFvR` — so the `hnest` residue is discharged by `id` and nothing here is
+assumed. That costs nothing on the content being checked: the fixvar → `const_fix`
+conversion, which is what the lemma exists for, is identical at either `Γ`. -/
+
+/-- The block-local fixvar map `visitMutual` installs while erasing `f`. -/
+private def gFvR : Name → Option FVarId := fun n => if n = `f then some gIdR else none
+
+/-- `gΓR` with that map installed — the reader `visitMutual` erases the block under. -/
+private def gΓOpenR : ErasureCtx := gΓR.withFixvars gFvR
+
+/-- The *open* stage: inside the block, `fun (a : Prop) => f a` erases to `λa. x #0`, with
+the sibling `f` sent to its fixvar by the `Erases.fixvar` leaf. -/
+theorem gErasesOpenR (env : VEnv) (Us : List Name) {Δ : VLCtx} (hx : gIdR ∉ Δ.fvars) :
+    Erases env Us gΓOpenR Δ gLamR gObodyR :=
+  .lam (ty' := .sort .zero) (.sort rfl)
+    (.app (.fixvar `f [] gIdR (by simp [gΓOpenR, gΓR, gFvR]) rfl rfl (by simpa using hx))
+      (.bvar 0))
+
+/-- …and `Erases.instFixvars` carries it to the instantiated stage: the fixvar leaf
+becomes `const_fix` and `.fvar x` becomes the block, giving exactly the `hbodies` premise
+`erases_fix_of_closed` consumes — now *derived* from the run's own output shape instead of
+built by hand. -/
+theorem gInstFixvarsR (env : VEnv) (Us : List Name) {Δ : VLCtx} (hx : gIdR ∉ Δ.fvars) :
+    Erases env Us gΓOpenR Δ gLamR (.lambda (nameToBinder `a) (.app gFixR (.bvar 0))) := by
+  have h := Erases.instFixvars (Γ := gΓOpenR) (fv := gFvR) (ids := [gIdR]) (defs := gFixDefsR)
+    (by simp) (by simp [gFixDefsR, LBClosedDefs])
+    (fun x => by simp [gFixDefsR, hasFVarDefs])
+    (fun nm x hnm => by
+      refine ⟨0, by simp, ?_, ?_⟩ <;>
+        · by_cases hf : nm = `f <;> simp_all [gFvR, gΓOpenR, gΓR])
+    (fun H => H) (gErasesOpenR env Us hx) ⟨rfl, by simp [FVarsIn], trivial⟩
+  rwa [gSubstFixR] at h
 
 /-- A source env where a constant unfolds to the recursive body `gLamR`. -/
 private def gEsrcR : SEnv := fun _ => some gLamR

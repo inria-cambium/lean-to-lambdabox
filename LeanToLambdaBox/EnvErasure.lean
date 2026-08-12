@@ -47,10 +47,16 @@ remaining gap:
 * **`visitConst`-fixvar bridge (P3.12, DONE at the term level — recursion wall, W3.1).**
   `visitConst`'s fixvar branch is no longer dead: `BridgeInv.fixvars` is an agreement
   between the reader's block-local map and `Γ.fixvars`, and motive 4 concludes
-  `Erases.fixvar` there. What the recursive discharge's `hbodies` (each *opened* sibling
-  body erases) still needs on top is the **environment**-level walk — `visitMutual`'s own
-  motive, which stays `True` (W3.2, the cold-start/DAG slice) — so `hbodies` remains
-  folded into `RegisteredClosureRec` for now.
+  `Erases.fixvar` there, and `Erases.instFixvars` (`EnvErasureRec`) turns a block-local
+  erasure into one at the outer `Γ` with the fixvars replaced by the block — so
+  `erases_fix_of_open` now takes the *open* bodies directly. What is still missing is the
+  **environment**-level walk (`visitMutual`'s own bridge motive, still `True`; W3.2, the
+  cold-start/DAG slice), so `hbodies` remains folded into `RegisteredClosureRec`, and
+  `instFixvars` carries one residue — a *nested* block inside a body, which
+  `Erases.fix`'s premises cannot transport because the rule records no fvar-freeness for
+  its sibling **sources**. It is unreachable in the intended use (the eraser emits
+  `.const kn` at a call site, never a nested `.fix`) and is carried as the explicit
+  `hnest` hypothesis.
 * **`NoFixEnv` relaxation (item 2, DONE — recursion wall, slice W2).** D3 and the forward
   simulations no longer carry `NoFixEnv E`, and no longer conclude `NoFix t'`: they accept
   **recursive** environments. A recursive head in the β case unfolds through
