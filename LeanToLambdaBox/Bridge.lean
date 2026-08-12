@@ -21,10 +21,11 @@ This file defines the **v1 supported fragment**: the syntactic class of source
 terms on which the bridge theorem speaks. It deliberately covers
 `bvar | fvar | const | app | lam | letE` and excludes:
 
-* **constructor heads** (`Γ.ctors`): the shipping emits the *applied* form
-  `.construct iid cidx []` under an application spine, while `Erases.ctor` is the
-  args-inside *block* form — bridging those needs an applied-form `Erases` rule
-  and an `erases_correct` extension under `construct_app` semantics (future work);
+* **constructor heads** (`Γ.ctors`) — *lifted since A8*: the shipping emits the
+  *applied* form `.construct iid cidx []` under an application spine, while
+  `Erases.ctor` is the args-inside *block* form, so bridging them needed an
+  applied-form rule (`Erases.ctor_head`) and a simulation under `construct_app`
+  semantics (`erases_correct_data`). Both landed; `ctorApp` below is the rule;
 * **projections** and **`mdata`** (`Erases` has no rule for either);
 * **`String` literals** (the shipping `visitLiteral` `panic!`s) and **machine-`Nat`
   literals** (they route into `prim`, out of `Erases` by design);
@@ -87,11 +88,12 @@ theorem exists_app_of_foldl_app_ne_nil (f : Expr) :
 /-- The v1 supported fragment of the `visitExpr`→`Erases` bridge (see module
 docstring). Syntactic in the source term and the static erasure context `Γ`:
 constants must be plain constants (not registered constructors / `casesOn`s) and
-must belong to `known` — an abstract name class scoping the bridge's
-state-agreement hypothesis "every `known` constant is pre-registered in the
-`ErasureState` with its `Γ` kername" (a finite `constants` map cannot agree with
-the *total* `Γ.constants` on all of `Name`, so the agreement must be scoped;
-`known` is exactly that scope). -/
+must belong to `known` — an abstract name class naming the **δ fragment**: the
+constants the erased program may reference. Until slice D4a `known` scoped a
+state-agreement field of `BridgeInv` ("every `known` constant is pre-registered in
+the `ErasureState` with its `Γ` kername"), which is false at a cold start; what
+scopes it now is `DeltaHyps` (`DeltaHyps.lean`), the run-keyed scope-side half of
+that contract. -/
 inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
   | bvar (i : Nat) : Supported known Γ (.bvar i)
   | fvar (x : FVarId) : Supported known Γ (.fvar x)

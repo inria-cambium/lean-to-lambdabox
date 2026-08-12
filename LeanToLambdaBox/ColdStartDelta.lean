@@ -17,10 +17,10 @@ worth stating once, because it is what fixes this slice's architecture:
   `Erasure.visitExpr.mutual_fixpoint_induct` the step goal for `visitMutual` sees the
   fixpoint's **abstract** erasure argument, so a bridge fact about the real
   `Erasure.visitExpr` is unusable there;
-* and the bridge induction cannot host the content either — that is slice S2's recorded
-  finding: its motive 6 stays `True`, because giving it content would need the abstract
-  erasure argument to deliver *output shapes*, i.e. would mean merging the two 18-motive
-  inductions.
+* and the bridge induction cannot host the content either. Slice D4a did give its motive
+  6 content, but only what the *state* records (`RunConclδ`, generator monotonicity, "`n`
+  is now registered"); the δ witness needs the abstract erasure argument to deliver
+  *output shapes*, which would mean merging the two 18-motive inductions.
 
 So the δ content is composed **outside** every induction, about the real functions, from
 `ColdStartRun.run_visitMutual_decomp` — which hands the inner `Erasure.visitExpr` run

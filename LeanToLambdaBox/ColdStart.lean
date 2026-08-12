@@ -68,29 +68,75 @@ to the kernel's value for the constant, which is a `PrepareHyps`-class fact abou
 elaborator, not about the walk. The δ guard at the end of this file discharges it at a
 concrete two-declaration environment, from `VEnv`'s own defining equation.
 
-## The premise ledger, after this slice
+## THE TRUST LEDGER — every premise of the two cold-start capstones, classified
 
-* **Proved from the run** — the state, the environment, `ClosedEnv`, `LBClosed t 0`, the
-  bridge invariant, the `Program` shape.
-* **Runtime Hoare bundles** — `BridgeHyps`, `DataBridgeHyps`, `CasesBridgeHyps`,
-  `PrepareHyps` (now three fields: `prepare_sound` is *derived*, see
-  `ColdStartRun.prepare_sound_of_prepareHyps`), and `RegBridgeHyps` — which after slice
-  S1e no longer carries registry-invariant preservation (that is the theorem
-  `ColdStartInduction.visitExpr_regInvShape`) but only the `Γ`-agreement for a cold
-  `register_inductive`, the registration completeness, and the `prepare_erasure` trust
-  item. `ColdStartInduction.RegShapeHyps` is **not** used — it is refuted below.
-* **`Γ`-side conditions** — `hknames` (inside `RegBridgeHyps`), `Γ.fixvars = ⊥`,
-  `Γ.recBodies = ⊥`, the peano-config pin, and `Us = []` (universe monomorphism, which at
-  the entry point is not a restriction but a *fact*: `Erasure.run` installs
-  `lparams := []`, and `BridgeInv.lparams` pins `ctx.lparams = Us`).
-* **Certificates** — `IotaConsistent`, `IotaArityCoherent`, `IotaRelevant`, the
-  constructor/`casesOn` disjointness; all `rfl`-checkable at a concrete `Γ`.
-* **About the subject** — `ColdStartSubject` (the prepared term is supported and
-  translatable; the output, and every body the walk recorded, is in applied form) and the
-  source evaluation, both stated about `prepare_erasure e` rather than `e`, since that is
-  what the run erases.
-* **The δ fragment** (slice D5) — `DeltaHyps` (scope side) and `SEnvConsistent` (source
-  side). Everything *target*-side about δ is derived.
+This is the definitive classification for `shipping_erase_correct_firstorder_coldstart`
+and its ι twin; the ι rows are marked, everything else is common to both. Read it with
+`FirstOrderShippingIota.lean`'s D3ι ledger, which classifies the ι block in more detail.
+Four classes, and nothing falls outside them:
+
+* **C — proved-guard-backed certificate.** `rfl`/`decide`-checkable data about a concrete
+  `Γ`/`env`, *constructed* in the guards at the end of this file. No run, no opaque
+  primitive, no trust.
+* **H — runtime Hoare bundle.** A spec for one *real* call on the erasure's path. Never
+  an axiom; its global satisfiability is not in-logic decidable because the primitive is
+  an opaque `ST`/`EIO` operation. This is the documented trust boundary, the same one
+  `BridgeHyps` has carried since the bridge landed.
+* **S — scope restriction.** Narrows the class of programs the statement speaks about. A
+  violation makes the *premise* unsatisfiable; it never makes the theorem false.
+* **R — residue.** Believed, named, not proved. Three of them, listed after the table.
+
+| premise | class | note |
+|---|---|---|
+| `hrun : Erasure.erase e cfg … = .ok (p, inls) w'` | — | the subject. No run of the family is constructible in-logic (opaque `CoreM`/`MetaM` primitives, a real `ST.Ref`), so it stays hypothetical in every guard |
+| `henv : env.WF` | C | `envFO_wf` / `envδ_wf`, built from lean4lean's own `VDecl.WF` |
+| `hUs : Us = []` | S | universe monomorphism of the whole dependency cone. At the *entry point* it is also a fact — `Erasure.run` installs `lparams := []` and `BridgeInv.lparams` pins `ctx.lparams = Us` — but `DeltaHyps.decl_run` demands it of every dependency too, so a polymorphic callee makes the bundle uninhabited (`DeltaHyps`, scope restriction 1) |
+| `hcsimp : cfg.csimp = false` | S | csimp replacement is not kernel-semantics-preserving (`PrepareHyps`' own analysis), so it can never sit inside a correctness statement. It is also what makes R2 fire (`ColdStartRun.run_prepare_erasure_state`: with csimp off, `prepare_erasure` leaves the state at `{}`). RAISE-not-fix: the shipping *default* is `csimp := true` |
+| `hnfv : Γ.fixvars = ⊥` | S | the subject is outside every mutual block. Also `DeltaHyps.nofixvars` (scope restriction 2) |
+| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems; what is missing here is the walk fact behind `RegisteredClosureRec` — residue 1 |
+| `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
+| `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
+| `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
+| `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
+| `Hδ : DeltaHyps` | H + S + R | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free` are S (the fragment's own closure conditions); `uniform` is residue 2 |
+| `S : ColdStartSubject` | S + R | `supported` is S — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees; `noBlock`/`noBlockEnv` are residue 3 |
+| `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
+| `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
+| `hiota : IotaConsistent` (ι) | H | the interface premise; `…ι_of_shape` discharges it from `PatsIotaSpec + SEnvConsistent + IotaShape`, at eight further lean4lean *modelling* axioms and no axiom of ours |
+| `hrel : IotaRelevant` (ι) | S | excludes `Erases` derivations that box a proper prefix of an ι redex; the shipping `visitCases` emits none |
+| `hiacoh : IotaArityCoherent` (ι) | C | `ΓFOι_iotaArityCoherent` |
+| `hcc` (ctor/`casesOn` disjointness) | C | `ΓFOι_cc` |
+
+**Derived from the run, and therefore absent from the list above** — the `ErasureState`,
+the environment `E`, `ClosedEnv E`, `LBClosed t 0`, the bridge invariant, the three
+registration records, `ErasesEnvDeltaData`, `RecEnvConsistent`, the `Program` shape, and
+(since S1e) the registry invariant's preservation. `PrepareHyps.prepare_sound` is derived
+too: it is the theorem `ColdStartRun.prepare_sound_of_prepareHyps`, so that bundle is down
+to three fields. `ColdStartInduction.RegShapeHyps` is **not used at all** — it is refuted
+below, three ways.
+
+**The three residues, and who owes them.**
+
+1. `EnvErasureRec.RegisteredClosureRec` — the δ witness for a *recursive* block. Slice D6
+   walks the recursive exit's `List.mapM` and supplies most of `erases_fix_of_open`'s
+   premise list from the run; what is left is `hnd` (freshness, `BridgeHyps.fresh_run`'s
+   business), `hreg` (a run-keyed `Γ.recBodies` agreement, irreducible at a *parameter*
+   `Γ`) and `hopen` at the block-local `Γ.withFixvars fv` — the `Γ`-inside-the-motives
+   generalisation (design §W3.2/D8). `ColdStartDelta`'s recursion section is the
+   premise-by-premise ledger. This is what `hnorec` above stands in for.
+2. `DeltaHyps.uniform` — context-uniformity (`∀ Δ`) of a constant body's erasure. The
+   bridge fires at the `Δ` of the call site; `Erases` has `abstract`/`uninstantiate`/
+   `thin_vlet`, all context-*shrinking*, and the missing direction is fvar-extension,
+   which is a lean4lean-side `TrExprS`-weakening obligation, not an erasure one.
+3. `ColdStartSubject.noBlock` / `noBlockEnv` — applied (`NoBlock`) form of the run's
+   output and of every body it recorded. Not carryable by the shape induction
+   (`visitExpr_noFix_closed` proves `NoFix`/`LBClosed`, not this) and not by a bridge
+   motive (the erasure argument is abstract there).
+
+Nothing in this ledger is an axiom of ours. The measured axiom sets of both capstones are
+`shipping_erase_correct_firstorder`'s **verbatim** — the three standard Lean axioms plus
+`sorryAx` and the four `Lean.Expr`/`PersistentHashMap` modelling axioms, all inherited
+through lean4lean.
 -/
 
 namespace LeanToLambdaBox

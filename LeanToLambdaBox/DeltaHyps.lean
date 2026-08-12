@@ -65,8 +65,8 @@ is written down:
 ## Two environments, deliberately: the fragment and the evaluation's
 
 `Esrc` here is a **scope** — the collection of prepared bodies the erased program is
-allowed to call — and the bridge's `decl_run`/`prep_esrc` clauses pin the *walk*'s
-declaration fetches against it. The forward simulations take an `Esrc` too, but theirs is
+allowed to call — and the `prep_esrc` clause pins the *walk*'s declaration fetches
+against it. The forward simulations take an `Esrc` too, but theirs is
 the environment the *source evaluation* δ-unfolds, and at a cold start that one is
 necessarily smaller: the walk registers only what the program reached
 (`ColdStartDelta.SEnv.walked`). Every theorem downstream of the bridge therefore carries
@@ -139,7 +139,12 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   generator-monotone, the block is a *single* declaration, it is universe-monomorphic at
   the ambient `Us` (scope restriction 1), and — when it has a value — that value does not
   mention the constant itself (so `visitMutual`'s `nonrecursive` test is forced `true`, and
-  the recursive exit is out of scope) and `Esrc` has an entry for the name.
+  the recursive exit is out of scope).
+
+  It used to carry a fourth conjunct, `(Esrc n).isSome`. Slice D4a made it dead: naming
+  *some* body is never enough at the point of use, which needs *this* run's body, and
+  `prep_esrc` states that identification directly. Dropping it weakens the bundle, so
+  every consumer is unaffected.
 
   Stated at the `CoreM` layer, which is the layer `ColdStartRun.run_visitMutual_decomp`
   hands the fetch back at. -/
@@ -147,8 +152,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     known n →
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
     gw w ≤ gw w₁ ∧ ∃ ci, r = some ci ∧ ci.all = [n] ∧ ci.levelParams = Us ∧
-      (∀ v, ci.value? (allowOpaque := true) = some v →
-        name_occurs n v = false ∧ (Esrc n).isSome)
+      (∀ v, ci.value? (allowOpaque := true) = some v → name_occurs n v = false)
   /-- **The prepared dependency body is in the fragment.** Quantified over the
   `prepare_erasure` run that produces it, exactly as `ColdStartSubject.supported` is for the
   top-level subject: this is the *same* premise, generalised from "the subject" to "the

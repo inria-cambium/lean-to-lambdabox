@@ -55,10 +55,11 @@ in that form — see `mutualBlockKn_eq_toKername` at the end of this file.
 constant body to be `NoFix` *or* a literal `.fix defs j` — the two shapes
 `visitMutual`'s non-recursive and recursive branches produce. Under the fix-free scope
 the right disjunct is dead and `noFixEnv_of_noFixEnvD` collapses `NoFixEnvD` to
-`NoFixEnv`; when the recursion wall lands it only has to *populate* the right disjunct,
-with no change to this structure. (Design note: the recursion wall owes this layer
-exactly `run_visitMutual_rec_ok`; the `visitConst` fixvar bridge case landed with slice
-W3.1 — motive 4 now derives `Erases.fixvar` on that branch.)
+`NoFixEnv`; the recursion wall *populated* the right disjunct exactly as designed, with no
+change to this structure — `RegInvShape.recConst` (slice S1c) carries the invariant across
+`recConstState`, and `Erasure.run_rec_exit_ok` (slice S1e) reports the stored block's shape
+so `rec_block_closed` supplies its closedness. (The `visitConst` fixvar bridge case landed
+with slice W3.1 — motive 4 now derives `Erases.fixvar` on that branch.)
 -/
 
 namespace LeanToLambdaBox

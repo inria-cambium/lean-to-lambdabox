@@ -30,10 +30,12 @@ constant slots into the same general `RegisteredClosure` machinery. So a cold-st
 
 ## The honest trust bundle (proven vs. assumed)
 
-This is **not yet** the fully cold-start `Erasure.erase e config` theorem. The precise
-remaining gap:
+This file's own theorem is **not** the fully cold-start `Erasure.erase e config` theorem —
+that one is `ColdStart.shipping_erase_correct_firstorder{,ι}_coldstart` (slices S4/D5),
+which produces `E` and `t` from a run at the empty state and consumes what is below. The
+precise gap between the two:
 
-* **DAG cold-start registration (P3.13, deferred).** The registration hypotheses
+* **DAG cold-start registration (P3.13 — closed at slice S4).** The registration hypotheses
   (`RegisteredClosureData`/`RegisteredCtors`/…) are here *assumed* about the run's output
   env `E`; `ColdStartShape`/`ColdStartInduction` (slice S1) prove the *shape* half of them
   from a real run, and slice S2 widened the bridge's conclusion from `s' = s` to
@@ -50,8 +52,11 @@ remaining gap:
   `Erases.fixvar` there, and `Erases.instFixvars` (`EnvErasureRec`) turns a block-local
   erasure into one at the outer `Γ` with the fixvars replaced by the block — so
   `erases_fix_of_open` now takes the *open* bodies directly. What is still missing is the
-  **environment**-level walk (`visitMutual`'s own bridge motive, still `True`; W3.2, the
-  cold-start/DAG slice), so `hbodies` remains folded into `RegisteredClosureRec`, and
+  **environment**-level walk: slice D6 (`ColdStartRun.run_rec_exit_siblings`) hands back
+  the per-sibling runs, but each is at the block-local `Γ.withFixvars fv`, so composing
+  them needs `Γ` inside the bridge's motives (design §W3.2/D8) — see `ColdStartDelta`'s
+  recursion section for the premise-by-premise ledger. So `hbodies` remains folded into
+  `RegisteredClosureRec`, and
   `instFixvars` carries one residue — a *nested* block inside a body, which
   `Erases.fix`'s premises cannot transport because the rule records no fvar-freeness for
   its sibling **sources**. It is unreachable in the intended use (the eraser emits
@@ -81,8 +86,8 @@ open Lean Lean4Lean Erasure
 /-- **D3 with δ-consistency sourced from registration.** The first-order shipping
 correctness theorem (`shipping_erase_correct_firstorder`) restated with its
 environment-δ-consistency premise `hdelta : ErasesEnvDeltaData` **replaced** by the
-registration record `RegisteredClosureData` — the `Prop` hypothesis a cold-start DAG walk
-(P3.13, deferred) would discharge from the actual `visitMutual` run. The δ-consistency is
+registration record `RegisteredClosureData` — the `Prop` hypothesis the cold-start DAG walk
+(P3.13, `ColdStart.lean`) discharges from the actual run. The δ-consistency is
 discharged internally by `erasesEnvDeltaData_of_registeredClosureData`.
 
 `ErasesEnvCtor`/`ErasesEnvCases` are likewise registration-derivable

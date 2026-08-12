@@ -61,9 +61,10 @@ fragment (β + δ): if the real `Erasure.visitExpr` succeeds on `e` producing
 This is the "single top-level *the shipping erase is correct* theorem" the
 handoff asked to conclude, with `eraseCore` replaced by the real
 implementation (see the module docstring for why the pure-model route was
-impossible). Environment-level erasure (`visitMutual`/`fix`) and the
-constructor/`casesOn` fragment remain future work, exactly as scoped in
-`Bridge.lean`.
+impossible). This is the β+δ *term*-level form; the constructor fragment is
+`shipping_visitExpr_correct_data`, the `casesOn` fragment
+`shipping_erase_correct_firstorderι`, and environment-level erasure from the empty
+state `shipping_erase_correct_firstorder{,ι}_coldstart` (`ColdStart.lean`).
 -/
 theorem shipping_visitExpr_correct
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}

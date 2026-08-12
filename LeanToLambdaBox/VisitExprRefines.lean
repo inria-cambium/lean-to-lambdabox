@@ -34,13 +34,14 @@ family, using the run-lemma library of `ErasureRun.lean`.
   all three are consumed by the single induction below. A fourth,
   `DeltaHyps` (`DeltaHyps.lean`), carries the δ (constant-unfolding) fragment's
   *scope* obligations — it is the scope-side half of the two-part contract whose
-  state-side half is `BridgeInv`, and is not consumed by this induction yet
-  (see `BridgeInv`'s docstring for what blocks that).
+  state-side half is `BridgeInv` — and since slice D4a this induction consumes it
+  too, in step 6 (see `BridgeInv`'s docstring for the field its arrival replaced).
 * **`BridgeInv`** — the induction invariant: the reader's `LocalContext`
   corresponds to the typing context `Δ` (lean4lean's `TrLCtx`), the reader's
   block-local `fixvars` map agrees with `Γ.fixvars` (and its ids are fresh for `Δ`),
-  every fvar of `Δ` is reserved by the current generator, and every `known` constant
-  is pre-registered in the state with its `Γ`-kername.
+  every fvar of `Δ` is reserved by the current generator, and every *registered*
+  kername agrees with `Γ` (the soundness direction only — since slice D4a the
+  invariant says nothing about `known`; see its docstring).
 * **`visitExpr_refines_erases`** — the final export (motive 1 of the
   18-motive induction `visitExpr_refines_erases_core`).
 
@@ -1793,7 +1794,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       clear henv2
       have hkey : ∀ v : Expr, ci.value? (allowOpaque := true) = some v →
           ci.value! (allowOpaque := true) = v ∧ name_occurs n v = false :=
-        fun v hv => ⟨constantInfo_value!_of_value? hv, (hvalue v hv).1⟩
+        fun v hv => ⟨constantInfo_value!_of_value? hv, hvalue v hv⟩
       cases hval : ci.value? (allowOpaque := true) <;>
         cases hext : isExtern env2 n <;>
           cases hcfg : ctx.config.extern <;>

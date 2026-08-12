@@ -136,12 +136,11 @@ theorem SEvalβδ.toβζδ {E : SEnv} {e v : Expr} (h : SEvalβδ E e v) : SEval
 fragment — the eventual target including `casesOn`/recursor reduction (`iota`).
 This is `SEvalβζδ` plus the `iota` rule.
 
-ι is defined here for documentation and future work, but the subject-reduction and
-correctness theorems are proved only for `SEvalβζδ`: discharging ι requires a
-recursor/iota definitional-equality rule that the pinned lean4lean's `IsDefEq`
-simply does not provide (its only computation rules are `beta` and the generic
-`extra` registered-defeq), so subject-reduction-as-defeq for ι is out of reach
-against this lean4lean without faking it. See the project report. -/
+ι is defined here for documentation only, and nothing is proved over *this* relation:
+when it was written, discharging ι required a recursor/iota definitional-equality rule
+the then-pinned lean4lean's `IsDefEq` did not provide. The `iota` fork supplies one, and
+the live ι fragment is `SourceEvalData.SEvalDataι` — subject reduction `SEvalDataι_defeq`
+(`SubjectReductionIota.lean`), simulation `erases_correct_dataι`. -/
 inductive SEvalβζδι (E : SEnv) : Expr → Expr → Prop
   /-- λ-abstractions are values. -/
   | lam (n : Name) (ty b : Expr) (bi : BinderInfo) :

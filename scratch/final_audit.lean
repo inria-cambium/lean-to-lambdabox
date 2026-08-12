@@ -892,6 +892,11 @@ open LeanToLambdaBox
 -- direction survives only as `known_dom` (domain membership, monotone in
 -- `StateLe`).
 --
+-- [SUPERSEDED by δ-D4a, below: motive 6 has content, motive 5's miss branch is
+-- proved, and `known_dom` is deleted. The diagnosis in this paragraph is right
+-- about what it costs and wrong about where it lives — the fix was not a new
+-- `RegBridgeHyps` field but the scope-side bundle `DeltaHyps`.]
+--
 -- WHAT DID NOT LAND: motive 6 (`visitMutual`) stays `True` and motive 5's MISS
 -- branch stays refuted by `known_dom` rather than proved. The design's §5.3
 -- claim that the miss branch "discharges from slice 1's motive 6" does not go
@@ -1582,3 +1587,84 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.run_rec_exit_siblings
 #print axioms LeanToLambdaBox.run_rec_exit_siblings_closed
 #print axioms LeanToLambdaBox.run_rec_exit_decomp
+
+-- ============================================================================
+-- COMPOSITION COHERENCE PASS (2026-08-13): the three walls, composed.
+--
+-- The recursion wall (W0.1–W3.1), the Nat-literals wall (L1–L4) and the DAG cold-start
+-- wall with δ-inclusion (S1–S4, D1–D6) landed as ~20 independent slices. This section
+-- records what the COMPOSITION measures, so the three are audited as one artifact rather
+-- than three.
+--
+-- MEASURED AT `cef1eb8` + this pass, from clean: `lake build` = 162 jobs, green; this
+-- file = 510 `#print axioms` entries, of which 17 report NO axiom at all (the tight
+-- pure-`LBTerm` layers) and 493 report a set.
+--
+-- THE FOUR CROWN THEOREMS PRINT ONE SET, VERBATIM AND IDENTICAL:
+--
+--   shipping_erase_correct_firstorder
+--   shipping_erase_correct_firstorderι
+--   shipping_erase_correct_firstorder_coldstart
+--   shipping_erase_correct_firstorderι_coldstart
+--
+--     [propext, sorryAx, Classical.choice, Quot.sound,
+--      Lean.Expr.instantiate1_eq, Lean.PersistentArray.toList'_push,
+--      Lean.PersistentHashMap.WF.find?_eq, Lean.PersistentHashMap.WF.toList'_insert]
+--
+-- Three standard Lean axioms, `sorryAx` (inherited through lean4lean's `TrExprS`
+-- structural lemmas, whose `proj` case calls the sorried `TrProj`), and four lean4lean
+-- `Lean.Expr`/`PersistentHashMap` MODELLING axioms. NO AXIOM OF OURS ANYWHERE, and — the
+-- point of measuring it at the composition rather than per slice — the cold-start pair
+-- prints exactly what the warm pair prints. Moving the subject from an abstract
+-- `visitExpr` run under a registered state to `Erasure.erase` from the EMPTY state, and
+-- widening the fragment from δ-free to δ-included, cost nothing in axioms. Everything
+-- those two slices added is a `Prop` premise or a derivation.
+--
+-- THE TRUST LEDGER lives in code, at `ColdStart.lean`'s module docstring ("THE TRUST
+-- LEDGER — every premise of the two cold-start capstones, classified"), beside the D3ι
+-- ledger in `FirstOrderShippingIota.lean`. It classifies EVERY premise of the two
+-- cold-start capstones into four classes and nothing falls outside them:
+--
+--   C  proved-guard-backed certificate — `rfl`/`decide`-checkable data at a concrete
+--      `Γ`/`env`, constructed in the guards: `henv`, `hnat`, `hiacoh`, `hcc`,
+--      `RegBridgeHyps.knames`, `hfo` (modulo `harity`), and `hcon` at the δ guard.
+--   H  runtime Hoare bundle — a spec for one REAL call on an opaque `ST`/`EIO`
+--      primitive: `BridgeHyps`, `DataBridgeHyps`, `CasesBridgeHyps`, the bookkeeping
+--      half of `DeltaHyps`, `RegBridgeHyps`' cold-`register_inductive` fields,
+--      `PrepareHyps` (three fields — `prepare_sound` is now the THEOREM
+--      `prepare_sound_of_prepareHyps`), and `IotaConsistent`. Not an axiom; not in-logic
+--      decidable. The documented boundary.
+--   S  scope restriction — `Us = []`, `cfg.csimp = false`, `Γ.fixvars = ⊥`,
+--      `Γ.recBodies = ⊥`, `IotaRelevant`, the fragment clauses of `DeltaHyps`,
+--      `ColdStartSubject.supported`, `hev`, `hfo`. A violation makes the PREMISE
+--      unsatisfiable, never the theorem false.
+--   R  residue — three, and only three: `RegisteredClosureRec` (the recursive δ witness;
+--      what `Γ.recBodies = ⊥` stands in for, gap narrowed by D6 to `hnd`/`hreg`/`hopen`
+--      at the block-local `Γ`, i.e. §W3.2/D8), `DeltaHyps.uniform` (the `∀ Δ`
+--      context-uniformity, a lean4lean-side `TrExprS`-weakening obligation), and
+--      `ColdStartSubject.noBlock`/`noBlockEnv` (applied form of the output and of every
+--      recorded body — provably not carryable by the shape induction or by a bridge
+--      motive; see slice D5's four-premise resolution above).
+--
+-- The run itself (`hrun`) sits outside all four: no successful run of the erasure family
+-- is constructible in-logic, which is why every guard in this development leaves it
+-- hypothetical.
+--
+-- ONE DEAD HYPOTHESIS REMOVED IN THIS PASS. `DeltaHyps.decl_run`'s fourth conjunct
+-- `(Esrc n).isSome` was superseded at slice D4a by `prep_esrc` (which identifies THIS
+-- run's prepared body rather than naming some body) and was projected by no consumer —
+-- the single use site takes only `name_occurs n v = false`. Dropping it WEAKENS the
+-- bundle, so no consumer moves and no axiom set moves.
+-- ============================================================================
+
+-- The composition, re-measured in one place: the four crown theorems must print the one
+-- set quoted above, and the two derivations the ledger calls out must be theorems — both
+-- are `[propext, Classical.choice, Quot.sound]`, i.e. sorryAx-FREE, which is the sharper
+-- statement: what used to be a trust field is now proved without even inheriting the
+-- lean4lean boundary.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+#print axioms LeanToLambdaBox.prepare_sound_of_prepareHyps
+#print axioms LeanToLambdaBox.visitExpr_regInvShape

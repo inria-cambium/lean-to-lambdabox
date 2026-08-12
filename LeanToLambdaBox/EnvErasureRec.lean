@@ -22,7 +22,9 @@ derivation from
   the fvar-instantiated opened body `substFix ids defs obodies[j]` (`hbodies`). Since
   slice W3.1 the fvar→block instantiation is *proved* (`Erases.instFixvars`, Part 1b), so
   what is left to supply is the run's own output at the block-local `Γ` — the bridge's
-  motive 4 gives it per term, `visitMutual`'s motive (W3.2) would give it per block.
+  motive 4 gives it per term, and slice D6 (`ColdStartRun.run_rec_exit_siblings`) walks
+  the block's `List.mapM` to hand back the per-sibling runs; joining the two still needs
+  `Γ` inside the motives (design §W3.2/D8).
   `erases_fix_of_open` is `erases_fix_of_closed` already composed with the
   instantiation, i.e. the form that correspondence hands over;
 * the **closing fact** — `defs[j].body = closeFix ids 0 obodies[j]` (`hclose`), from the
@@ -310,8 +312,10 @@ So the whole chain from a `visitMutual` run to `Erases.fix` is: `visitExpr` refi
 `Erases` at the block-local `Γ` (the bridge's motive 4, whose fixvar branch W3.1 gave
 content) ⟹ `instFixvars` instantiates the fixvars ⟹ `closeFix_substList_fixSubst` turns
 `mkDef`'s closing into the dynamic unfolding ⟹ `Erases.fix`. What is *not* here is the
-environment-level walk that supplies the per-sibling run facts — `visitMutual`'s own
-bridge motive, which is W3.2's (the cold-start/DAG slice's). -/
+environment-level walk that supplies the per-sibling run facts: slice D6
+(`ColdStartRun.run_rec_exit_siblings`) produces the runs, but at the block-local
+`Γ.withFixvars fv`, so consuming them needs `Γ` inside the bridge's motives (§W3.2/D8) —
+`ColdStartDelta`'s recursion section is the premise-by-premise ledger. -/
 theorem erases_fix_of_open {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {fv : Name → Option FVarId}
     {Δ : VLCtx} {n : Name} {ty b : Expr} {bi : BinderInfo}
