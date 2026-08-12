@@ -1115,6 +1115,11 @@ open LeanToLambdaBox
 -- sits in the epistemic class of `BridgeHyps` (no run of the family is constructible
 -- in-logic): not decidable here, not refutable here.
 --
+-- [S1e, below] Both moving parts landed and the diagnosis was sharpened: coverage does not
+-- restore key DISTINCTNESS, and nothing can — `runClosed_keysDistinct_refuted`. The
+-- capstones now route the preservation through the THEOREM `visitExpr_regInvShape`, and
+-- `RegBridgeHyps.regInv` is gone.
+--
 -- SCOPE, so it is not over-read. `BridgeInv.known_dom` says a `known` constant is ALREADY
 -- registered; at `{}` nothing is, so `known = ⊥` and `Supported.const` is unusable. The
 -- cold-start fragment therefore contains NO δ-constant, and `Esrc` is empty: the δ records
@@ -1132,3 +1137,124 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.regShapeHyps_recClosed_refuted
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+
+-- ============================================================================
+-- COLD-START SLICE S1e (2026-08-12): the refuted `RegShapeHyps` bundle, repaired.
+--
+-- Same expectation as S1/S1d: this layer is pure `LBTerm`/`EraseM`/`GlobalDeclarations`
+-- reasoning — no `Erases`, no `TrExprS`, no lean4lean — so ⊆ [propext, Classical.choice,
+-- Quot.sound] and NO `sorryAx`, tight rather than inherited. The two capstones'
+-- sets must not move at all.
+--
+-- WHAT WAS WRONG, AND HOW FAR DOWN. S4 refuted two fields of S1d's `RegShapeHyps`. The
+-- defect is one level deeper: with `keys : KeysDistinct s.gdecls` in `RegInvShape`, the
+-- statement `RunClosed (RegInvShape Γ)` is ITSELF false, at every `Γ`. `RunClosed.nrc` is
+-- a bare STATE closure — it is applied inside `run_nonrec_exit_ok` at whatever state the
+-- body's erasure left behind, with no run in scope — so it must survive two conses at the
+-- same name, which duplicate a key. `runClosed_keysDistinct_refuted` proves it in five
+-- lines and needs no hypothesis on `Γ` at all. No repair of the HYPOTHESES existed.
+--
+-- THE REPAIR.
+--   * `RegInvShape` trades `keys` for `cover : ConstKeysCovered s` — every `.constantDecl`
+--     entry is filed under the canonical kername of a constant the registry knows. Every
+--     registration site preserves it with NO side condition, which is why every freshness
+--     premise disappears from the S1 step lemmas (`addAxiom`, `constCons`, `constExt`,
+--     `registerInd`, `recConst` and the two `…_run` forms all lost theirs). What coverage
+--     buys back is `RegInvShape.fresh_of_unregistered`: an unregistered name owns no
+--     constant key — the freshness the design called `hkinj`, now DERIVED at the one guard
+--     the code really tests (`get_constant_kername`'s miss branch), modulo injectivity of
+--     `toKername`, which is a naming assumption and not a theorem.
+--   * `Erasure.ConstExt` now records the KEYS of its axiom prefix, not just its shape —
+--     without that, coverage cannot cross a `register_inductive` call, whose cold branch
+--     emits one `addAxiom` per `@[extern]` constructor. This is R4's contribution to S1e.
+--   * `RunClosed.rc` TAKES `∀ j, LBClosed (.fix defs j) 0`. `Erasure.run_rec_exit_ok` now
+--     reports the shape of the block it is storing (`defs.length = names.length`, and per
+--     definition "my body is a `mkDef` closure of a `Cl` erasure output over `fixnames`"),
+--     from which `rec_block_closed` computes the closedness inside the induction.
+--     S1d's `recClosed`, refuted at `.fix [{body := .bvar 5}] 0`, is gone.
+--   * The premise record is now `RegBridgeHyps`, merging what survived of `RegShapeHyps`
+--     (`knames`, `prep`, the three `Γ`-agreement fields) with S4's own bundle (`satCtors`,
+--     `satCases`). S4's `regInv` field is the THEOREM `visitExpr_regInvShape`.
+--   * The `Γ`-agreement fields are now guarded by the cold branch's own test
+--     (`s.inductives.get? ii.name = none`). That guard is load-bearing, and S1e formalises
+--     why: `Erasure.run_register_inductive_hit_mk` CONSTRUCTS a hit-branch run out of
+--     `get`/`pure`, so `regShapeHyps_regCtors_refuted` instantiates S1d's unguarded field
+--     at a hand-made state with empty `gdecls` — at a `Γ` that records a constructor, i.e.
+--     at exactly the `Γ` the capstone is interesting at. Cold runs are not constructible
+--     (their body reads the environment through `getConstInfo`), so the guarded field is
+--     in the epistemic class of `BridgeHyps`.
+--
+-- WHAT THE INVARIANT NO LONGER CLAIMS. Key distinctness of `gdecls` is not an invariant of
+-- the shipping walk, and `ColdStartDelta`'s `KeysDistinct` premises stay premises of their
+-- callers. Two independent reasons, both recorded in code: the `nrc` refutation above, and
+-- `addAxiom`'s panic fall-through (its "already defined" guard has no `return`, so a
+-- second entry under the same key is consed). A third, orthogonal fact was found while
+-- stating coverage: `mutualBlockKn_eq_toKername` — the block keys are INSIDE the constant
+-- keys (`rootKername s` IS `toKername (.str .anonymous s)`), so for a root-level single
+-- inductive `A` the block entry and an axiom entry for `A` collide, first-match-wins.
+-- Whether that is reachable is a question about the shipping eraser (it needs a bare
+-- inductive constant to pass the erasability gate into `visitMutual`), NOT about this
+-- development; it is raised, not patched.
+--
+-- Expectation: no axiom of ours, no movement in the capstones, no `sorryAx` anywhere in
+-- this block.
+--
+-- ONE MOVEMENT, AND ITS CAUSE. Six entries in the S1 block above gained
+-- `Classical.choice`: `RegInvShape.registeredCtors`/`registeredCases`/
+-- `registeredCtorFieldsAll`/`noFixEnv`/`closedEnv`/`inlinings`, all of which were
+-- `[propext, Quot.sound]`. Nothing about them changed; the INVARIANT they project from
+-- did. Its old `keys` field was `List.Pairwise` on kernames, which mentions no shipping
+-- function, while `cover` mentions `Erasure.toKername` — and `toKername`, through
+-- `cleanIdent`'s string walk, carries `Classical.choice`, exactly as every other
+-- `toKername`-mentioning entry in the S1 block already did (`RegInvShape.empty`,
+-- `addAxiom_run`, `nonrecConst`, …). Additions only, inside the allowed set, and no
+-- `sorryAx` reach anywhere.
+-- ============================================================================
+
+-- The strengthened `ConstExt` and the constructible hit run.
+#print axioms Erasure.ConstExt.trans
+#print axioms Erasure.AxiomExt.addAxiom
+#print axioms Erasure.run_register_inductive_hit_mk
+#print axioms Erasure.run_rec_exit_ok
+#print axioms Erasure.run_visitMutual_ok
+
+-- Coverage: the invariant's new field, its preservation, its payoff, and the key-space
+-- overlap that scopes it.
+#print axioms LeanToLambdaBox.ConstKeysCovered.cons
+#print axioms LeanToLambdaBox.RegInvShape.empty
+#print axioms LeanToLambdaBox.RegInvShape.addAxiom
+#print axioms LeanToLambdaBox.RegInvShape.constExt
+#print axioms LeanToLambdaBox.RegInvShape.registerInd
+#print axioms LeanToLambdaBox.RegInvShape.constCons
+#print axioms LeanToLambdaBox.RegInvShape.recConst
+#print axioms LeanToLambdaBox.RegInvShape.addAxiom_run
+#print axioms LeanToLambdaBox.RegInvShape.register_inductive_run
+#print axioms LeanToLambdaBox.RegInvShape.fresh_of_unregistered
+#print axioms LeanToLambdaBox.rootKername_eq_toKername
+#print axioms LeanToLambdaBox.mutualBlockKn_eq_toKername
+#print axioms LeanToLambdaBox.gRegInvShape_addAxiom
+#print axioms LeanToLambdaBox.gRegInvShape_addAxiom₂
+#print axioms LeanToLambdaBox.gRegInvShape_fresh
+
+-- The block's own closedness, supplied instead of assumed.
+#print axioms LeanToLambdaBox.lbClosed_foldl_zipIdx_map
+#print axioms LeanToLambdaBox.lbClosed_fix_of_bodies
+#print axioms LeanToLambdaBox.rec_block_closed
+
+-- The re-run induction and the de-vacuized corollaries.
+#print axioms LeanToLambdaBox.visitExpr_shape
+#print axioms LeanToLambdaBox.runClosed_true
+#print axioms LeanToLambdaBox.visitExpr_noFix_closed
+#print axioms LeanToLambdaBox.RunClosed.regInvShape
+#print axioms LeanToLambdaBox.visitExpr_regInvShape
+#print axioms LeanToLambdaBox.visitMutual_regInvShape
+#print axioms LeanToLambdaBox.get_constant_kername_regInvShape
+
+-- The guards: the negative one that forced the design, and the positive one that shows
+-- the repaired bundle is inhabited and its corollaries fire.
+#print axioms LeanToLambdaBox.runClosed_keysDistinct_refuted
+#print axioms LeanToLambdaBox.gRegBridgeHyps
+#print axioms LeanToLambdaBox.gVisitExpr_regInvShape
+
+-- The third refutation of the superseded record (the one S4 asserted but did not prove).
+#print axioms LeanToLambdaBox.regShapeHyps_regCtors_refuted
