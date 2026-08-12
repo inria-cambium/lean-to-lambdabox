@@ -1719,5 +1719,306 @@ theorem run_get_constant_kername_ok {n : Name}
     cases hp
     exact Or.inr ⟨rfl, uu, hvm, rfl⟩
 
+/-! ### R7 — `visitMutual`, the DAG engine
+
+`visitMutual` is the only place the erasure family registers a *constant*, and the only
+place a `.fix` body is stored. Its elaborated body is hostile to naive peeling: the
+`@[inline]` prefix and the value/`@[extern]` match each duplicate the whole
+non-recursive/recursive core, and the three-discriminant match defeats `split`
+outright. The lemmas below tame that by abstracting every boolean test, log message and
+reader update the core does not depend on, so each `split` runs on a small term.
+
+`run_visitMutual_ok` is stated in **Hoare form** over a state predicate `Q`, taking the
+`visitExpr` fact as a hypothesis (`hvE`). That is deliberate: inside
+`Erasure.visitExpr.mutual_fixpoint_induct` the step goals are about an *abstract*
+function, not the real `visitExpr`, so an exit-decomposition lemma about the real
+`visitMutual` would be unusable there. In Hoare form the same lemma serves both the
+inline (instantiate `hvE` with the motive-1 IH) and the standalone use.
+
+One hypothesis is genuinely assumed rather than proved: `hprep`, that `prepare_erasure`
+does not disturb `Q`. Its `csimp` branch runs `Lean.Core.transform` *at* `EraseM`
+(through `MonadControlT`), so its state transparency does not follow from the `liftM`
+lemmas; it belongs with `PrepareHyps`, the existing trust class for that function.
+-/
+
+def nonrecConstState (n : Name) (t : LBTerm) (s : ErasureState) : ErasureState :=
+  { s with
+    constants := s.constants.insert n (toKername n),
+    gdecls := (toKername n, .constantDecl ⟨some t⟩) :: s.gdecls }
+
+def recConstState (names : List Name) (defs : List (@FixDef LBTerm))
+    (s : ErasureState) : ErasureState :=
+  names.zipIdx.foldl
+    (fun st p =>
+      { st with
+        constants := st.constants.insert p.1 (toKername p.1),
+        gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls }) s
+
+section Helpers
+
+variable {Q : ErasureState → Prop} {Nf Cl : LBTerm → Prop} {n : Name}
+  {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+
+theorem run_inline_tail_ok {b1 b2 : Bool} {msg1 msg2 : MessageData}
+    (hinl : ∀ {s' : ErasureState} {kn : Kername},
+      Q s' → Q { s' with inlinings := kn :: s'.inlinings })
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld} (hQ : Q s)
+    (hrun : (if b1 = true then do
+        let isInst ← liftM (Lean.Meta.isInstance n)
+        if isInst = true then do
+          logInfo msg1
+          modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+        else if b2 = true then do
+          logInfo msg2
+          modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+        else pure ()
+      else pure () : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) : Q s₁ := by
+  split at hrun
+  · rw [run_bind_ok] at hrun
+    obtain ⟨isInst, s2, w2, hinst, hrun⟩ := hrun
+    have hz := run_liftCoreM_state (x := (Lean.Meta.isInstance n : CoreM Bool))
+      _ _ cctx ref _ hinst
+    subst hz
+    split at hrun
+    · rw [run_bind_ok] at hrun
+      obtain ⟨u3, s3, w3, hlog, hrun⟩ := hrun
+      have hz2 := run_logInfo_state _ _ cctx ref _ hlog
+      subst hz2
+      rw [run_modify] at hrun
+      cases hrun
+      exact hinl hQ
+    · split at hrun
+      · rw [run_bind_ok] at hrun
+        obtain ⟨u3, s3, w3, hlog, hrun⟩ := hrun
+        have hz2 := run_logInfo_state _ _ cctx ref _ hlog
+        subst hz2
+        rw [run_modify] at hrun
+        cases hrun
+        exact hinl hQ
+      · rw [run_pure] at hrun
+        cases hrun
+        exact hQ
+  · rw [run_pure] at hrun
+    cases hrun
+    exact hQ
+
+/-- The `@[inline]`-attribute bookkeeping prefix: it conses at most one `inlinings`
+entry and then runs the same continuation on either branch. Stated with the boolean,
+the message and the continuation **abstract**. -/
+theorem run_inline_prefix_ok {b : Bool} {msg : MessageData} {rest : EraseM Unit}
+    (hinl : ∀ {s' : ErasureState} {kn : Kername},
+      Q s' → Q { s' with inlinings := kn :: s'.inlinings })
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrest : ∀ {s' : ErasureState} {w' : Void IO.RealWorld} {u' : Unit}
+        {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      Q s' → rest s' ctx cctx ref w' = .ok (u', s'') w'' → Q s'')
+    (hQ : Q s)
+    (hrun : (if b = true then do
+        logInfo msg
+        modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+        rest
+      else rest) s ctx cctx ref w = .ok (u, s₁) w₁) : Q s₁ := by
+  split at hrun
+  · rw [run_bind_ok] at hrun
+    obtain ⟨u1, s2, w2, hlog, hrun⟩ := hrun
+    have hz := run_logInfo_state _ _ cctx ref _ hlog
+    subst hz
+    rw [run_bind_ok] at hrun
+    obtain ⟨u2, s3, w3, hmod, hrun⟩ := hrun
+    rw [run_modify] at hmod
+    cases hmod
+    exact hrest (hinl hQ) hrun
+  · exact hrest hQ hrun
+
+/-- **The non-recursive exit.** Erase the (prepared) body under the declaration's
+reader update, cons the constant, then the inlining bookkeeping. The reader update, the
+source body and the tail's two tests / messages are abstract. -/
+theorem run_nonrec_exit_ok {f : ErasureContext → ErasureContext} {e : Expr}
+    {b1 b2 : ErasureContext → LBTerm → Bool} {msg1 msg2 : MessageData}
+    (hinl : ∀ {s' : ErasureState} {kn : Kername},
+      Q s' → Q { s' with inlinings := kn :: s'.inlinings })
+    (hprep : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {pe : Expr} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      prepare_erasure e' s' ctx' cctx ref w' = .ok (pe, s'') w'' → Q s' → Q s'')
+    (hvE : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {t : LBTerm} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      visitExpr e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
+    (hnr : ∀ {s' : ErasureState} {t : LBTerm}, Q s' → Nf t → Cl t →
+      Q (nonrecConstState n t s'))
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld} (hQ : Q s)
+    (hrun : (do
+        let t ← withReader f (do let pe ← prepare_erasure e; visitExpr pe)
+        modify (fun s => { s with
+          constants := s.constants.insert n (toKername n),
+          gdecls := (toKername n, .constantDecl ⟨some t⟩) :: s.gdecls })
+        let c ← read
+        if b1 c t = true then do
+          let isInst ← liftM (Lean.Meta.isInstance n)
+          if isInst = true then do
+            logInfo msg1
+            modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+          else if b2 c t = true then do
+            logInfo msg2
+            modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+          else pure ()
+        else pure () : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) : Q s₁ := by
+  rw [run_bind_ok] at hrun
+  obtain ⟨t, st, wt, hvis, hrun⟩ := hrun
+  rw [run_withReader, run_bind_ok] at hvis
+  obtain ⟨pe, sp, wp, hpr, hvis⟩ := hvis
+  replace hQ := hprep hpr hQ
+  obtain ⟨hQ', hnf, hcl⟩ := hvE hvis hQ
+  rw [run_bind_ok] at hrun
+  obtain ⟨u2, sm, wm, hmod, hrun⟩ := hrun
+  rw [run_modify] at hmod
+  cases hmod
+  replace hQ' := hnr hQ' hnf hcl
+  rw [run_bind_ok] at hrun
+  obtain ⟨c2, sc, wc, hread, hrun⟩ := hrun
+  rw [run_read] at hread
+  cases hread
+  exact run_inline_tail_ok hinl hQ' hrun
+
+/-- **The recursive exit.** Fresh fvars, per-definition erasure under the fixvar
+binding, then one `gdecls` cons per name. The two reader updates and the "value of a
+declaration" projection are abstract. -/
+theorem run_rec_exit_ok {names fixnames : List Name}
+    {f : List FVarId → ErasureContext → ErasureContext}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    (hprep : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {pe : Expr} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      prepare_erasure e' s' ctx' cctx ref w' = .ok (pe, s'') w'' → Q s' → Q s'')
+    (hvE : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {t : LBTerm} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      visitExpr e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
+    (hrec : ∀ {s' : ErasureState} {defs : List (@FixDef LBTerm)},
+      Q s' → Q (recConstState fixnames defs s'))
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld} (hQ : Q s)
+    (hrun : (do
+        let ids ← names.mapM (fun _ => mkFreshFVarId)
+        withReader (f ids) (do
+          let defs ← names.mapM (fun m => do
+            let ci ← getConstInfo m
+            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); visitExpr pe)
+            mkDef (remove_unsafe_rec m) fixnames t)
+          for p in fixnames.zipIdx do
+            modify (fun s => { s with
+              constants := s.constants.insert p.1 (toKername p.1),
+              gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls })
+          pure ()) : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) : Q s₁ := by
+  rw [run_bind_ok] at hrun
+  obtain ⟨ids, sid, wid, hids, hrun⟩ := hrun
+  replace hQ := run_list_mapM_ok _ cctx ref
+    (P := fun (_ : List Name) (_ : List FVarId) (s' : ErasureState)
+        (_ : Void IO.RealWorld) => Q s')
+    hQ
+    (fun _ _ _ _ _ _ _ _ _ _ hQa hb => by
+      have hz := run_mkFreshFVarId_state _ _ cctx ref _ hb
+      subst hz
+      exact hQa)
+    hids
+  rw [run_withReader, run_bind_ok] at hrun
+  obtain ⟨defs, sd, wd, hdefs, hrun⟩ := hrun
+  replace hQ := run_list_mapM_ok _ cctx ref
+    (P := fun (_ : List Name) (_ : List (@FixDef LBTerm)) (s' : ErasureState)
+        (_ : Void IO.RealWorld) => Q s')
+    hQ
+    (fun _ _ _ _ _ _ _ _ _ _ hQa hb => by
+      rw [run_bind_ok] at hb
+      obtain ⟨ci, s2, w2, hci, hb⟩ := hb
+      have hz := run_getConstInfo_state _ _ cctx ref _ hci
+      subst hz
+      rw [run_bind_ok] at hb
+      obtain ⟨t2, s4, w4, hvis2, hb⟩ := hb
+      rw [run_withReader, run_bind_ok] at hvis2
+      obtain ⟨pe2, s3, w3, hpr2, hvis2⟩ := hvis2
+      replace hQa := hprep hpr2 hQa
+      obtain ⟨hQ4, -, -⟩ := hvE hvis2 hQa
+      obtain ⟨-, -, hs5, -⟩ := run_mkDef_ok hb
+      subst hs5
+      exact hQ4)
+    hdefs
+  rw [run_bind_ok] at hrun
+  obtain ⟨u4, sf, wf, hloop, hrun⟩ := hrun
+  obtain ⟨hsf, -⟩ := run_modify_forIn_ok hloop
+  subst hsf
+  rw [run_pure] at hrun
+  cases hrun
+  exact hrec hQ
+
+set_option maxHeartbeats 1000000 in
+/-- **R7 — `visitMutual`, Hoare form over its four exits.** -/
+theorem run_visitMutual_ok {n : Name}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hinl : ∀ {s' : ErasureState} {kn : Kername},
+      Q s' → Q { s' with inlinings := kn :: s'.inlinings })
+    (hax : ∀ {m : Name} {s' : ErasureState}, Q s' → Q (addAxiomState m s'))
+    (hprep : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {pe : Expr} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      prepare_erasure e' s' ctx' cctx ref w' = .ok (pe, s'') w'' → Q s' → Q s'')
+    (hvE : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
+        {w' : Void IO.RealWorld} {t : LBTerm} {s'' : ErasureState} {w'' : Void IO.RealWorld},
+      visitExpr e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
+    (hnr : ∀ {s' : ErasureState} {t : LBTerm}, Q s' → Nf t → Cl t →
+      Q (nonrecConstState n t s'))
+    (hrec : ∀ {s' : ErasureState} {names : List Name} {defs : List (@FixDef LBTerm)},
+      Q s' → Q (recConstState names defs s'))
+    (hQ : Q s) (hrun : visitMutual n s ctx cctx ref w = .ok (u, s₁) w₁) : Q s₁ := by
+  unfold visitMutual at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨di, sa, wa, hdi, hrun⟩ := hrun
+  have hsa := run_liftCoreM_state (x := (Compiler.LCNF.getDeclInfo? n : CoreM _))
+    _ _ cctx ref _ hdi
+  subst hsa
+  rw [run_bind_ok] at hrun
+  obtain ⟨env0, sb, wb, henv0, hrun⟩ := hrun
+  have hsb := run_getEnv_state _ _ cctx ref _ henv0
+  subst hsb
+  clear hdi henv0
+  split at hrun
+  case isTrue =>
+    refine run_inline_prefix_ok hinl ?_ hQ hrun
+    intro s' w' u' s'' w'' hQ' hm
+    rw [run_bind_ok] at hm
+    obtain ⟨env2, se, we, henv2, hm⟩ := hm
+    have hz := run_getEnv_state _ _ cctx ref _ henv2
+    subst hz
+    rw [run_bind_ok] at hm
+    obtain ⟨c1, sr, wr, hread, hm⟩ := hm
+    rw [run_read] at hread
+    cases hread
+    -- The value/`@[extern]`/config match has three discriminants; `split` cannot
+    -- handle it, so resolve them by hand.
+    cases hval : di.get!.value? (allowOpaque := true) <;>
+      cases hext : isExtern env2 n <;>
+        cases hcfg : ctx.config.extern <;>
+          simp only [hval, hext, hcfg] at hm
+    all_goals
+      try
+        (rw [run_bind_ok] at hm
+         obtain ⟨u3, s3, w3, hlog, hm⟩ := hm
+         have hz2 := run_logInfo_state _ _ cctx ref _ hlog
+         subst hz2)
+    all_goals
+      first
+        | (obtain ⟨hstA, -⟩ := run_addAxiom_ok hm
+           subst hstA
+           exact hax hQ')
+        | (split at hm
+           case isTrue => exact run_nonrec_exit_ok hinl hprep hvE hnr hQ' hm
+           case isFalse => exact run_rec_exit_ok hprep hvE hrec hQ' hm)
+  case isFalse =>
+    split at hrun
+    case isTrue => exact run_nonrec_exit_ok hinl hprep hvE hnr hQ hrun
+    case isFalse => exact run_rec_exit_ok hprep hvE hrec hQ hrun
+
+end Helpers
+
 end Erasure
 
