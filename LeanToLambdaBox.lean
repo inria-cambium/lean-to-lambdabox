@@ -37,6 +37,11 @@ import LeanToLambdaBox.Abstract
 -- P3 foundation: the `n`-way fvar→de-Bruijn abstraction (`closeFix`) modelling the
 -- `mkDef` closing loop of a recursive mutual block (env-level erasure, deferred rule).
 import LeanToLambdaBox.FixMetatheory
+-- Recursion wall, slice W0: `substFix` (the fvar → closed-term simultaneous
+-- substitution), the `toBvar` ↔ `subst` commutation pair, and
+-- `closeFix_substList_fixSubst` — static fix-closing (`mkDef`) inverts the dynamic
+-- fix-unfolding that `WcbvEval.fix_guarded` performs.
+import LeanToLambdaBox.FixUnfold
 import LeanToLambdaBox.EraseCore
 -- Data-fragment forward simulation at MetaRocq's non-block `appliedFlags`
 -- (β + δ + saturated constructors): `erases_correct_data` (A5–A7).

@@ -350,12 +350,46 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.noBlock_mkLambdas
 #print axioms LeanToLambdaBox.noFix_mkLambdas
 
--- `NoBlock`/`NoFix` now traverse `.case`; their shift/subst preservation must stay
--- sorryAx-free (pure LBTerm).
+-- `NoBlock`/`NoFix` traverse `.case`, and (recursion wall, W0.2) `NoBlock` also
+-- traverses `.fix` via `NoBlockDefs` — `NoFix` needs no counterpart, being `False` on
+-- `.fix` by construction. Their shift/subst preservation, and the new fix-unfolding
+-- kit, must stay sorryAx-free (pure LBTerm).
 #print axioms LeanToLambdaBox.noBlock_shift
 #print axioms LeanToLambdaBox.noBlock_subst
 #print axioms LeanToLambdaBox.noFix_shift
 #print axioms LeanToLambdaBox.noFix_subst
+#print axioms LeanToLambdaBox.NoBlockDefs_iff
+#print axioms LeanToLambdaBox.NoBlock_fix
+#print axioms LeanToLambdaBox.noBlock_substList
+#print axioms LeanToLambdaBox.noBlock_fixSubst
+#print axioms LeanToLambdaBox.noBlock_fixUnfold
+
+-- Recursion wall, W0.3 (`FixUnfold.lean`): the `toBvar` ↔ `subst` commutation pair and
+-- `closeFix_substList_fixSubst` — static fix-closing inverts dynamic fix-unfolding.
+-- Pure LBTerm de Bruijn metatheory: no `Erases`, no `TrExprS`, no lean4lean, so the
+-- whole module (including the non-vacuity witnesses) must be sorryAx-free.
+#print axioms LeanToLambdaBox.LBClosed.substFVar
+#print axioms LeanToLambdaBox.subst_toBvar_self
+#print axioms LeanToLambdaBox.subst_toBvar_succ
+#print axioms LeanToLambdaBox.closeFixFold_append
+#print axioms LeanToLambdaBox.closeFix_cons
+#print axioms LeanToLambdaBox.substList_toBvar
+#print axioms LeanToLambdaBox.closeFix_substList_fixSubst_gen
+#print axioms LeanToLambdaBox.closeFix_substList_fixSubst
+#print axioms LeanToLambdaBox.closeFix_substList_fixSubst_fires
+#print axioms LeanToLambdaBox.closeFix_substList_fixSubst_fires_value
+
+-- Recursion wall, W0.1 (`EnvErasureRec.lean`): the honest record that `Erases.fix` is
+-- contentless, so `NoFix t` is load-bearing for *soundness* in the forward simulations
+-- until the rule is re-founded. `no_wcbvEval_app_gFixR` is pure `WcbvEval` and must be
+-- sorryAx-free; the refutation itself inherits `sorryAx` via `TrExprS`, as every
+-- `Erases`-mentioning result does.
+#print axioms LeanToLambdaBox.no_wcbvEval_app_gFixR
+#print axioms LeanToLambdaBox.gCxNoFixEnv
+#print axioms LeanToLambdaBox.gCxSEval
+#print axioms LeanToLambdaBox.gCxTrExprS
+#print axioms LeanToLambdaBox.gCxErases
+#print axioms LeanToLambdaBox.erases_correct_data_without_noFix_false
 
 -- A6ι: the `casesOn`-spine erasure inversion and its exact-arity corollary.
 -- Spine injectivity is pure `Expr` combinatorics (sorryAx-free); the inversions
