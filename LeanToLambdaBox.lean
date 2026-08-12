@@ -69,6 +69,13 @@ import LeanToLambdaBox.DataBridgeHyps
 -- The ι-fragment trust bundle (`casesOn` classifier / inductive registration /
 -- `inferType` specs), beside `BridgeHyps`; consumed by the ι-widened bridge.
 import LeanToLambdaBox.CasesBridgeHyps
+-- The δ-fragment scope bundle (δ-inclusion, slice D3): fragment closure under
+-- dependency, decl-fetch/`Esrc` agreement, prepared dependency bodies `Supported` and
+-- translatable, `axiom_free`, and the generator bookkeeping for the primitives only
+-- `visitMutual` reaches. The *scope*-side half of the contract whose *state*-side half is
+-- `BridgeInv` — which is why it is a bundle and not an invariant field: at the empty entry
+-- state no state condition can speak about a constant the walk has not reached.
+import LeanToLambdaBox.DeltaHyps
 -- P3-v2b: recursive (value-`fix`) cold-start env-consistency — the `Erases.fix`
 -- reconciliation (`erases_fix_of_closed`) + `LBClosed` de-Bruijn-closedness metatheory.
 import LeanToLambdaBox.EnvErasureRec

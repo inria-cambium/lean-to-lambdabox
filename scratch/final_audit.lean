@@ -1258,3 +1258,79 @@ open LeanToLambdaBox
 
 -- The third refutation of the superseded record (the one S4 asserted but did not prove).
 #print axioms LeanToLambdaBox.regShapeHyps_regCtors_refuted
+
+-- ============================================================================
+-- δ-inclusion, slices D1-D3 (2026-08-12): the walk hands back the declaration it
+-- fetched, the registration exits get world-indexed twins, and the δ SCOPE bundle
+-- lands beside the three trust bundles.
+--
+-- THE WALL, RESTATED. A cold start begins at the empty state, so `BridgeInv.known_dom`
+-- ("a `known` constant is already registered") is not merely strong there — it is FALSE
+-- for every non-empty fragment (`bridgeInv_cold_known_refuted`, proved below). That is
+-- what pins every cold-start capstone to `known = ⊥`, and `Supported.const` needs
+-- `known n`, so a cold-started program cannot CALL anything.
+--
+-- WHAT LANDED.
+--   * D1 — `run_visitMutual_decomp` now hands back the `getDeclInfo?` run itself (at the
+--     `CoreM` layer), the `prepare_erasure` run, the dependency's reader context pinned to
+--     `{ ctx with fixvars := none, lparams := ci.levelParams }`, and the entry-side
+--     `InlineExt`. All four facts were already in the proof and were discarded; the
+--     declaration is what every branch condition (`isExtern`, `getInlineAttribute?`,
+--     `name_occurs`, `value?`) is a pure function of, so pinning it is what separates the
+--     three disjuncts. Axiom set UNCHANGED (`[propext, Classical.choice, Quot.sound]`).
+--   * D2 — `run_{inline_tail,inline_prefix,nonrec_exit,rec_exit}_ok'`, the same four
+--     registration rules over `P : ErasureState → Void IO.RealWorld → Prop` instead of
+--     `Q : ErasureState → Prop`. Two forced differences: every state-transparent primitive
+--     on the path (`logInfo`, `Meta.isInstance`, `mkFreshFVarId`, `getConstInfo`) advances
+--     the world and so needs its own clause — free in the state-only form — and `hvE` is
+--     keyed on the `prepare_erasure` run as well, so a caller can RE-ESTABLISH an
+--     invariant at the erasure's entry state rather than merely propagate one. Pure
+--     `EraseM` reasoning: all four are sorryAx-free.
+--   * D3 — `DeltaHyps`, the scope-side half of the contract whose state-side half is
+--     `BridgeInv`: fragment δ-closure (`esrc_sub`/`disj`), the decl-fetch/`Esrc` agreement
+--     (`decl_run`), prepared dependency bodies `Supported` + translatable (`prepared`),
+--     `axiom_free`, `nofixvars`, the five generator-bookkeeping clauses, and the `∀ Δ`
+--     uniformity residue. Epistemic class: `BridgeHyps`/`RegBridgeHyps` — Hoare specs for
+--     REAL calls (none of the primitives is in the `visitExpr` mutual block), never an
+--     axiom, never a statement about a whole environment.
+--
+-- LEDGER: additions only, and no NEW kind of trust. `DeltaHyps` is a `Prop` bundle, so it
+-- is a hypothesis, never an axiom; unlike `CasesBridgeHyps` it is `env`/`Us`-indexed
+-- (`prepared` mentions `TrExprS`, `uniform` mentions `Erases`), so its TYPE carries
+-- lean4lean's `sorryAx` exactly as `BridgeInv`'s does. Nothing moved: no existing entry's
+-- axiom set changed, and `run_visitMutual_decomp` in particular is byte-identical in its
+-- ledger row after the widening.
+--
+-- WHAT DID **NOT** LAND, AND WHY. The design's D3 also called for DELETING
+-- `BridgeInv.known_dom` with the promise "green after this slice". That is not achievable
+-- as a separate slice, and the two guards below are the proof:
+--   * `bridgeInv_cold_known_refuted` — the field is refutable at the entry configuration,
+--     so it does have to go (the design's diagnosis is right);
+--   * `constants_get!_unregistered_ne` — but it is the ONLY thing forcing motive 5's hit
+--     branch, and the miss branch returns `s'.constants[n]!`, i.e. `default`, which is not
+--     `Γ.constants n`. Discharging the miss branch needs "`visitMutual n` registered `n`",
+--     which inside `visitExpr.mutual_fixpoint_induct` can only come from motive 6 — today
+--     `True`. Giving motive 6 content is a statement change to the crown theorem
+--     (it must then take `DeltaHyps`, which is NOT vacuous at `known = ⊥` because of the
+--     bookkeeping clauses, hence a new premise at every consumer). So the field's death
+--     and motive 6's content are one atomic change (D4a), not two slices.
+-- ============================================================================
+
+-- D1: the widened decomposition (ledger row unchanged).
+#print axioms LeanToLambdaBox.run_visitMutual_decomp
+
+-- D2: the world-indexed twins of the registration exits.
+#print axioms Erasure.run_inline_tail_ok'
+#print axioms Erasure.run_inline_prefix_ok'
+#print axioms Erasure.run_nonrec_exit_ok'
+#print axioms Erasure.run_rec_exit_ok'
+
+-- D3: the scope bundle and its non-vacuity at a genuinely non-empty fragment.
+#print axioms LeanToLambdaBox.DeltaHyps
+#print axioms LeanToLambdaBox.gDeltaFragment_nonempty
+#print axioms LeanToLambdaBox.gDeltaScope
+#print axioms LeanToLambdaBox.gDeltaSupported
+
+-- D3: the two negative guards that scope the `known_dom` deletion.
+#print axioms LeanToLambdaBox.constants_get!_unregistered_ne
+#print axioms LeanToLambdaBox.bridgeInv_cold_known_refuted

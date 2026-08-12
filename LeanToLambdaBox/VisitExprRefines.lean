@@ -2,6 +2,7 @@ import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.DataBridgeHyps
 import LeanToLambdaBox.CasesBridgeHyps
+import LeanToLambdaBox.DeltaHyps
 import LeanToLambdaBox.EraseCore
 import LeanToLambdaBox.CheckerAdequacy
 import Lean4Lean.Verify.NameGenerator
@@ -30,7 +31,11 @@ family, using the run-lemma library of `ErasureRun.lean`.
   opaque `ST`/`EIO` operations. This is the documented trust boundary.
   `DataBridgeHyps` (`DataBridgeHyps.lean`) adds the constructor data path's
   specs and `CasesBridgeHyps` (`CasesBridgeHyps.lean`) the ι (`casesOn`) path's;
-  all three are consumed by the single induction below.
+  all three are consumed by the single induction below. A fourth,
+  `DeltaHyps` (`DeltaHyps.lean`), carries the δ (constant-unfolding) fragment's
+  *scope* obligations — it is the scope-side half of the two-part contract whose
+  state-side half is `BridgeInv`, and is not consumed by this induction yet
+  (see `BridgeInv`'s docstring for what blocks that).
 * **`BridgeInv`** — the induction invariant: the reader's `LocalContext`
   corresponds to the typing context `Δ` (lean4lean's `TrLCtx`), the reader's
   block-local `fixvars` map agrees with `Γ.fixvars` (and its ids are fresh for `Δ`),
@@ -833,7 +838,27 @@ branch returns `s'.constants[n]!` after `visitMutual n`, and neither
 "`visitMutual n` registers `n`" (its recursive exit registers the *block*'s names, read
 out of the opaque `Compiler.LCNF.getDeclInfo?`) nor generator-monotonicity of
 `visitMutual`'s primitives is derivable here. Both are `RegBridgeHyps`-class obligations
-belonging to the cold-start entry slice; see the note at motive 5. -/
+belonging to the cold-start entry slice; see the note at motive 5.
+
+## δ-inclusion, slice D3: what has to happen to this field, and what blocks it
+
+`known_dom` states a *state* fact about a fragment that a cold run has not reached yet, so
+at the entry configuration it is not merely strong but **false** for every non-empty
+fragment — `bridgeInv_cold_known_refuted` below proves exactly that. The δ-inclusion plan
+is therefore to delete it and to carry the fragment's obligations scope-side instead, in
+`DeltaHyps` (`DeltaHyps.lean`), which is now in the tree: fragment δ-closure, decl-fetch /
+`Esrc` agreement, prepared dependency bodies `Supported` and translatable, `axiom_free`,
+and the generator bookkeeping for the `visitMutual`-only primitives.
+
+The deletion itself is **not separable** from giving `visitMutual`'s motive a registration
+conclusion, and it is not landed here. The reason is one step: with `known_dom` gone,
+motive 5's *hit* branch is no longer forced, and its *miss* branch returns
+`s'.constants[n]!`, which is `default` — not `Γ.constants n` — unless the intervening
+`visitMutual n` registered `n` (`DeltaHyps.constants_get!_unregistered_ne` proves the
+inequality on real data). Inside this induction the only handle on that call is the
+abstract `_vMut` and motive 6, which is `True`. So the field's death and motive 6's content
+are one atomic change, not two slices: no formulation of `BridgeInv` and no external
+composition avoids it. -/
 structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
     (Γ : ErasureCtx) (gen : NameGenerator)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
@@ -2455,6 +2480,27 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
   exact visitExpr_refines_erases H HD C envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _ hinv
     (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
     ⟨_, trExprS_natLit 2⟩
+
+/-- (iv) **The cold-start wall, stated negatively** (δ-inclusion, slice D3) — the
+counterpart of (i), and the reason the δ-inclusion design deletes `known_dom` rather than
+weakening it.
+
+At the entry configuration the state is the empty one (`ColdStartRun.run_eq`:
+`Erasure.run x cfg … = x {} { «config» := cfg } …`), and `known_dom` is the only field
+that mentions `known`. So for *any* non-empty fragment the invariant is not merely hard to
+establish there — it is refutable, whatever `env`, `Us`, `Γ`, `gen` and `cfg` are. That is
+what forces every cold-start capstone to `known = ⊥`, and hence what makes the cold-start
+fragment δ-free: `Supported.const` needs `known n`.
+
+Together with `DeltaHyps.constants_get!_unregistered_ne` this pins the shape of the fix:
+the field has to go, and it cannot go alone, because motive 5's hit branch is forced by it
+and by nothing else. See the field's own docstring. -/
+theorem bridgeInv_cold_known_refuted (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (gen : NameGenerator) (cfg : ErasureConfig) (n : Name) :
+    ¬ BridgeInv env Us (fun m => m = n) Γ gen ⟨{}, none, Us, cfg⟩ {} [] := by
+  intro h
+  have := h.known_dom n rfl
+  simp at this
 
 end NonVacuity
 
