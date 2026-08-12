@@ -184,11 +184,14 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     have ⟨_, hall⟩ := fvarsIn_foldl_app sc
     exact .cases con us iid numParams pre hc hpre hnfs (ihd W (hall _ (.head _))) hlen
       hnlen harity fun j hj => ihalts j hj W (hall _ (.tail _ (List.getElem_mem hj)))
-  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
-      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+    exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
       -- Thinning changes only the (conclusion) context; the fix source/target and the
-      -- fix bodies (at the fixed context `Δf`) are untouched, so the rule re-applies.
-      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
+      -- fix bodies (context-uniform, `∀ Δf`) are untouched, so the rule re-applies.
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
 
 /--
 **Let-value thinning** (the bridge-facing corollary): the shipping `visitLet`

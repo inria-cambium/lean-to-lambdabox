@@ -260,10 +260,14 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
-  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
-      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      rw [hsubst s' dk]
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
       rw [hinst e₀ dk, hsubst s' dk]
-      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
 
 /-- **Target-side δ consistency.** When the source constant `n` unfolds to `body`
 (`Esrc n = some body`) and `n` is bound to the kername `Γ.constants n`, the target
@@ -441,7 +445,7 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
       obtain ⟨hnoctor, _, body', hlook, herbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
-        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩
+        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, _, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalβζδ_defeq henv hΔ hcon htr (.delta hunf hbodyev.toβζδ)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -451,5 +455,8 @@ theorem erases_correct {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx
         subst hkn
         exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnft'⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
+      · -- `const_fix`: a registered recursive constant standing for its own block —
+        -- out of this fix-free fragment, killed by `NoFix t`.
+        exact hnfx.elim
 
 end LeanToLambdaBox

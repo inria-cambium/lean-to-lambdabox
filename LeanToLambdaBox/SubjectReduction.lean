@@ -207,11 +207,51 @@ theorem Erases.lam_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
   | lam hty hb => cases he; exact .inr (.inl ⟨_, _, hty, hb, rfl⟩)
   | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_lam
   | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_lam
-  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
-      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
       cases he
       exact .inr (.inr ⟨defs, idx, rfl,
-        .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies⟩)
+        .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+          hbodies⟩)
+  | _ => exact absurd he (by simp)
+
+/-- **Inversion of `Erases` on a `.lam` source at a `.fix` target** — `lam_inv`'s third
+disjunct with the rule's premises *kept* (`lam_inv` hands back only the derivation). Only
+`Erases.fix` can conclude a `.fix` target from a `.lam` source, so the inversion is total,
+and it hands out exactly the three things a consumer of a recursive erasure wants:
+
+* the block is non-degenerate at `idx` (`hidx`);
+* every def's `principalArgIdx` is `0`, which is what makes one source β-step match one
+  target `fix_guarded` + one `beta` (see the rule's docstring);
+* **the source body erases to `defs[idx]`'s one-step unfolding**, at any context — i.e.
+  `WcbvEval.fix_guarded`'s reduct is again an erasure of the same source. That is the
+  statement the β case of the forward simulations needs, and it is available precisely
+  because the re-founded rule states its bodies premise in unfolded form.
+
+Plus the registration witness, which is what refutes a `.fix` erasure at a `Γ` that
+records no recursion. -/
+theorem Erases.fix_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {n : Name} {ty b : Expr} {bi : BinderInfo}
+    {defs : List (@FixDef LBTerm)} {idx : Nat}
+    (h : Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx)) :
+    ∃ hidx : idx < defs.length,
+      (∀ d ∈ defs, d.principalArgIdx = 0) ∧
+      (∃ nm : Name, Γ.recBodies nm = some (defs, idx)) ∧
+      ∀ Δf : VLCtx, Erases env Us Γ Δf (.lam n ty b bi)
+        (LBTerm.substList (LBTerm.fixSubst defs) (defs[idx]'hidx).body) := by
+  generalize he : (Expr.lam n ty b bi) = e₀ at h
+  generalize ht : (LBTerm.fix defs idx) = t₀ at h
+  induction h with
+  | @fix _ idx' _ _ _ _ nms srcs defs' hidx hnlen hslen hsrc hreg hrarg
+      _ _ _ _ _ _ hbodies _ =>
+      cases he
+      injection ht with hdefs hidx'
+      subst hdefs; subst hidx'
+      exact ⟨hidx, hrarg, ⟨_, hreg _ hidx⟩, fun Δf => hsrc ▸ hbodies _ hidx Δf⟩
+  | box _ _ => exact absurd ht (by simp)
+  | lam _ _ _ => exact absurd ht (by simp)
+  | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_lam
+  | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_lam
   | _ => exact absurd he (by simp)
 
 /-- A `.const`-headed spine never reduces to a `.lam` under `SEvalβ`
@@ -299,9 +339,16 @@ theorem Erases.letE_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VL
   | _ => exact absurd he (by simp)
 
 /-- **Inversion of `Erases` on a `.const` source.** Either irrelevant (`box`),
-the `const` rule (`t = .const kn`), or a *nullary* `ctor` spine (`args = []`,
-`t = .construct iid cidx []`). The `cases` rule needs a non-empty spine, so it is
-excluded; a non-nullary `ctor` would make the source an `.app`, also excluded. -/
+the `const` rule (`t = .const kn`), a *nullary* `ctor` spine (`args = []`,
+`t = .construct iid cidx []`), or — since the recursion wall's `const_fix` leaf
+(`Erases.lean`) — a **registered recursive constant** standing for its own block
+(`t = .fix defs idx`). The `cases` rule needs a non-empty spine, so it is
+excluded; a non-nullary `ctor` would make the source an `.app`, also excluded.
+
+The fourth disjunct is the price of `const_fix`, and it is cheap: in the fix-free
+fragment the forward simulations kill it with their `NoFix t` premise
+(`NoFix (.fix …)` is `False`), and the spine inversions kill it with its own
+`Γ.ctors`/`Γ.casesOns`-disjointness witnesses (which `const_inv_full` keeps). -/
 theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
     {n : Name} {us : List Level} {t : LBTerm}
     (h : Erases env Us Γ Δ (.const n us) t) :
@@ -309,12 +356,15 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
         Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
     (∃ kn, Γ.constants n = kn ∧ t = .const kn) ∨
     (∃ (iid : InductiveId) (cidx : Nat),
-        Γ.ctors n = some (iid, cidx) ∧ t = .construct iid cidx []) := by
+        Γ.ctors n = some (iid, cidx) ∧ t = .construct iid cidx []) ∨
+    (∃ (defs : List (@FixDef LBTerm)) (idx : Nat),
+        Γ.recBodies n = some (defs, idx) ∧ t = .fix defs idx) := by
   generalize he : (Expr.const n us) = e₀ at h
   induction h with
   | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
   | const m ms kn hkn _ _ => cases he; exact .inr (.inl ⟨_, hkn, rfl⟩)
-  | ctor_head cn cus iid cidx hc => cases he; exact .inr (.inr ⟨iid, cidx, hc, rfl⟩)
+  | ctor_head cn cus iid cidx hc => cases he; exact .inr (.inr (.inl ⟨iid, cidx, hc, rfl⟩))
+  | const_fix m ms hrec _ _ _ _ _ => cases he; exact .inr (.inr (.inr ⟨_, _, hrec, rfl⟩))
   | @ctor _ cn cus iid cidx args args' hc hlen _ _ =>
       -- The spine `args.foldl app (.const cn cus) = .const n us` forces `args = []`.
       rcases List.eq_nil_or_concat args with rfl | ⟨init, last, hcat⟩
@@ -323,7 +373,7 @@ theorem Erases.const_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : V
         have hlen' : args'.length = 0 := by simpa using hlen.symm
         have : args' = [] := List.eq_nil_of_length_eq_zero hlen'
         subst this
-        exact .inr (.inr ⟨iid, cidx, hc, rfl⟩)
+        exact .inr (.inr (.inl ⟨iid, cidx, hc, rfl⟩))
       · subst hcat
         rw [List.concat_eq_append, List.foldl_append, List.foldl_cons,
           List.foldl_nil] at he

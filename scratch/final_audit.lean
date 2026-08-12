@@ -161,6 +161,16 @@ open LeanToLambdaBox
 #print axioms Erases.thin_vlet
 #print axioms Erases.lam_inv
 #print axioms Erases.defeqDFC
+-- Recursion wall, W1: the re-founded `Erases.fix` (source ↔ block link, registration,
+-- `principalArgIdx = 0`, bodies against each def's unfolding), the `const_fix` leaf it
+-- needs, their inversions and their constructed non-vacuity guards at a *genuinely
+-- recursive* one-def block (`def f (a : Prop) := f a`). No new axiom of ours; the
+-- `Erases`-mentioning results inherit `sorryAx` via the lean4lean `Expr` typing model.
+#print axioms Erases.fix_inv
+#print axioms Erases.const_inv
+#print axioms LeanToLambdaBox.erases_const_fixRec
+#print axioms LeanToLambdaBox.fixRecDefs_unfold
+#print axioms LeanToLambdaBox.erases_fixRec
 #print axioms noFix_subst1
 #print axioms noFix_mkApps
 -- P3-v1 (non-recursive + inductive cold-start env-consistency discharge). New trust is
@@ -379,17 +389,21 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.closeFix_substList_fixSubst_fires
 #print axioms LeanToLambdaBox.closeFix_substList_fixSubst_fires_value
 
--- Recursion wall, W0.1 (`EnvErasureRec.lean`): the honest record that `Erases.fix` is
--- contentless, so `NoFix t` is load-bearing for *soundness* in the forward simulations
--- until the rule is re-founded. `no_wcbvEval_app_gFixR` is pure `WcbvEval` and must be
--- sorryAx-free; the refutation itself inherits `sorryAx` via `TrExprS`, as every
--- `Erases`-mentioning result does.
-#print axioms LeanToLambdaBox.no_wcbvEval_app_gFixR
+-- Recursion wall, W0.1/W1 (`EnvErasureRec.lean`): the historical record that the
+-- *pre-W1* `Erases.fix` was contentless, so `NoFix t` was load-bearing for *soundness*
+-- in the forward simulations. The refutation now runs on the explicit hypothesis
+-- `ContentlessFix` (what the pre-W1 rule handed out for free), and `not_contentlessFix`
+-- records that slice W1 made that hypothesis refutable. `no_wcbvEval_app_gCxFix` is pure
+-- `WcbvEval` and must be sorryAx-free; the refutation itself inherits `sorryAx` via
+-- `TrExprS`, as every `Erases`-mentioning result does.
+#print axioms LeanToLambdaBox.no_wcbvEval_app_gCxFix
 #print axioms LeanToLambdaBox.gCxNoFixEnv
 #print axioms LeanToLambdaBox.gCxSEval
 #print axioms LeanToLambdaBox.gCxTrExprS
+#print axioms LeanToLambdaBox.ContentlessFix
 #print axioms LeanToLambdaBox.gCxErases
-#print axioms LeanToLambdaBox.erases_correct_data_without_noFix_false
+#print axioms LeanToLambdaBox.erases_correct_data_without_noFix_false_of_contentless_fix
+#print axioms LeanToLambdaBox.not_contentlessFix
 
 -- A6ι: the `casesOn`-spine erasure inversion and its exact-arity corollary.
 -- Spine injectivity is pure `Expr` combinatorics (sorryAx-free); the inversions

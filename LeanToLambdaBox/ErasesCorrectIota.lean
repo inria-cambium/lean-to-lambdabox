@@ -372,7 +372,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
       obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
-        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩
+        | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, _, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
           SEvalDataι_defeq henv hΔ hcon hiota htr (.delta hunf hbodyev)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
@@ -384,6 +384,9 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         subst hkn
         exact ⟨t', vve, .delta hlook hEbody, htrr, herr, hnbt', hnft', hclt'⟩
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
+      · -- `const_fix`: the constant stands for its own block — out of this fix-free
+        -- fragment, killed by `NoFix t`.
+        exact hnfx.elim
   | @ctor_val cn us iid cidx ar args vs hcctors har hsat hl hargs ihargs =>
       intro ve t htr her hnb hnfx hcl
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx

@@ -38,7 +38,8 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
   scope (documented), as before.
 
 This relation covers the projection-free fragment:
-`box | bvar | fvar | const | app | lam | letE | ctor | cases` (`fix` next).
+`box | lit | bvar | fvar | const | app | lam | letE | ctor | ctor_head | cases |
+const_fix | fix`.
 
 ## Trust boundary: inherited `sorryAx`
 
@@ -487,47 +488,97 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       Erases env Us Γ Δ
         ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us)))
         (.case (iid, numParams) discr' alts')
-  /-- **Environment-level mutual `fix` (P3, `notes/P3_ENV_ERASURE_DESIGN.md` §1).**
-      Lean has no fixpoint node — recursion is created at the environment level by
-      `visitMutual` (Erasure.lean:904), which erases each recursive def body with its
-      sibling `.const`s mapped to fresh fvars `ids`, closes the result with `mkDef`
-      (`closeFix`), and emits a `.fix defs j` decl per name. This rule reconstructs
-      that: the source is the (syntactically `.lam`-headed) recursive body
-      `.lam n ty b bi` of the `idx`-th def; `osrcs`/`obodies` are the block's opened
-      (fvar-siblinged) source bodies and target bodies; `hbodies` relates them (in
-      fvar-open form, at the fixed erasure context `Δf`); `hclose` ties each closed
-      `defs[j].body` back to its opened form via `closeFix` (`FixMetatheory`).
+  /-- **The recursive-constant leaf** (recursion wall, slice W1). A constant that `Γ`
+      records as recursive relates to *its own* `.fix` node. This is **not** what the
+      eraser emits at a call site — there it emits `.const kn`, handled by `Erases.const`,
+      and the target reaches the block by `WcbvEval.delta` — so `Erases` is deliberately
+      non-deterministic at a recursive constant. The rule exists because a fix
+      *unfolding* (`WcbvEval.fix_guarded`'s `substList (fixSubst defs)`) puts
+      `.fix defs j` exactly where the source has the sibling `.const nⱼ`; §4.1 of the
+      recursion design shows no arrangement of `fix`'s premises avoids needing it.
 
-      Design (Option B — the fixvar reconciliation is confined to the rule's premises,
-      not a global `.const→.fvar` leaf rule, so `const_inv` is untouched): the source
-      is a syntactic `.lam`, which confines the inversion ripple to `lam_inv` alone
-      (every other inversion's catch-all refutes a `.lam`-headed source by head
-      mismatch). The block is **closed** (top-level recursive defs are closed,
-      fvar-free terms): the `hlift`/`hinst`/`habsl`/`hshift`/`hsubst`/`htobv`
-      transport-inertness equalities record exactly that (each de-Bruijn op is the
-      identity on the source `.lam` / target `.fix`), which is what makes the transport
-      metatheory (`erases_shift`/`erases_subst`/`Erases.abstract`/`thin_vlet`) reuse
-      the fix fields verbatim — no `fixExtend` cutoff bookkeeping needed (cf. §7). -/
+      `hctor`/`hcases` mirror `Erases.const`'s disjointness premises, and are what lets
+      `ctor_spine_inv`/`cases_spine_inv` refute this leaf at a registered
+      constructor/`casesOn` head. The three LBTerm-side inertness equalities are carried
+      exactly as in `fix`, so the transport metatheory reuses them verbatim. -/
+  | const_fix {Δ} (nm : Name) (us : List Level)
+      {defs : List (@FixDef LBTerm)} {idx : Nat}
+      (h : Γ.recBodies nm = some (defs, idx))
+      (hctor : Γ.ctors nm = none) (hcases : Γ.casesOns nm = none)
+      (hshift : ∀ (d c : Nat), LBTerm.shift d c (.fix defs idx) = .fix defs idx)
+      (hsubst : ∀ (s : LBTerm) (d : Nat), LBTerm.subst s d (.fix defs idx) = .fix defs idx)
+      (htobv : ∀ (x : FVarId) (l : Nat), toBvar x l (.fix defs idx) = .fix defs idx) :
+      Erases env Us Γ Δ (.const nm us) (.fix defs idx)
+  /-- **Environment-level mutual `fix` (P3; re-founded by the recursion wall, W1).**
+      Lean has no fixpoint node — recursion is created at the environment level by
+      `visitMutual` (`Erasure.lean`), which erases each recursive def body with its
+      sibling `.const`s mapped to fresh fvars, closes the result with `mkDef`
+      (`closeFix`), and emits a `.fix defs j` decl per name of the block. This rule
+      reconstructs that: `nms`/`srcs` are the block's names and their **real** source
+      bodies, `defs` the emitted block, and the conclusion says the `idx`-th body — pinned
+      to it by `hsrc`, and syntactically `.lam`-headed as every `_unsafe_rec` body is —
+      erases to `.fix defs idx`.
+
+      **What `hbodies` says, and why in unfolded form.** Sibling `j`'s source body erases
+      to the *one-step unfolding* of def `j`, i.e. to
+      `substList (fixSubst defs) defs[j].body` — exactly the reduct
+      `WcbvEval.fix_guarded` produces. Two remarks:
+
+      * This is finite, not circular, precisely because of the `const_fix` leaf above:
+        the source's self-references are `.const nⱼ`, which the leaf sends to `.fix defs j`
+        in one step without descending into the block again. (For a *contentless* block
+        like `fix f. f` the premise does degenerate into its own conclusion and no
+        derivation exists — correctly, since nothing erases to that block.)
+      * The design's formulation — `hbodies` in *fvar-open* form under the block's
+        fixvar-extended context `Γ.withFixvars nms ids` — is **not expressible**: `Γ` is a
+        *parameter* of this inductive, so no constructor premise may mention `Erases` at a
+        different `Γ`. The two are related by the (deferred) `Erases.instFixvars`
+        transport, which is exactly the open→unfolded direction; stating the rule in the
+        unfolded form moves that obligation from the rule's *consumers* (the forward
+        simulation, which wants the unfolding and nothing else) to its *producers*
+        (`erases_fix_of_closed`, where `closeFix_substList_fixSubst` discharges the
+        `mkDef`-closing half of it today).
+
+      **What the premises pin.**
+      * `hsrc` — the missing link the pre-W1 rule lacked: without it `n ty b bi` occurred
+        only in the inertness equalities and the conclusion, so *any* closed fvar-free
+        `.lam` erased to *any* closed block (see the machine-checked record in
+        `EnvErasureRec`, `erases_correct_data_without_noFix_false_of_contentless_fix`).
+      * `hreg` — the block is self-describing: `Γ` records it for each of its own names,
+        which is what makes the `const_fix` leaf available for the sibling references
+        inside `hbodies`.
+      * `hrarg` — every def's `principalArgIdx` is `0`. `mkDef` never sets it
+        (`Basic.lean`'s default), and the whole source-β ↔ target-`fix_guarded`+`beta`
+        correspondence rests on it: with a non-zero `rarg` a partially applied recursive
+        function is a *stuck fix spine* on the target and a plain λ value on the source.
+        Carried so that the shipping TODO "eta-expand fixpoints?" breaks this loudly
+        rather than silently.
+      * `hlift`/`hinst`/`habsl`/`hshift`/`hsubst`/`htobv` — the block is **closed** and
+        fvar-free (top-level recursive defs are), so every de-Bruijn op is the identity on
+        the source `.lam` and the target `.fix`. That is what makes the transport
+        metatheory (`erases_shift`/`erases_subst`/`Erases.abstract`/`thin_vlet`) reuse the
+        fix fields verbatim — no `fixExtend` cutoff bookkeeping. `hbodies` is `∀ Δf`, so it
+        transports for free too (and the conclusion's `Δ` stays free, which is the
+        context-uniformity `ErasesEnvDelta` needs). -/
   | fix {Δ : VLCtx} (idx : Nat)
-      {Δf : VLCtx}
       {n : Name} {ty b : Expr} {bi : BinderInfo}
-      {ids : List FVarId}
-      {osrcs : List Expr} {obodies : List LBTerm}
+      {nms : List Name} {srcs : List Expr}
       {defs : List (@FixDef LBTerm)}
       (hidx : idx < defs.length)
-      (holen : osrcs.length = defs.length)
-      (hblen : obodies.length = defs.length)
-      (hilen : ids.length = defs.length)
+      (hnlen : nms.length = defs.length)
+      (hslen : srcs.length = defs.length)
+      (hsrc : (srcs[idx]'(hslen ▸ hidx)) = .lam n ty b bi)
+      (hreg : ∀ j (h : j < defs.length), Γ.recBodies (nms[j]'(hnlen ▸ h)) = some (defs, j))
+      (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
       (hlift : ∀ (s d : Nat), (Expr.lam n ty b bi).liftLooseBVars' s d = .lam n ty b bi)
       (hinst : ∀ (e₀ : Expr) (d : Nat), (Expr.lam n ty b bi).instantiate1' e₀ d = .lam n ty b bi)
       (habsl : ∀ (v : FVarId) (d : Nat), (Expr.lam n ty b bi).abstract1 v d = .lam n ty b bi)
       (hshift : ∀ (d c : Nat), LBTerm.shift d c (.fix defs idx) = .fix defs idx)
       (hsubst : ∀ (s : LBTerm) (d : Nat), LBTerm.subst s d (.fix defs idx) = .fix defs idx)
       (htobv : ∀ (x : FVarId) (l : Nat), toBvar x l (.fix defs idx) = .fix defs idx)
-      (hclose : ∀ j (h : j < defs.length),
-          (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
-      (hbodies : ∀ j (h : j < defs.length),
-          Erases env Us Γ Δf (osrcs[j]'(holen ▸ h)) (obodies[j]'(hblen ▸ h))) :
+      (hbodies : ∀ j (h : j < defs.length) (Δf : VLCtx),
+          Erases env Us Γ Δf (srcs[j]'(hslen ▸ h))
+            (LBTerm.substList (LBTerm.fixSubst defs) (defs[j]'h).body)) :
       Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx)
 
 /-! ### Erasure commutes with de Bruijn weakening (step A2.2).
@@ -582,13 +633,18 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← shift_mkLambdas]
       exact ihalts j (by simpa using hj) W
-  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
-      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      -- The registered block is closed: `shift` is the identity on it.
+      rw [hshift dn dk]
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
       -- The fix source/target are closed & fvar-free (top-level rec def): both de
       -- Bruijn ops are the identity (the inertness premises), so the fix fields
       -- transport verbatim (no `fixExtend` cutoff bookkeeping — cf. design §7).
       rw [hlift dk dn, hshift dn dk]
-      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
 
 /-- A `VLCtx.InstN` witness yields the de Bruijn weakening of the substitutee's
 context `Δ₀` into the instantiated context `Δ` (it gained `dk` binders). Used to
@@ -657,10 +713,14 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
         (fun j hj => ?_)
       rw [List.getElem_map, List.getElem_map, ← subst_mkLambdas]
       exact ihalts j (by simpa using hj) W
-  | @fix Δc idx Δf nm tty tb tbi ids osrcs obodies defs hidx holen hblen hilen
-      hlift hinst habsl hshift hsubst htobv hclose hbodies _ihb =>
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      rw [hsubst s' dk]
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
       rw [hinst e₀ dk, hsubst s' dk]
-      exact .fix idx hidx holen hblen hilen hlift hinst habsl hshift hsubst htobv hclose hbodies
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
 
 /-! ### Non-vacuity guard for `Erases.lit`
 
@@ -743,36 +803,92 @@ example (Us : List Name) (Δ : VLCtx) :
         (.app (.construct natLitInd 1 []) (.construct natLitInd 0 []))) :=
   erases_natLit Us Δ 2
 
-/-! ### Non-vacuity guard for `Erases.fix`
+/-! ### Non-vacuity guards for `Erases.const_fix` and the re-founded `Erases.fix`
 
-A concrete 1-def block `def f := f` (the self-loop is out of scope for the *shipping*
-recursion, but exercises the closing at the pure-`LBTerm` level): the sole def body is
-the fix binder itself, opened to a fresh fvar `x` and re-closed to `.bvar 0` by
-`closeFix`. The source is a dummy closed, fvar-free `.lam` (its exact shape is
-irrelevant — the fix rule requires no `TrExprS` of the source, only the transport-
-inertness equalities, which hold by `rfl`/computation for closed fvar-free terms).
-Constructible against any `env`/`Us`/`Γ`/`Δ`/`Δf` — so the rule is non-vacuous. -/
-example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ Δf : VLCtx) :
-    Erases env Us Γ Δ (.lam `a (.sort .zero) (.sort .zero) .default)
-      (.fix [{ name := .named "f", body := .bvar 0 }] 0) := by
-  refine .fix (Δf := Δf) 0 (ids := [⟨`x⟩]) (osrcs := [.fvar ⟨`x⟩]) (obodies := [.fvar ⟨`x⟩])
-    (Nat.zero_lt_one) rfl rfl rfl
+The re-founded rule is easy to render *vacuous*: `hreg` needs a `Γ` that really
+registers the block, and `hsrc` + `hbodies` pin the conclusion's source `.lam` to the
+`idx`-th body, which must erase to that def's **unfolding**. Everything below is
+constructed at a concrete `Γ` — nothing is assumed — and the block is genuinely
+recursive: it is `def f (a : Prop) := f a`, whose erasure is
+
+    fixRecDefs = [ f ↦ λa. #1 #0 ]     (the fix binder is `#1` under the λ)
+    fixRecSrc  = fun (a : Prop) => f a
+
+so the sole def's unfolding is `λa. (fix f. λa. f a) #0` and the self-reference inside
+it is discharged by the `const_fix` leaf. This is exactly the shape `visitMutual` emits
+(`mkDef` closes the sibling fvar to `.bvar 1`), and it is *not* the pre-W1 fixture: the
+old rule related a **dummy** source `.lam` to the contentless self-loop `fix f. f`,
+which is what made it — and, with it, the `NoFix`-free forward simulation — unsound
+(the record is `EnvErasureRec`'s Part 3b). -/
+
+/-- The emitted block for `def f (a : Prop) := f a`: one def, whose body is the closed
+`λa. #1 #0` (`#1` = the fix binder, `#0` = `a`). `principalArgIdx` is the `Basic.lean`
+default `0`, as `mkDef` always leaves it. -/
+def fixRecDefs : List (@FixDef LBTerm) :=
+  [{ name := .named "f", body := .lambda (nameToBinder `a) (.app (.bvar 1) (.bvar 0)) }]
+
+/-- The source body of that def: `fun (a : Prop) => f a`. -/
+def fixRecSrc : Expr := .lam `a (.sort .zero) (.app (.const `f []) (.bvar 0)) .default
+
+/-- A concrete `Γ` registering the one-def block above under the name `f`. -/
+def ΓfixRec : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  recBodies := fun n => if n = `f then some (fixRecDefs, 0) else none
+
+theorem ΓfixRec_recBodies : ΓfixRec.recBodies `f = some (fixRecDefs, 0) := by
+  simp [ΓfixRec]
+
+/-- The block is inert under every de Bruijn operation (it is closed and fvar-free),
+which is what the three LBTerm-side premises of `const_fix`/`fix` record. -/
+theorem fixRecDefs_shift (d c : Nat) :
+    LBTerm.shift d c (.fix fixRecDefs 0) = .fix fixRecDefs 0 := by
+  simp only [fixRecDefs, LBTerm.shift, LBTerm.shiftDefs, List.length_cons, List.length_nil]
+  rw [if_neg (by omega), if_neg (by omega)]
+
+theorem fixRecDefs_subst (s : LBTerm) (d : Nat) :
+    LBTerm.subst s d (.fix fixRecDefs 0) = .fix fixRecDefs 0 := by
+  simp only [fixRecDefs, LBTerm.subst, LBTerm.substDefs, List.length_cons, List.length_nil]
+  rw [if_pos (by omega), if_pos (by omega)]
+
+theorem fixRecDefs_toBvar (x : FVarId) (l : Nat) :
+    toBvar x l (.fix fixRecDefs 0) = .fix fixRecDefs 0 := rfl
+
+/-- **Non-vacuity (`Erases.const_fix`)**: the registered recursive constant `f` relates
+to its own block. (At the default `Γ` — `recBodies = fun _ => none` — the rule is
+refuted by `simp`, so the registration is doing the work.) -/
+theorem erases_const_fixRec (env : VEnv) (Us : List Name) (Δ : VLCtx) (us : List Level) :
+    Erases env Us ΓfixRec Δ (.const `f us) (.fix fixRecDefs 0) :=
+  .const_fix `f us ΓfixRec_recBodies (by simp [ΓfixRec]) (by simp [ΓfixRec])
+    fixRecDefs_shift fixRecDefs_subst fixRecDefs_toBvar
+
+/-- The one-step unfolding of the block's sole def, computed: the fix binder is replaced
+by the block itself, so the recursive call becomes `.fix fixRecDefs 0` applied to `#0`. -/
+theorem fixRecDefs_unfold :
+    LBTerm.substList (LBTerm.fixSubst fixRecDefs) (fixRecDefs[0]'(by simp [fixRecDefs])).body
+      = .lambda (nameToBinder `a) (.app (.fix fixRecDefs 0) (.bvar 0)) := rfl
+
+/-- **Non-vacuity (`Erases.fix`, re-founded)**: `fun (a : Prop) => f a` erases to
+`fix f. λa. f a` at the registering `Γ`, at any `Δ`. The `hbodies` premise is discharged
+*through* the `const_fix` leaf — which is what makes the (genuinely self-referential)
+premise finite. -/
+theorem erases_fixRec (env : VEnv) (Us : List Name) (Δ : VLCtx) :
+    Erases env Us ΓfixRec Δ fixRecSrc (.fix fixRecDefs 0) := by
+  refine .fix 0 (nms := [`f]) (srcs := [fixRecSrc]) Nat.zero_lt_one rfl rfl rfl
+    (fun j h => ?_) (fun d hd => ?_)
     (fun s d => rfl) (fun e₀ d => rfl) (fun v d => rfl)
-    (fun d c => ?_) (fun s d => ?_) (fun x l => rfl)
-    (fun j h => ?_) (fun j h => ?_)
-  · -- shift is the identity: the sole body `.bvar 0` is below the (single) fix binder
-    simp only [LBTerm.shift, LBTerm.shiftDefs, List.length_cons, List.length_nil]
-    rw [if_neg (by omega)]
-  · -- subst is the identity likewise
-    simp only [LBTerm.subst, LBTerm.substDefs, List.length_cons, List.length_nil]
-    rw [if_pos (by omega)]
-  · -- closeFix [x] 0 (.fvar x) = .bvar 0  (the self-reference re-closes)
-    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
-    show (LBTerm.bvar 0) = closeFix [⟨`x⟩] 0 (.fvar ⟨`x⟩)
-    exact (closeFixFold_fvar_head ⟨`x⟩ 0 []).symm
-  · -- each opened body erases: `.fvar x ↦ .fvar x`
-    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
-    exact .fvar ⟨`x⟩
+    fixRecDefs_shift fixRecDefs_subst fixRecDefs_toBvar (fun j h Δf => ?_)
+  · -- `hreg`: the block is registered under its own (sole) name
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ΓfixRec_recBodies
+  · -- `hrarg`: `mkDef` leaves the principal argument index at the default `0`
+    simp only [fixRecDefs, List.mem_cons, List.not_mem_nil, or_false] at hd
+    subst hd; rfl
+  · -- `hbodies`: the body erases to the def's unfolding, the recursive call by `const_fix`
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    rw [fixRecDefs_unfold]
+    exact .lam (ty' := .sort .zero) (.sort rfl)
+      (.app (erases_const_fixRec env Us _ []) (.bvar 0))
 
 /-! ### Non-vacuity guards for `Erases.cases`
 
