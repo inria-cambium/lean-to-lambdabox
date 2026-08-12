@@ -150,3 +150,8 @@ import LeanToLambdaBox.ColdStartInduction
 -- body it erased, plus the recursive block's registration.
 import LeanToLambdaBox.ColdStartRun
 import LeanToLambdaBox.ColdStartDelta
+-- Cold-start slice S4: the capstone whose subject is the real `Erasure.erase e cfg`, from
+-- the empty state, producing `E` and `t` instead of consuming them — plus `RegBridgeHyps`
+-- (registry-invariant preservation along a run + registration completeness) and the
+-- refutation of slice S1d's `RegShapeHyps`, which that bundle replaces.
+import LeanToLambdaBox.ColdStart

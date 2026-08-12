@@ -1083,3 +1083,52 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.RegisteredClosureData.mono
 #print axioms LeanToLambdaBox.gRecConstState_lookups
 #print axioms LeanToLambdaBox.gRecConstState_no_shadow
+
+-- ============================================================================
+-- The DAG cold-start wall, slice S4 (2026-08-12): the capstone's subject becomes
+-- `Erasure.erase`.
+--
+-- THE STATEMENT. `Erasure.erase e cfg cctx ref w = .ok (p, inls) w'` from the EMPTY state
+-- now yields `∃ E t t', p = .untyped E (some t) ∧ WcbvEval E appliedFlags t t' ∧ … ∧
+-- (uniqueness)`. `E` and `t` are PRODUCED, not consumed. Discharged from the run: the
+-- state (R1+R2 — csimp off makes `prepare_erasure` state-transparent, so the `visitExpr`
+-- run really starts at `{}`), the environment, `ClosedEnv E`, `LBClosed t 0` (R11, no
+-- hypotheses), the bridge invariant (CONSTRUCTED at `{}` by `gBridgeInv_nil`), and the
+-- three registration records (from `RegInvShape`, modulo registration completeness).
+--
+-- A REFUTED PREMISE, RAISED NOT INHERITED. Slice S1d's `RegShapeHyps` is INCONSISTENT,
+-- so its corollaries `visitExpr_regInvShape` / `visitMutual_regInvShape` /
+-- `get_constant_kername_regInvShape` are vacuous. Two independent proofs land here:
+--   * `regShapeHyps_fresh_refuted` — `fresh` quantifies over EVERY state satisfying the
+--     invariant with no link to the call; at `addAxiomState n {}` (a state S1's own
+--     `RegInvShape.addAxiom` produces) it asserts `Kername.beq (toKername n) (toKername n)
+--     = false`;
+--   * `regShapeHyps_recClosed_refuted` — `recClosed` asserts `LBClosed (.fix defs j) 0`
+--     for EVERY block, including a one-definition block whose body is `.bvar 5`.
+-- `regKeys`/`regCtors`/`regCases`/`regFields` fall the same way (the `register_inductive`
+-- HIT run is constructible, so they can be instantiated at a hand-made empty-`gdecls`
+-- state). The repair is stated at the refutation: a coverage field in `RegInvShape` (which
+-- needs R4's `ConstExt` to record its axiom prefix's KEYS) plus a `RunClosed.rc` that
+-- TAKES the block's closedness — both inside S1's files, but together a re-run of the
+-- 18-motive shape induction, hence a slice of their own. Until then the capstone routes
+-- the preservation through `RegBridgeHyps.regInv`, which is keyed on an actual run and so
+-- sits in the epistemic class of `BridgeHyps` (no run of the family is constructible
+-- in-logic): not decidable here, not refutable here.
+--
+-- SCOPE, so it is not over-read. `BridgeInv.known_dom` says a `known` constant is ALREADY
+-- registered; at `{}` nothing is, so `known = ⊥` and `Supported.const` is unusable. The
+-- cold-start fragment therefore contains NO δ-constant, and `Esrc` is empty: the δ records
+-- are discharged vacuously, not from the walk. Closing that needs bridge motive 5's miss
+-- branch, which needs motive 6 to conclude an UNCONDITIONAL state/generator fact — and
+-- motive 1's conclusion is entirely conditional, so it is a restructuring of
+-- `visitExpr_refines_erases_core`, not a new `RegBridgeHyps` field as S2's note supposed.
+--
+-- Expectation: the two capstones' axiom sets are IDENTICAL to
+-- `shipping_erase_correct_firstorder{,ι}_registered`'s — no axiom of ours, no movement.
+-- The two refutations are pure `LBTerm`/state reasoning and are sorryAx-free.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.regShapeHyps_fresh_refuted
+#print axioms LeanToLambdaBox.regShapeHyps_recClosed_refuted
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
