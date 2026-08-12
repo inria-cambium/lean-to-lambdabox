@@ -1845,8 +1845,15 @@ theorem run_inline_prefix_ok {b : Bool} {msg : MessageData} {rest : EraseM Unit}
 
 /-- **The non-recursive exit.** Erase the (prepared) body under the declaration's
 reader update, cons the constant, then the inlining bookkeeping. The reader update, the
-source body and the tail's two tests / messages are abstract. -/
-theorem run_nonrec_exit_ok {f : ErasureContext → ErasureContext} {e : Expr}
+source body and the tail's two tests / messages are abstract.
+
+The erasure function `vE` is **abstract** as well: inside
+`Erasure.visitExpr.mutual_fixpoint_induct` the step goal for `visitMutual` mentions the
+fixpoint's abstract `visitExpr` argument, not the real one, so a lemma pinned to
+`Erasure.visitExpr` would be unusable there. `run_visitMutual_ok` instantiates
+`vE := visitExpr`. -/
+theorem run_nonrec_exit_ok {vE : Expr → EraseM LBTerm}
+    {f : ErasureContext → ErasureContext} {e : Expr}
     {b1 b2 : ErasureContext → LBTerm → Bool} {msg1 msg2 : MessageData}
     (hinl : ∀ {s' : ErasureState} {kn : Kername},
       Q s' → Q { s' with inlinings := kn :: s'.inlinings })
@@ -1855,13 +1862,13 @@ theorem run_nonrec_exit_ok {f : ErasureContext → ErasureContext} {e : Expr}
       prepare_erasure e' s' ctx' cctx ref w' = .ok (pe, s'') w'' → Q s' → Q s'')
     (hvE : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
         {w' : Void IO.RealWorld} {t : LBTerm} {s'' : ErasureState} {w'' : Void IO.RealWorld},
-      visitExpr e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
+      vE e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
     (hnr : ∀ {s' : ErasureState} {t : LBTerm}, Q s' → Nf t → Cl t →
       Q (nonrecConstState n t s'))
     {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
     {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld} (hQ : Q s)
     (hrun : (do
-        let t ← withReader f (do let pe ← prepare_erasure e; visitExpr pe)
+        let t ← withReader f (do let pe ← prepare_erasure e; vE pe)
         modify (fun s => { s with
           constants := s.constants.insert n (toKername n),
           gdecls := (toKername n, .constantDecl ⟨some t⟩) :: s.gdecls })
@@ -1895,8 +1902,9 @@ theorem run_nonrec_exit_ok {f : ErasureContext → ErasureContext} {e : Expr}
 
 /-- **The recursive exit.** Fresh fvars, per-definition erasure under the fixvar
 binding, then one `gdecls` cons per name. The two reader updates and the "value of a
-declaration" projection are abstract. -/
-theorem run_rec_exit_ok {names fixnames : List Name}
+declaration" projection are abstract — and so is the erasure function `vE`, for the
+reason given at `run_nonrec_exit_ok`. -/
+theorem run_rec_exit_ok {vE : Expr → EraseM LBTerm} {names fixnames : List Name}
     {f : List FVarId → ErasureContext → ErasureContext}
     {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
     (hprep : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
@@ -1904,7 +1912,7 @@ theorem run_rec_exit_ok {names fixnames : List Name}
       prepare_erasure e' s' ctx' cctx ref w' = .ok (pe, s'') w'' → Q s' → Q s'')
     (hvE : ∀ {e' : Expr} {s' : ErasureState} {ctx' : ErasureContext}
         {w' : Void IO.RealWorld} {t : LBTerm} {s'' : ErasureState} {w'' : Void IO.RealWorld},
-      visitExpr e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
+      vE e' s' ctx' cctx ref w' = .ok (t, s'') w'' → Q s' → Q s'' ∧ Nf t ∧ Cl t)
     (hrec : ∀ {s' : ErasureState} {defs : List (@FixDef LBTerm)},
       Q s' → Q (recConstState fixnames defs s'))
     {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
@@ -1914,7 +1922,7 @@ theorem run_rec_exit_ok {names fixnames : List Name}
         withReader (f ids) (do
           let defs ← names.mapM (fun m => do
             let ci ← getConstInfo m
-            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); visitExpr pe)
+            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); vE pe)
             mkDef (remove_unsafe_rec m) fixnames t)
           for p in fixnames.zipIdx do
             modify (fun s => { s with
