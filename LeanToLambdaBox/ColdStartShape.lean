@@ -673,10 +673,11 @@ theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername
 `NoFix`/`LBClosed` obligations (`regInvShape_nonrec_cons_iff`) must be supplied — that is
 `hnf`/`hcl`, the output-shape facts `LeanToLambdaBox.OutputShape` and the (still open)
 result induction produce. Everything else mirrors `RegInvShape.addAxiom`. -/
-theorem RegInvShape.nonrecConst {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
+theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
     (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
     (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
-    (hnf : NoFix t) (hcl : LBClosed t 0) :
+    (hnf : NoFix t ∨ ∃ (defs : List (@FixDef LBTerm)) (j : Nat), t = .fix defs j)
+    (hcl : LBClosed t 0) :
     RegInvShape Γ (nonrecConstState n t s) where
   kn := by
     intro m k hm
@@ -706,13 +707,73 @@ theorem RegInvShape.nonrecConst {Γ : ErasureCtx} {s : ErasureState} {n : Name} 
   nofix := by
     intro kn body' hl
     rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
-    · cases hd; exact Or.inl hnf
+    · cases hd; exact hnf
     · exact h.nofix hpass
   closed := by
     intro kn body hl
     rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
     · cases hd; exact hcl
     · exact h.closed hpass
+
+/-- The non-recursive exit proper: the stored body is a plain `visitExpr` output. -/
+theorem RegInvShape.nonrecConst {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
+    (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
+    (hfresh : ∀ p ∈ s.gdecls, Kername.beq (toKername n) p.1 = false)
+    (hnf : NoFix t) (hcl : LBClosed t 0) :
+    RegInvShape Γ (nonrecConstState n t s) :=
+  h.constCons hΓ hfresh (Or.inl hnf) hcl
+
+/-! ### The recursive exit
+
+`Erasure.recConstState` conses one `.fix` body per name of the mutual block, left to
+right. Walking `RegInvShape` across it is a `List.foldl` induction whose only real work
+is threading the key-freshness condition: at each step the name being registered must
+not already be a key of the accumulated `gdecls`. That is *not* derivable from the code
+(`visitMutual` tests neither `s.gdecls` nor `s.constants` before consing), so it is an
+input — supplied here in the form the S4 capstone can actually produce, namely
+`KeysDistinct` of the **final** `gdecls`, from which each step's freshness is read off
+by `List.pairwise_append`. -/
+
+/-- `recConstState` only prepends to `gdecls`. -/
+theorem recConstFold_gdecls (defs : List (@FixDef LBTerm)) :
+    ∀ (L : List (Name × Nat)) (s : ErasureState),
+      ∃ pre, (L.foldl (Erasure.recConstStep defs) s).gdecls = pre ++ s.gdecls
+  | [], s => ⟨[], rfl⟩
+  | p :: rest, s => by
+    obtain ⟨pre, hpre⟩ := recConstFold_gdecls defs rest (Erasure.recConstStep defs s p)
+    refine ⟨pre ++ [(toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩)], ?_⟩
+    rw [List.foldl_cons, hpre, List.append_assoc]
+    rfl
+
+/-- **`RegInvShape` travels along the recursive block registration.** -/
+theorem RegInvShape.recConstFold {Γ : ErasureCtx} {defs : List (@FixDef LBTerm)}
+    (hΓ : ∀ m : Name, Γ.constants m = toKername m)
+    (hcl : ∀ j : Nat, LBClosed (LBTerm.fix defs j) 0) :
+    ∀ (L : List (Name × Nat)) (s : ErasureState), RegInvShape Γ s →
+      KeysDistinct (L.foldl (Erasure.recConstStep defs) s).gdecls →
+      RegInvShape Γ (L.foldl (Erasure.recConstStep defs) s)
+  | [], s, h, _ => h
+  | p :: rest, s, h, hkeys => by
+    rw [List.foldl_cons] at hkeys ⊢
+    refine RegInvShape.recConstFold hΓ hcl rest _ ?_ hkeys
+    refine h.constCons (hΓ p.1) ?_ (Or.inr ⟨defs, p.2, rfl⟩) (hcl p.2)
+    -- freshness of this step's key, read off the final `KeysDistinct`
+    obtain ⟨pre, hpre⟩ := recConstFold_gdecls defs rest (Erasure.recConstStep defs s p)
+    rw [hpre] at hkeys
+    have hsuf : KeysDistinct
+        ((toKername p.1, GlobalDecl.constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls) :=
+      (List.pairwise_append.mp hkeys).2.1
+    exact (List.pairwise_cons.mp hsuf).1
+
+/-- The form `Erasure.run_visitMutual_ok`'s `hrec` premise wants. -/
+theorem RegInvShape.recConst {Γ : ErasureCtx} {names : List Name}
+    {defs : List (@FixDef LBTerm)} {s : ErasureState}
+    (hΓ : ∀ m : Name, Γ.constants m = toKername m)
+    (hcl : ∀ j : Nat, LBClosed (LBTerm.fix defs j) 0)
+    (h : RegInvShape Γ s) (hkeys : KeysDistinct (recConstState names defs s).gdecls) :
+    RegInvShape Γ (recConstState names defs s) := by
+  rw [recConstState_eq] at hkeys ⊢
+  exact RegInvShape.recConstFold hΓ hcl _ s h hkeys
 
 /-! ### Non-vacuity
 

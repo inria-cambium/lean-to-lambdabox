@@ -1754,6 +1754,17 @@ def recConstState (names : List Name) (defs : List (@FixDef LBTerm))
         constants := st.constants.insert p.1 (toKername p.1),
         gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls }) s
 
+/-- One step of the recursive block registration, named so that the `List.foldl`
+induction that walks `recConstState` has something to generalize over. It is literally
+the constant cons of the non-recursive exit at a `.fix` body. -/
+def recConstStep (defs : List (@FixDef LBTerm)) (st : ErasureState) (p : Name × Nat) :
+    ErasureState :=
+  nonrecConstState p.1 (.fix defs p.2) st
+
+theorem recConstState_eq (names : List Name) (defs : List (@FixDef LBTerm))
+    (s : ErasureState) :
+    recConstState names defs s = names.zipIdx.foldl (recConstStep defs) s := rfl
+
 section Helpers
 
 variable {Q : ErasureState → Prop} {Nf Cl : LBTerm → Prop} {n : Name}
