@@ -710,6 +710,16 @@ theorem ΓnatLit_zero : ΓnatLit.ctors ``Nat.zero = some (natLitInd, 0) := by
 theorem ΓnatLit_succ : ΓnatLit.ctors ``Nat.succ = some (natLitInd, 1) := by
   simp [ΓnatLit]
 
+theorem ΓnatLit_arity_zero : ΓnatLit.ctorArities ``Nat.zero = some 0 := by
+  simp [ΓnatLit]
+
+theorem ΓnatLit_arity_succ : ΓnatLit.ctorArities ``Nat.succ = some 1 := by
+  simp [ΓnatLit]
+
+theorem ΓnatLit_ctors_other {n : Name} (h0 : n ≠ ``Nat.zero) (h1 : n ≠ ``Nat.succ) :
+    ΓnatLit.ctors n = none := by
+  simp [ΓnatLit, h0, h1]
+
 /-- The peano tower `T n` the shipping `visitLiteral` emits in applied form:
 `T 0 = .construct natLitInd 0 []`, `T (n+1) = .app (.construct natLitInd 1 []) (T n)`. -/
 def natLitTower : Nat → LBTerm

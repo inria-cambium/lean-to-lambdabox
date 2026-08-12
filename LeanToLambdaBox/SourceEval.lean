@@ -89,6 +89,19 @@ inductive SEvalβζδ (E : SEnv) : Expr → Expr → Prop
       (hargs : ∀ i (h : i < args.length), SEvalβζδ E args[i] (vs[i]'(hl ▸ h))) :
       SEvalβζδ E (args.foldl Expr.app (.const cn us))
         (vs.foldl Expr.app (.const cn us))
+  /-- A **literal** evaluates by unfolding to its constructor form — the same one-step
+      unfolding lean4lean's `TrExprS.lit` and the shipping `visitLiteral` use. Under
+      peano the reduct is the `Nat` tower, whose value `ctor_val` already delivers, so
+      no literal case is needed anywhere in the *value* world (`FirstOrderValue`,
+      `eraseCore`): the value of `.lit (.natVal 2)` is the source tower
+      `Nat.succ (Nat.succ Nat.zero)`, not the literal.
+
+      The alternative — "literals are values" — would put a non-constructor into the
+      first-order value world and force new cases in `FirstOrderValue`, `eraseCore` and
+      the target-side evaluation. Unfolding costs none of that: every simulation case
+      becomes the IH. -/
+  | lit {l : Literal} {r : Expr} :
+      SEvalβζδ E l.toConstructor r → SEvalβζδ E (.lit l) r
 
 /-- Weak call-by-value big-step evaluation of source `Expr`, the **β + δ**
 fragment (λ-values, β-redexes, and constant δ-unfolding). This is the relation over

@@ -201,6 +201,10 @@ theorem SEvalDataι_partial_cases_lam_elim {Γ : ErasureCtx} {ia : IotaArities} 
       have hargslen : (pre ++ discr :: minors).length = pre.length + 1 + minors.length := by
         simp only [List.length_append, List.length_cons]; omega
       omega
+  | @lit l r hev _ =>
+      -- a `.lit` source is never a `.const`-headed spine, so the premise is refuted
+      intro con us args iid np dp nfs heq _ _ _ _
+      exact absurd heq.symm foldl_app_const_ne_lit
 
 /-! ## The ι forward simulation -/
 
@@ -557,6 +561,18 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           · exact wcbvEval_mkApps_mkLambdas_substList (cargs'.drop np) _ _
               (by rw [hnames, hdropl']) hfieldval hfieldcl hEbranch
         · exact absurd hnbd hnbt
+  | @lit l r hev ih =>
+      intro ve t htr her hnb hnfx hcl
+      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+      obtain ⟨hcll, htrC⟩ := TrExprS.lit_inv' htr
+      rcases Erases.lit_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, herC⟩
+      · obtain ⟨vve, htrr, hdef⟩ := SEvalDataι_defeq henv hΔ hcon hiota htr (.lit hev)
+        have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
+          (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef),
+          trivial, trivial, trivial⟩
+      · -- source and target both step to the unfolding: the IH *is* the goal
+        exact ih htrC herC hnb hnfx hcl
 
 /-! ## Non-vacuity guards for the ι side conditions
 

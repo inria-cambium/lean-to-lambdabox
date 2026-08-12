@@ -198,6 +198,9 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
           (fun htr => ihdiscr hΔ htr) htr
       obtain ⟨rvv, htr_r, hdef3⟩ := ihbranch hΔ htr_branch
       exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΔ.toCtx hdef12 hdef3⟩
+  | @lit l r hev ih =>
+      -- Free: `TrExprS.lit` gives the literal and its unfolding the *same* `VExpr`.
+      cases htr with | lit _ htrC => exact ih hΔ htrC
 
 /-- **`SEvalDataι_defeq`, with `IotaConsistent` discharged.** The ι premise is no longer
 assumed: it is derived from the fork's rule lookup (`PatsIotaSpec`), the δ facts the

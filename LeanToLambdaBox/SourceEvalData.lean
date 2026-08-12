@@ -64,6 +64,11 @@ inductive SEvalData (Γ : ErasureCtx) (E : SEnv) : Expr → Expr → Prop
       (hargs : ∀ i (h : i < args.length), SEvalData Γ E args[i] (vs[i]'(hl ▸ h))) :
       SEvalData Γ E (args.foldl Expr.app (.const cn us))
         (vs.foldl Expr.app (.const cn us))
+  /-- A **literal** evaluates by unfolding to its constructor form (see
+      `SEvalβζδ.lit`). Under peano the reduct is the `Nat` tower, already a value of
+      `ctor_val` and already a `FirstOrderValue`. -/
+  | lit {l : Literal} {r : Expr} :
+      SEvalData Γ E l.toConstructor r → SEvalData Γ E (.lit l) r
 
 /-- **Forgetful map to the β+ζ+δ fragment.** Every `SEvalData` evaluation is an
 `SEvalβζδ` evaluation (dropping the registration/arity data on `ctor_val`). This lets
@@ -77,6 +82,7 @@ theorem SEvalData.toβζδ {Γ : ErasureCtx} {E : SEnv} {e v : Expr}
   | zeta _ _ ihv ihb => exact .zeta ihv ihb
   | delta hu _ ih => exact .delta hu ih
   | ctor_val _ _ _ hl _ ihargs => exact .ctor_val hl (fun i h => ihargs i h)
+  | lit _ ih => exact .lit ih
 
 /-- **A registered-head spine never `SEvalData`-evaluates to a λ.** If `e` is a
 `SEvalData`-evaluation whose source is a constructor/`casesOn`-headed application
@@ -129,6 +135,10 @@ theorem SEvalData_const_spine_lam_elim {Γ : ErasureCtx} {E : SEnv}
       intro cn' us' args' _ _
       rintro ⟨n, ty, b, bi, hlam⟩
       exact foldl_app_const_ne_lam hlam
+  | @lit l r hev _ =>
+      -- a `.lit` source is never a `.const`-headed spine, so the premise is refuted
+      intro cn us args heq _
+      exact absurd heq.symm foldl_app_const_ne_lit
 
 /-! ## C1 — the corrected ι-carrying data evaluation (`SEvalDataι`)
 
@@ -203,6 +213,10 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
       (hbranch : SEvalDataι Γ ia E ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx)) r) :
       SEvalDataι Γ ia E
         ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))) r
+  /-- A **literal** evaluates by unfolding to its constructor form (see
+      `SEvalβζδ.lit`). -/
+  | lit {l : Literal} {r : Expr} :
+      SEvalDataι Γ ia E l.toConstructor r → SEvalDataι Γ ia E (.lit l) r
 
 /-- **`IotaConsistent`** — the source-level ι (`casesOn`/recursor) reduction respects
 lean4lean definitional equality: a `casesOn` spine's translation is defeq to the

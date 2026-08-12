@@ -252,5 +252,9 @@ theorem SEvalβζδ_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
         args.length args vs (Expr.const cn us) (Expr.const cn us) hve hve rfl hl.symm
         htrhead htrhead (VEnv.IsDefEqU.refl (htrhead.wf henv.ordered hΔ))
         (fun i h h2 => ihargs i h hΔ) htr
+  | @lit l r hev ih =>
+      -- Free: `TrExprS.lit` gives the literal and its unfolding the *same* `VExpr`,
+      -- so no defeq step is needed at all — the IH is already the goal.
+      cases htr with | lit _ htrC => exact ih hΔ htrC
 
 end LeanToLambdaBox

@@ -935,6 +935,10 @@ inductive SEvalDataC (Γ : ErasureCtx) (E : SEnv) : Expr → Expr → Prop
       (hargs : ∀ i (h : i < args.length), SEvalDataC Γ E args[i] (vs[i]'(hl ▸ h))) :
       SEvalDataC Γ E (args.foldl Expr.app (.const cn us))
         (vs.foldl Expr.app (.const cn us))
+  /-- A **literal** evaluates by unfolding to its constructor form (see
+      `SEvalβζδ.lit`). -/
+  | lit {l : Literal} {r : Expr} :
+      SEvalDataC Γ E l.toConstructor r → SEvalDataC Γ E (.lit l) r
 
 /-- Embedding into the full (β+ζ+δ+ctor) `SEvalData`. -/
 theorem SEvalDataC.toSEvalData {Γ : ErasureCtx} {E : SEnv} {e v : Expr}
@@ -944,6 +948,7 @@ theorem SEvalDataC.toSEvalData {Γ : ErasureCtx} {E : SEnv} {e v : Expr}
   | beta _ _ _ ihf iha ihb => exact .beta ihf iha ihb
   | delta hu _ ih => exact .delta hu ih
   | ctor_val hc har hsat hl _ ihargs => exact .ctor_val hc har hsat hl (fun i h => ihargs i h)
+  | lit _ ih => exact .lit ih
 
 /-- **Erasure correctness — forward simulation, β + δ + saturated constructors, at
 MetaRocq's non-block `appliedFlags`.**
@@ -1145,6 +1150,18 @@ theorem erases_correct_data {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : 
           exact hnfw
         exact ⟨_, vve, hTeval, htrr, hVerase, hVnb, hVnf⟩
       · exact absurd hnb hnbt
+  | @lit l r hev ih =>
+      intro ve t htr her hnb hnfx
+      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+      obtain ⟨hcl, htrC⟩ := TrExprS.lit_inv' htr
+      rcases Erases.lit_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, herC⟩
+      · obtain ⟨vve, htrr, hdef⟩ :=
+          SEvalβζδ_defeq henv hΔ hcon htr (.lit hev.toSEvalData.toβζδ)
+        have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
+          (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
+      · -- source and target both step to the unfolding: the IH *is* the goal
+        exact ih htrC herC hnb hnfx
 
 /-! ## B (ζ case): the vlet-value defeq context transport, and the ζ-including simulation
 
@@ -1517,5 +1534,115 @@ theorem erases_correct_data_zeta {env : VEnv} (henv : env.WF) {Us : List Name} {
           exact hnfw
         exact ⟨_, vve, hTeval, htrr, hVerase, hVnb, hVnf⟩
       · exact absurd hnb hnbt
+  | @lit l r hev ih =>
+      intro ve t htr her hnb hnfx
+      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+      obtain ⟨hcl, htrC⟩ := TrExprS.lit_inv' htr
+      rcases Erases.lit_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, herC⟩
+      · obtain ⟨vve, htrr, hdef⟩ := SEvalβζδ_defeq henv hΔ hcon htr (.lit hev.toβζδ)
+        have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
+          (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef), trivial, trivial⟩
+      · exact ih htrC herC hnb hnfx
+
+/-! ## Non-vacuity guards for the literal fragment
+
+The `lit` rules are only worth having if a literal really *runs*: on the source it must
+reach a value, on the target the erased tower must be a `WcbvEval` value, and the two
+must be linked by `Erases`. All three are exhibited below, at every `n`, over the
+constructed `envNatLit`/`ΓnatLit` of `Erases.lean` and a target env `EnatLit` declaring
+`Nat` exactly as `register_inductive` would (`npars = 0`, `nargs = 0`/`1` — verified
+against the kernel).
+
+Together these are the conclusion of `erases_correct_data` for a literal source, spelled
+out concretely: `.lit (.natVal n)` evaluates to `srcNatTower n`, the target
+`natLitTower n` evaluates to itself, `srcNatTower n` erases to `natLitTower n`, and the
+result is in the simulable fragment (`NoBlock`, `NoFix`). No new target-side rule was
+needed: `construct_atom`/`construct_app` already do it. -/
+
+/-- The target environment for `Nat`: one mutual block, no parameters, constructors
+`Nat.zero` (0 fields) and `Nat.succ` (1 field). -/
+def EnatLit : GlobalDeclarations :=
+  [(toKername ``Nat, .inductiveDecl
+      { npars := 0
+        bodies := [{ name := "Nat"
+                     ctors := [⟨"Nat.zero", 0⟩, ⟨"Nat.succ", 1⟩]
+                     projs := [] }] })]
+
+theorem EnatLit_arity_zero : constructorArity EnatLit natLitInd 0 = some 0 := rfl
+theorem EnatLit_arity_succ : constructorArity EnatLit natLitInd 1 = some 1 := rfl
+
+/-- The `Γ`/target arity link the simulation threads, discharged for `Nat`. -/
+theorem erasesEnvCtor_natLit : ErasesEnvCtor ΓnatLit EnatLit := by
+  intro cn iid cidx ar hc har
+  by_cases h0 : cn = ``Nat.zero
+  · subst h0
+    rw [ΓnatLit_zero] at hc; rw [ΓnatLit_arity_zero] at har
+    simp only [Option.some.injEq, Prod.mk.injEq] at hc har
+    obtain ⟨rfl, rfl⟩ := hc; subst har; exact EnatLit_arity_zero
+  · by_cases h1 : cn = ``Nat.succ
+    · subst h1
+      rw [ΓnatLit_succ] at hc; rw [ΓnatLit_arity_succ] at har
+      simp only [Option.some.injEq, Prod.mk.injEq] at hc har
+      obtain ⟨rfl, rfl⟩ := hc; subst har; exact EnatLit_arity_succ
+    · rw [ΓnatLit_ctors_other h0 h1] at hc; exact absurd hc (by simp)
+
+/-- **Target side**: the peano tower is a `WcbvEval` value under `appliedFlags`, by
+`construct_atom` at the base and `construct_app` at each `succ` — no new rule. -/
+theorem wcbvEval_natLitTower : ∀ n : Nat,
+    WcbvEval EnatLit appliedFlags (natLitTower n) (natLitTower n)
+  | 0 => WcbvEval.construct_atom rfl EnatLit_arity_zero
+  | n + 1 => by
+      refine WcbvEval.construct_app (args := []) rfl ?_ EnatLit_arity_succ
+        (by simp) (wcbvEval_natLitTower n)
+      simpa using WcbvEval.construct_atom (Γ := EnatLit) (fl := appliedFlags) rfl
+        EnatLit_arity_succ
+
+theorem noBlock_natLitTower : ∀ n : Nat, NoBlock (natLitTower n)
+  | 0 => trivial
+  | n + 1 => ⟨trivial, noBlock_natLitTower n⟩
+
+theorem noFix_natLitTower : ∀ n : Nat, NoFix (natLitTower n)
+  | 0 => trivial
+  | n + 1 => ⟨trivial, noFix_natLitTower n⟩
+
+/-- The **source** value of a peano literal: the constructor tower
+`Nat.succ (… (Nat.zero))`, in the same `.const`-headed application-spine encoding the
+`ctor_val` rules use. `.lit (.natVal n)` is *not* itself a value — it unfolds. -/
+def srcNatTower : Nat → Expr
+  | 0 => .const ``Nat.zero []
+  | n + 1 => .app (.const ``Nat.succ []) (srcNatTower n)
+
+/-- **Source side**: a literal evaluates, by `lit` unfolding into `ctor_val` at each
+step. The saturation bounds come from `ΓnatLit.ctorArities` (`0` and `1`). -/
+theorem sevalData_natLit {E : SEnv} : ∀ n : Nat,
+    SEvalData ΓnatLit E (.lit (.natVal n)) (srcNatTower n)
+  | 0 => .lit (.ctor_val (args := []) (vs := []) ΓnatLit_zero ΓnatLit_arity_zero
+      (Nat.le_refl 0) rfl (fun i hi => absurd hi (by simp)))
+  | n + 1 => .lit (.ctor_val (args := [.lit (.natVal n)]) (vs := [srcNatTower n])
+      ΓnatLit_succ ΓnatLit_arity_succ (Nat.le_refl 1) rfl
+      (fun i hi => by
+        obtain rfl : i = 0 := by simpa using hi
+        exact sevalData_natLit n))
+
+/-- **The link**: the source value erases to the target tower — so the simulation's
+conclusion is inhabited at a literal source. -/
+theorem erases_srcNatTower (Us : List Name) (Δ : VLCtx) : ∀ n : Nat,
+    Erases envNatLit Us ΓnatLit Δ (srcNatTower n) (natLitTower n)
+  | 0 => .ctor_head ``Nat.zero [] natLitInd 0 ΓnatLit_zero
+  | n + 1 => .app (.ctor_head ``Nat.succ [] natLitInd 1 ΓnatLit_succ)
+      (erases_srcNatTower Us Δ n)
+
+/-- The whole literal instance of `erases_correct_data`'s conclusion, at `n = 2`: the
+source literal evaluates to the tower, the erased term evaluates to the erased tower,
+and the two are related by `Erases` in applied (`NoBlock`, `NoFix`) form. -/
+example (Us : List Name) (Δ : VLCtx) {E : SEnv} :
+    SEvalData ΓnatLit E (.lit (.natVal 2)) (srcNatTower 2) ∧
+    Erases envNatLit Us ΓnatLit Δ (.lit (.natVal 2)) (natLitTower 2) ∧
+    WcbvEval EnatLit appliedFlags (natLitTower 2) (natLitTower 2) ∧
+    Erases envNatLit Us ΓnatLit Δ (srcNatTower 2) (natLitTower 2) ∧
+    NoBlock (natLitTower 2) ∧ NoFix (natLitTower 2) :=
+  ⟨sevalData_natLit 2, erases_natLit Us Δ 2, wcbvEval_natLitTower 2,
+    erases_srcNatTower Us Δ 2, noBlock_natLitTower 2, noFix_natLitTower 2⟩
 
 end LeanToLambdaBox

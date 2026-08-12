@@ -506,3 +506,61 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.EFOd_closedEnv
 #print axioms LeanToLambdaBox.EFOd_noFixEnv
 #print axioms LeanToLambdaBox.envFO_foC_ι
+
+-- ============================================================================
+-- The Nat-literals wall, slices L1 + L2 (`Erases.lit`, and the literal source /
+-- target semantics).
+--
+-- `Erases.lit` mirrors lean4lean's `TrExprS.lit`: a `.lit l` erases to whatever its
+-- one-step constructor unfolding `Literal.toConstructor` erases to. Under
+-- `nat := .peano` that unfolding *is* the shipping `visitLiteral`, so the applied-form
+-- peano tower comes out of the existing `ctor_head`/`app` rules and no new target-side
+-- machinery (`WcbvEval`, `FirstOrderValue`, `eraseCore`) is involved. Machine-`Nat`
+-- (`.prim`) remains out of scope, so the machine-mode results are unchanged.
+--
+-- The literal fragment adds **no axiom of ours**: `TrExprS.lit_inv'` is a one-line
+-- `cases` on `TrExprS.lit` (no `sorry`-carrying lemma, unlike the projection case), so
+-- everything below carries exactly the boundary its neighbours already carried.
+-- ============================================================================
+
+-- L1: the literal inversions (both sides) and the two spine-shape helpers.
+#print axioms LeanToLambdaBox.TrExprS.lit_inv'
+#print axioms LeanToLambdaBox.foldl_app_const_ne_lit
+#print axioms LeanToLambdaBox.foldl_app_cons_ne_lit
+#print axioms LeanToLambdaBox.Erases.lit_inv
+
+-- L1: the six enumerated `Erases` inductions, re-audited with the `lit` arm.
+#print axioms LeanToLambdaBox.erases_shift
+#print axioms LeanToLambdaBox.erases_subst
+#print axioms LeanToLambdaBox.erases_subst_let
+#print axioms LeanToLambdaBox.Erases.abstract
+#print axioms LeanToLambdaBox.Erases.thin_vlet
+#print axioms LeanToLambdaBox.Erases.defeqDFC
+
+-- L1 guard: the tower is really derivable, at a constructed `env` (so `ContainsLits`
+-- is proved, not assumed) and a peano `Γ`.
+#print axioms LeanToLambdaBox.envNatLit_containsLits
+#print axioms LeanToLambdaBox.ΓnatLit_zero
+#print axioms LeanToLambdaBox.ΓnatLit_succ
+#print axioms LeanToLambdaBox.erases_natLit
+
+-- L2: subject reduction over the literal rule is `refl` (source and unfolding share the
+-- `VExpr`), and the three forward simulations absorb it by their IH.
+#print axioms LeanToLambdaBox.SEvalData.toβζδ
+#print axioms LeanToLambdaBox.SEvalDataC.toSEvalData
+#print axioms LeanToLambdaBox.SEvalData_const_spine_lam_elim
+#print axioms LeanToLambdaBox.SEvalβζδ_defeq
+#print axioms LeanToLambdaBox.SEvalDataι_defeq
+#print axioms LeanToLambdaBox.erases_correct_data
+#print axioms LeanToLambdaBox.erases_correct_data_zeta
+
+-- L2 guard: the literal runs on both sides and the two are linked — the target tower is
+-- a `WcbvEval` value via `construct_atom`/`construct_app` alone.
+#print axioms LeanToLambdaBox.EnatLit_arity_zero
+#print axioms LeanToLambdaBox.EnatLit_arity_succ
+#print axioms LeanToLambdaBox.erasesEnvCtor_natLit
+#print axioms LeanToLambdaBox.wcbvEval_natLitTower
+#print axioms LeanToLambdaBox.noBlock_natLitTower
+#print axioms LeanToLambdaBox.noFix_natLitTower
+#print axioms LeanToLambdaBox.sevalData_natLit
+#print axioms LeanToLambdaBox.erases_srcNatTower
