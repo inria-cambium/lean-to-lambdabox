@@ -140,8 +140,11 @@ fires and `RegisteredClosureRec`/`ErasesEnvDelta` are non-vacuous. -/
 /-- The concrete recursive constant body (a closed, fvar-free `.lam`). -/
 private def gLamR : Expr := .lam `a (.sort .zero) (.sort .zero) .default
 
+/-- The one-def block behind `gFixR`. -/
+private def gFixDefsR : List (@FixDef LBTerm) := [{ name := .named "f", body := .bvar 0 }]
+
 /-- Its stored `.fix` decl body — the `def f := f` self-loop. -/
-private def gFixR : LBTerm := .fix [{ name := .named "f", body := .bvar 0 }] 0
+private def gFixR : LBTerm := .fix gFixDefsR 0
 
 /-- The reconciliation fires: `gLamR` erases to `gFixR` at any `Δ`. -/
 theorem gErases_fix (env : VEnv) (Us : List Name) (Γ : ErasureCtx) {Δ : VLCtx} :
@@ -157,11 +160,13 @@ theorem gErases_fix (env : VEnv) (Us : List Name) (Γ : ErasureCtx) {Δ : VLCtx}
     simp only [hasFVar_fix, hasFVarDefs, hasFVar_bvar, or_self, not_false_iff]
   · -- hclose: .bvar 0 = closeFix [x] 0 (.fvar x)
     intro j h
-    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
+    obtain rfl : j = 0 := by
+      simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
     exact (closeFixFold_fvar_head ⟨`x⟩ 0 []).symm
   · -- hbodies: .fvar x erases to .fvar x
     intro j h
-    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at h; omega
+    obtain rfl : j = 0 := by
+      simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
     exact .fvar ⟨`x⟩
 
 /-- A source env where a constant unfolds to the recursive body `gLamR`. -/
@@ -195,6 +200,226 @@ run (the `.fix`-valued counterpart of `gErasesEnvDelta`). -/
 theorem gErasesEnvDeltaRec (env : VEnv) (Us : List Name) :
     ErasesEnvDelta env Us gΓR gEsrcR gER :=
   erasesEnvDelta_of_registeredClosureRec (gRegisteredClosureRec env Us)
+
+/-! ## Part 3b — the honest counterexample: `Erases.fix` is contentless, so `NoFix`
+is load-bearing (recursion wall, slice W0)
+
+`Erases.fix` (`Erases.lean:462`) imposes **no relation whatsoever** between its
+conclusion's source `.lam n ty b bi` and the block data `osrcs`/`obodies`/`defs`:
+`n ty b bi` occur only in the three Expr-side inertness equalities and in the
+conclusion, and nothing ties `.lam n ty b bi` to `osrcs[idx]`, nor `osrcs[j]` to the
+real body of def `j`. `gErases_fix` above already says so out loud — the dummy
+`fun (a : Prop) => Prop` erases to `fix f. f`.
+
+This section turns that observation into a machine-checked refutation, because it has
+a consequence for the forward simulations: **the `NoFix t` premise of
+`erases_correct_data` is load-bearing for *soundness*, not merely for convenience.**
+Swap the fixture's dummy source for the (equally closed, equally fvar-free)
+higher-order identity `fun (h : Prop → Prop) => h` — `erases_fix_of_closed` applies
+verbatim — and apply it to `fun (a : Prop) => a`. That gives
+
+* a source term that `SEvalDataC`-evaluates in one β step (`gCxSEval`) and is
+  genuinely `TrExprS`-typeable over the empty, well-formed `VEnv` (`gCxTrExprS`);
+* a target `.app (fix f. f) (λ. #0)` that it erases to, in applied (`NoBlock`) form
+  (`gCxErases`, `gCxNoBlock`);
+* and **no** `WcbvEval` value for that target, at *any* environment
+  (`no_wcbvEval_app_gFixR`): with `principalArgIdx = 0` the only applicable rule is
+  `fix_guarded` (`beta`/`app_box`/`construct_app` need a different head value and
+  `WcbvEval` is deterministic; `fix_stuck` needs `argsv.length < 0`; `fix_unguarded`
+  is flag-off; `app_cong` is refuted by `isStuckApp_fix_bare`), and its reduct is the
+  *same* redex, since `substList (fixSubst gFixDefsR) (.bvar 0) = fix f. f`. So no
+  finite derivation exists.
+
+`erases_correct_data_without_noFix_false` therefore refutes `erases_correct_data`
+(`ErasesCorrectData.lean:886`) with `hnfenv`, `NoFix t` and `NoFix t'` deleted and
+*everything else verbatim*. Note the counterexample runs at `E = []`, where
+`NoFixEnv E` **holds** (`gCxNoFixEnv`): it is `NoFix t` alone that is doing the work.
+
+**Consequence for the recursion wall.** Admitting `.fix` targets into the simulations
+is not "relax a premise" — the rule that the premise was hiding is vacuous, and must
+be re-founded first (minimally: the missing `srcs[idx] = .lam n ty b bi` link, plus a
+`.const`-source leaf rule, since a fix *unfolding* puts `.fix defs j` where the source
+has a sibling `.const nⱼ`). Until that lands, `NoFix` stays. These declarations are
+the record of why, and are expected to be retired together with the dummy fixture when
+the re-founded rule arrives. -/
+
+/-- Source: `Prop → Prop`, the type of the counterexample's argument. -/
+private def gCxArr : Expr := .forallE `a (.sort .zero) (.sort .zero) .default
+
+/-- Source: `fun (a : Prop) => a`. -/
+private def gCxId : Expr := .lam `a (.sort .zero) (.bvar 0) .default
+
+/-- Source: `fun (h : Prop → Prop) => h`. Closed and fvar-free, hence — by
+`erases_fix_of_closed`, exactly as for `gLamR` — relatable to `gFixR`. -/
+private def gCxHId : Expr := .lam `h gCxArr (.bvar 0) .default
+
+/-- Source: the redex `(fun (h : Prop → Prop) => h) (fun (a : Prop) => a)`. -/
+private def gCxApp : Expr := .app gCxHId gCxId
+
+/-- Target: the erasure of `gCxId`. -/
+private def gCxId' : LBTerm := .lambda (nameToBinder `a) (.bvar 0)
+
+/-- Target: the erasure of `gCxApp` — `(fix f. f) (λ. #0)`. -/
+private def gCxApp' : LBTerm := .app gFixR gCxId'
+
+/-- **The target of the counterexample has no value.** No `WcbvEval` derivation
+concludes `.app (fix f. f) a` for any argument `a`, at any environment and any flags
+with `with_guarded_fix = true` (in particular `appliedFlags` and `optFlags`).
+
+The induction is on the target derivation: every rule that can conclude an
+application either needs the head to evaluate to something other than a bare `fix`
+(refuted by determinism against `fix_atom`), or is flag- or arity-blocked
+(`fix_unguarded`, `fix_stuck`, `app_cong`), or is `fix_guarded` — whose last premise
+is `WcbvEval E fl (.app (fix f. f) av) r`, a strictly smaller derivation of the same
+shape, closed by the induction hypothesis. -/
+theorem no_wcbvEval_app_gFixR {E : GlobalDeclarations} {fl : WcbvFlags}
+    (hg : fl.with_guarded_fix = true) {u r : LBTerm} (h : WcbvEval E fl u r) :
+    ∀ {a : LBTerm}, u = .app gFixR a → False := by
+  induction h with
+  | @beta f a n b av r hf _ _ _ _ _ =>
+      intro a₀ heq
+      injection heq with hfe _
+      subst hfe
+      exact absurd (eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf) (by simp)
+  | @app_box f a av hf _ _ _ =>
+      intro a₀ heq
+      injection heq with hfe _
+      subst hfe
+      exact absurd (eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf) (by simp)
+  | @construct_app hb f a a' iid c args ar hf _ _ _ _ _ =>
+      intro a₀ heq
+      injection heq with hfe _
+      subst hfe
+      have hval := eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf
+      exact absurd hval.symm
+        (LBTerm.mkApps_construct_ne_fix (iid := iid) (c := c) (defs := gFixDefsR) (i := 0)
+          (args := args) (argsv := []))
+  | @fix_guarded hg' f a av defs idx def_i argsv r hf ha hsel hrarg hrec _ _ ihrec =>
+      intro a₀ heq
+      injection heq with hfe hae
+      subst hfe; subst hae
+      obtain ⟨hd, hi, hargs⟩ :=
+        LBTerm.mkApps_fix_inj (defs := gFixDefsR) (i := 0) (argsv := [])
+          (eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf)
+      subst hd; subst hi; subst hargs
+      obtain rfl : def_i = { name := .named "f", body := (.bvar 0 : LBTerm) } := by
+        simpa [gFixDefsR] using hsel.symm
+      exact ihrec (a := av) rfl
+  | @fix_stuck hg' f a av defs idx def_i argsv hf ha hsel hlt _ _ =>
+      intro a₀ heq
+      injection heq with hfe hae
+      subst hfe; subst hae
+      obtain ⟨hd, hi, hargs⟩ :=
+        LBTerm.mkApps_fix_inj (defs := gFixDefsR) (i := 0) (argsv := [])
+          (eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf)
+      subst hd; subst hi; subst hargs
+      obtain rfl : def_i = { name := .named "f", body := (.bvar 0 : LBTerm) } := by
+        simpa [gFixDefsR] using hsel.symm
+      simp at hlt
+  | @fix_unguarded hg' f a av defs idx def_i r _ _ _ _ _ _ =>
+      exact absurd hg (by rw [hg']; simp)
+  | @app_cong f a f' a' hf hstuck _ _ _ =>
+      intro a₀ heq
+      injection heq with hfe _
+      subst hfe
+      rw [← eval_deterministic (WcbvEval.fix_atom gFixDefsR 0) hf, isStuckApp_fix_bare] at hstuck
+      exact absurd hstuck (by simp)
+  | _ => intro a₀ heq; cases heq
+
+/-- The counterexample's source redex `SEvalDataC`-evaluates (one β step, to
+`fun (a : Prop) => a`) — at every `Γ`/`Esrc`. -/
+theorem gCxSEval {Γ : ErasureCtx} {Esrc : SEnv} : SEvalDataC Γ Esrc gCxApp gCxId :=
+  .beta (.lam _ _ _ _) (.lam _ _ _ _) (.lam _ _ _ _)
+
+/-- …and it is genuinely typeable: `TrExprS` over the empty (well-formed) `VEnv`,
+no universe parameters, empty local context. -/
+theorem gCxTrExprS : TrExprS .empty [] [] gCxApp
+    (.app (.lam (.forallE (.sort .zero) (.sort .zero)) (.bvar 0))
+          (.lam (.sort .zero) (.bvar 0))) := by
+  have hsort : ∀ {Γ : List VExpr},
+      VEnv.HasType .empty 0 Γ (.sort .zero) (.sort (.succ .zero)) :=
+    .sortDF trivial trivial rfl
+  have harr : VEnv.HasType .empty 0 [] (.forallE (.sort .zero) (.sort .zero))
+      (.sort (.imax (.succ .zero) (.succ .zero))) := .forallEDF hsort hsort
+  have hfind : ∀ {A : VExpr}, Lean4Lean.VLCtx.find? [(none, Lean4Lean.VLocalDecl.vlam A)] (.inl 0)
+      = some (.bvar 0, A.lift) := by
+    intro A
+    simp [Lean4Lean.VLCtx.find?, Lean4Lean.VLCtx.next,
+      Lean4Lean.VLocalDecl.value, Lean4Lean.VLocalDecl.type]
+  exact .app (.lamDF harr (.bvar .zero)) (.lamDF hsort (.bvar .zero))
+    (.lam ⟨_, harr⟩ (.forallE ⟨_, hsort⟩ ⟨_, hsort⟩ (.sort rfl) (.sort rfl)) (.bvar hfind))
+    (.lam ⟨_, hsort⟩ (.sort rfl) (.bvar hfind))
+
+/-- The head of the redex erases to `gFixR`, by the very same `erases_fix_of_closed`
+call that `gErases_fix` makes — only the (unconstrained) source `.lam` differs. -/
+theorem gCxErasesHead {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx} :
+    Erases env Us Γ Δ gCxHId gFixR := by
+  refine erases_fix_of_closed (Δf := Δ) (ids := [⟨`x⟩])
+    (osrcs := [.fvar ⟨`x⟩]) (obodies := [.fvar ⟨`x⟩])
+    Nat.zero_lt_one rfl rfl rfl ⟨⟨trivial, trivial⟩, Nat.zero_lt_one⟩ ⟨⟨rfl, rfl⟩, trivial⟩
+    ?_ ?_ ?_ ?_
+  · exact ⟨Nat.zero_lt_one, trivial⟩
+  · intro x
+    show ¬ hasFVar x (LBTerm.fix gFixDefsR 0)
+    simp only [gFixDefsR, hasFVar_fix, hasFVarDefs, hasFVar_bvar, or_self, not_false_iff]
+  · intro j h
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact (closeFixFold_fvar_head ⟨`x⟩ 0 []).symm
+  · intro j h
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact .fvar ⟨`x⟩
+
+/-- The whole redex erases to `(fix f. f) (λ. #0)`. -/
+theorem gCxErases {Γ : ErasureCtx} : Erases .empty [] Γ [] gCxApp gCxApp' :=
+  .app gCxErasesHead (.lam (.sort rfl) (.bvar 0))
+
+/-- …in applied (non-block) form. -/
+theorem gCxNoBlock : NoBlock gCxApp' := by
+  show NoBlock (.app gFixR gCxId')
+  refine ⟨?_, ?_⟩ <;> simp [gFixR, gCxId', gFixDefsR]
+
+/-- The counterexample's target environment is *fix-free*, so `NoFixEnv` is **not**
+what fails: the load-bearing premise is `NoFix t` on the term. -/
+theorem gCxNoFixEnv : NoFixEnv ([] : GlobalDeclarations) := by
+  intro kn body h
+  simp [LBTerm.envLookup] at h
+
+/-- A concrete `Γ` for the counterexample: no constructors, no `casesOn`s. -/
+private def gCxΓ : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => rootKername "f"
+  ctors := fun _ => none
+  ctorArities := fun _ => none
+  casesOns := fun _ => none
+
+/-- **`erases_correct_data` minus `NoFix` is false.** The statement below is
+`erases_correct_data` (`ErasesCorrectData.lean:886`) verbatim, with the `hnfenv`
+premise and the two `NoFix` slots deleted — the "just relax the premise" reading of
+the recursion wall. It is refuted by the fixture above.
+
+This is *not* a defect of the simulation proof: it is a defect of `Erases.fix`, which
+relates an arbitrary closed `.lam` to an arbitrary closed `.fix` block. Re-founding
+that rule (slice W1) is a precondition for dropping `NoFix` (slice W2); see the
+section docstring. -/
+theorem erases_correct_data_without_noFix_false :
+    ¬ (∀ {env : VEnv}, env.WF → ∀ {Us : List Name} {Δ : VLCtx}, VLCtx.WF env Us.length Δ →
+        ∀ {Γ : ErasureCtx} {Esrc : SEnv} {E : GlobalDeclarations},
+          SEnvConsistent env Us Esrc → ErasesEnvDeltaData env Us Γ Esrc E →
+          ErasesEnvCtor Γ E →
+          (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
+             Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none) →
+          ∀ {e v : Expr}, SEvalDataC Γ Esrc e v →
+            ∀ {ve : VExpr} {t : LBTerm},
+              TrExprS env Us Δ e ve → Erases env Us Γ Δ e t → NoBlock t →
+              ∃ t' vve, WcbvEval E appliedFlags t t' ∧ TrExprS env Us Δ v vve ∧
+                Erases env Us Γ Δ v t' ∧ NoBlock t') := by
+  intro h
+  obtain ⟨t', _, hev, _⟩ :=
+    h (env := .empty) ⟨[], .empty⟩ (Δ := []) trivial (Γ := gCxΓ) (Esrc := fun _ => none)
+      (E := []) (fun h₀ _ => nomatch h₀) (fun h₀ => nomatch h₀)
+      (fun h₀ _ => nomatch h₀) (fun h₀ => nomatch h₀)
+      gCxSEval gCxTrExprS gCxErases gCxNoBlock
+  exact no_wcbvEval_app_gFixR rfl hev rfl
 
 /-! ## Part 4 — recursion is subsumed by v1's general `RegisteredClosure`
 
