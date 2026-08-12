@@ -364,7 +364,18 @@ hypothesis; the deferred DAG walk P3.13 discharges it). For every source constan
 with a recursive unfolding `Esrc n = some body`, the run consed
 `(Γ.constants n, .constantDecl ⟨some (.fix defs idx)⟩)` onto `E`, and `body` erases to
 that **fix** body in *any* context `Δ` (the constant body is closed, so `Erases.fix`'s
-free-`Δ` conclusion gives context-uniformity for free). -/
+free-`Δ` conclusion gives context-uniformity for free).
+
+**Status after slice D6.** `ColdStartRun.run_rec_exit_siblings` now walks the `List.mapM`
+this record was standing in for, and hands back the per-sibling `getConstInfo` /
+`prepare_erasure` / `visitExpr` runs plus `mkDef`'s closing equation — which discharges
+`erases_fix_of_open`'s `hoclosed`, `hclose` and length premises from the run. What still
+blocks turning this record into a *conclusion* is not the loop: it is `hreg`, "`Γ.recBodies`
+names the block this run built", which no run fact can supply at a parameter `Γ` and which
+should therefore become a run-keyed agreement rather than an `Erases` witness; and the
+`Γ`-inside-the-motives generalisation the per-sibling erasures need, since each is taken at
+`Γ.withFixvars fv` under the run's own block-local fixvar map. `ColdStartDelta`'s recursion
+section carries the premise-by-premise ledger. -/
 structure RegisteredClosureRec (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (Esrc : SEnv) (E : GlobalDeclarations) : Prop where
   disj : ∀ {n : Name} {body : Expr}, Esrc n = some body →

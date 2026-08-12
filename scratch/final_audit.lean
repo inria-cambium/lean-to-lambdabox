@@ -1550,3 +1550,35 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gErasesEnvDeltaDataδ
 #print axioms LeanToLambdaBox.gSEvalδ
 #print axioms LeanToLambdaBox.envδ_foC_d
+
+-- ============================================================================
+-- δ-inclusion, slice D6 (2026-08-12): the recursive exit's `List.mapM`, walked.
+--
+-- `run_rec_exit_decomp` reports only `s₁ = recConstState fixnames defs sd`, with `defs` an
+-- unconstrained existential — the per-definition runs sit under a `List.mapM` and were
+-- discarded. `run_rec_exit_siblings` walks that loop with an EXISTENTIALLY-LOADED
+-- invariant (`run_list_mapM_ok` at a `P` that keeps the runs, not their consequences), and
+-- hands back per sibling: the fetched declaration, the `prepare_erasure` and `visitExpr`
+-- runs at the block's own reader, and `mkDef`'s closing equation. Pure `EraseM` reasoning,
+-- so it must be sorryAx-free; `run_rec_exit_siblings_closed` adds the two output-shape
+-- facts (`NoFix`/`LBClosed` of each OPEN body) that no state predicate could carry, since
+-- those bodies never appear in a state.
+--
+-- WHAT THIS DOES AND DOES NOT UNBLOCK. Against `EnvErasureRec.erases_fix_of_open`'s
+-- premise list, D6 supplies `hoclosed`, `hclose` and the length premises from the run, and
+-- the per-sibling `visitExpr` runs that `hopen` needs. It does NOT supply:
+--   * `hnd : ids.Nodup` — freshness, i.e. `BridgeHyps.fresh_run`; the loop rule here is
+--     deliberately `gw`-free;
+--   * `hreg` — "`Γ.recBodies` names the block THIS run built". Irreducible at a parameter
+--     `Γ`: `Γ` is fixed before the run. This is the run-keyed agreement that should replace
+--     `RegisteredClosureRec`, and it is a strictly weaker, strictly more checkable
+--     assumption than an `Erases` witness;
+--   * `hopen` itself — each per-sibling erasure is at `Γ.withFixvars fv`, under the run's
+--     block-local fixvar map, which is the `Γ`-inside-the-motives generalisation (D8).
+-- So `RegisteredClosureRec` is NOT demoted here; the gap behind it is documented
+-- premise-by-premise in `ColdStartDelta`'s recursion section and at the record itself.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.run_rec_exit_siblings
+#print axioms LeanToLambdaBox.run_rec_exit_siblings_closed
+#print axioms LeanToLambdaBox.run_rec_exit_decomp

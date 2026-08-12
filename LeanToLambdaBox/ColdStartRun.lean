@@ -265,6 +265,150 @@ theorem run_rec_exit_decomp {names fixnames : List Name}
   cases hrun
   exact ⟨defs, sd, rfl⟩
 
+/-- **The recursive exit, per sibling** (slice D6) — the `List.mapM` that
+`run_rec_exit_decomp` steps past, walked instead of discarded.
+
+`run_rec_exit_decomp` reports only that the final state is a `recConstState` of *some*
+`defs`; `defs` is then an unconstrained existential, which is why the recursive δ witness
+had to stay the named record `EnvErasureRec.RegisteredClosureRec`. What is missing is not
+machinery — `Erasure.run_rec_exit_ok` already walks the same loop — but an
+**existentially-loaded** loop invariant: one that keeps the per-sibling *runs* rather than
+a state predicate's worth of their consequences. That is what this is.
+
+Per sibling `j` the package is exactly the input list of `EnvErasureRec.erases_fix_of_open`
+minus the erasure facts: the declaration the walk fetched, the `prepare_erasure` and
+`visitExpr` runs *at the block's own reader* (`f ids ctx`, with the fixvar map installed,
+further narrowed by `g ci` for the declaration's universe parameters), and `mkDef`'s
+closing equation, which is what `closeFix` has to invert. Everything is stated at the
+`ids` the outer `mkFreshFVarId` loop minted, so the block's fixvars are named.
+
+Two facts a consumer still needs and this does **not** give, both for reasons outside the
+loop: `ids.Nodup` (a freshness fact, `BridgeHyps.fresh_run`'s business — the loop rule here
+is `gw`-free by design) and the `Γ.recBodies` agreement (`Γ` is fixed before the run, so
+nothing about the run can say `Γ` names the block it built). -/
+theorem run_rec_exit_siblings {names fixnames : List Name}
+    {f : List FVarId → ErasureContext → ErasureContext}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : (do
+        let ids ← names.mapM (fun _ => mkFreshFVarId)
+        withReader (f ids) (do
+          let defs ← names.mapM (fun m => do
+            let ci ← getConstInfo m
+            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); visitExpr pe)
+            mkDef (remove_unsafe_rec m) fixnames t)
+          for p in fixnames.zipIdx do
+            modify (fun s => { s with
+              constants := s.constants.insert p.1 (toKername p.1),
+              gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls })
+          pure ()) : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) :
+    ∃ (ids : List FVarId) (defs : List (@FixDef LBTerm)) (sd : ErasureState),
+      ids.length = names.length ∧ defs.length = names.length ∧
+      s₁ = recConstState fixnames defs sd ∧
+      ∀ (j : Nat) (hj : j < names.length),
+        ∃ (d : @FixDef LBTerm) (ci : ConstantInfo) (pe : Expr) (t : LBTerm)
+          (sa sb sc : ErasureState) (wa wb wc : Void IO.RealWorld),
+          defs[j]? = some d ∧
+          prepare_erasure (val ci) sa (g ci (f ids ctx)) cctx ref wa = .ok (pe, sb) wb ∧
+          visitExpr pe sb (g ci (f ids ctx)) cctx ref wb = .ok (t, sc) wc ∧
+          d.name = .named (remove_unsafe_rec (names[j]'hj)).toString ∧
+          d.body = fixnames.reverse.zipIdx.foldl
+            (fun b p => toBvar ((f ids ctx).fixvars.get![p.1]!) p.2 b) t := by
+  rw [Erasure.run_bind_ok] at hrun
+  obtain ⟨ids, sid, wid, hids, hrun⟩ := hrun
+  have hidlen : ids.length = names.length :=
+    Erasure.run_list_mapM_ok _ cctx ref
+      (P := fun (pre : List Name) (outs : List FVarId) (_ : ErasureState)
+          (_ : Void IO.RealWorld) => outs.length = pre.length)
+      rfl (fun _ _ _ _ _ _ _ _ _ _ h _ => by simp [h]) hids
+  rw [Erasure.run_withReader, Erasure.run_bind_ok] at hrun
+  obtain ⟨defs, sd, wd, hdefs, hrun⟩ := hrun
+  have hpkg := Erasure.run_list_mapM_ok _ cctx ref
+    (P := fun (pre : List Name) (outs : List (@FixDef LBTerm)) (_ : ErasureState)
+        (_ : Void IO.RealWorld) =>
+      outs.length = pre.length ∧
+      ∀ (j : Nat) (hj : j < pre.length),
+        ∃ (d : @FixDef LBTerm) (ci : ConstantInfo) (pe : Expr) (t : LBTerm)
+          (sa sb sc : ErasureState) (wa wb wc : Void IO.RealWorld),
+          outs[j]? = some d ∧
+          prepare_erasure (val ci) sa (g ci (f ids ctx)) cctx ref wa = .ok (pe, sb) wb ∧
+          visitExpr pe sb (g ci (f ids ctx)) cctx ref wb = .ok (t, sc) wc ∧
+          d.name = .named (remove_unsafe_rec (pre[j]'hj)).toString ∧
+          d.body = fixnames.reverse.zipIdx.foldl
+            (fun b p => toBvar ((f ids ctx).fixvars.get![p.1]!) p.2 b) t)
+    ⟨rfl, by intro j hj; simp at hj⟩
+    (fun pre x post outs sa wa b sb wb _ hPa hb => by
+      obtain ⟨hlen, hold⟩ := hPa
+      rw [Erasure.run_bind_ok] at hb
+      obtain ⟨ci, s2, w2, hci, hb⟩ := hb
+      rw [Erasure.run_bind_ok] at hb
+      obtain ⟨t2, s4, w4, hvis, hb⟩ := hb
+      rw [Erasure.run_withReader, Erasure.run_bind_ok] at hvis
+      obtain ⟨pe2, s3, w3, hpr, hvis⟩ := hvis
+      obtain ⟨hname, hbody, -, -⟩ := Erasure.run_mkDef_ok hb
+      refine ⟨by simp [hlen], ?_⟩
+      intro j hj
+      simp only [List.length_append, List.length_cons, List.length_nil] at hj
+      by_cases hlt : j < pre.length
+      · obtain ⟨d, ci', pe', t', sa', sb', sc', wa', wb', wc', hd, h1, h2, h3, h4⟩ :=
+          hold j hlt
+        refine ⟨d, ci', pe', t', sa', sb', sc', wa', wb', wc', ?_, h1, h2, ?_, h4⟩
+        · rw [List.getElem?_append_left (by omega)]; exact hd
+        · rw [List.getElem_append_left hlt]; exact h3
+      · obtain rfl : j = pre.length := by omega
+        refine ⟨b, ci, pe2, t2, s2, s3, s4, w2, w3, w4, ?_, hpr, hvis, ?_, hbody⟩
+        · rw [List.getElem?_append_right (by omega)]; simp [hlen]
+        · rw [List.getElem_append_right (by omega)]; simpa using hname)
+    hdefs
+  rw [Erasure.run_bind_ok] at hrun
+  obtain ⟨u4, sf, wf, hloop, hrun⟩ := hrun
+  obtain ⟨hsf, -⟩ := Erasure.run_modify_forIn_ok hloop
+  subst hsf
+  rw [Erasure.run_pure] at hrun
+  cases hrun
+  exact ⟨ids, defs, sd, hidlen, hpkg.1, rfl, hpkg.2⟩
+
+/-- **What the per-sibling runs immediately buy**: each sibling's *open* body — the term
+`mkDef` then closes over the block's fixvars — is fix-free and de Bruijn closed.
+
+These are `EnvErasureRec.erases_fix_of_open`'s `hoclosed` slots, and they were exactly the
+facts a state predicate could not deliver: `RunClosed` knows the closedness of the block it
+*stores*, not of the per-sibling bodies it was built from, because those never appear in a
+state. With the runs in hand they are `ColdStartInduction.visitExpr_noFix_closed`, which
+has no hypotheses at all. -/
+theorem run_rec_exit_siblings_closed {names fixnames : List Name}
+    {f : List FVarId → ErasureContext → ErasureContext}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : (do
+        let ids ← names.mapM (fun _ => mkFreshFVarId)
+        withReader (f ids) (do
+          let defs ← names.mapM (fun m => do
+            let ci ← getConstInfo m
+            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); visitExpr pe)
+            mkDef (remove_unsafe_rec m) fixnames t)
+          for p in fixnames.zipIdx do
+            modify (fun s => { s with
+              constants := s.constants.insert p.1 (toKername p.1),
+              gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls })
+          pure ()) : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) :
+    ∃ (ids : List FVarId) (defs : List (@FixDef LBTerm)) (sd : ErasureState),
+      ids.length = names.length ∧ defs.length = names.length ∧
+      s₁ = recConstState fixnames defs sd ∧
+      ∀ (j : Nat), j < names.length →
+        ∃ (d : @FixDef LBTerm) (t : LBTerm),
+          defs[j]? = some d ∧ NoFix t ∧ LBClosed t 0 ∧
+          d.body = fixnames.reverse.zipIdx.foldl
+            (fun b p => toBvar ((f ids ctx).fixvars.get![p.1]!) p.2 b) t := by
+  obtain ⟨ids, defs, sd, hil, hdl, hs, hpkg⟩ := run_rec_exit_siblings hrun
+  refine ⟨ids, defs, sd, hil, hdl, hs, ?_⟩
+  intro j hj
+  obtain ⟨d, ci, pe, t, sa, sb, sc, wa, wb, wc, hd, -, hvis, -, hbody⟩ := hpkg j hj
+  obtain ⟨hnf, hcl⟩ := visitExpr_noFix_closed hvis
+  exact ⟨d, t, hd, hnf, hcl, hbody⟩
+
 set_option maxHeartbeats 1000000 in
 /-- **The state effect of one `visitMutual n` call, as a disjunction over its exits.**
 

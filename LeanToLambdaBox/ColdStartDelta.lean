@@ -135,12 +135,34 @@ The δ *witness* for a recursive block is `EnvErasureRec.erases_fix_of_open`, wh
 list is a dozen facts about the block (`closeFix` agreement, closedness and fvar-freeness
 of the stored node, the `Γ.recBodies` links, the per-sibling open erasures). Producing
 those from a run means reading them off the `List.mapM` over `names` that
-`run_rec_exit_decomp` steps past — a per-sibling decomposition this slice does **not**
-build; the recursive δ witness therefore stays the named record
-`EnvErasureRec.RegisteredClosureRec`, exactly as it was.
+`run_rec_exit_decomp` steps past.
 
-What *is* discharged from the run is the registration half: the block really is in
-`gdecls`, under the canonical kername, at the sibling's own index. -/
+Slice D6 builds that per-sibling decomposition — `ColdStartRun.run_rec_exit_siblings`, and
+its immediate corollary `run_rec_exit_siblings_closed` — so the loop is no longer a wall.
+What it delivers, against `erases_fix_of_open`'s premise list:
+
+| premise | after D6 |
+|---|---|
+| `hoclosed` (each open body is `LBClosed`) | **from the run** (`visitExpr_noFix_closed`, per sibling) |
+| `hclose` (`defs[j].body` closes `obodies[j]`) | **from the run**, as `mkDef`'s binder fold |
+| the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
+| `hilen`/`hnlen`/lengths | **from the run** |
+| `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design |
+| `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that should replace `RegisteredClosureRec` |
+| `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value |
+| `hopen`'s `∀ Δf` | the same context-uniformity residue `DeltaHyps.uniform` carries |
+| `hlink`, `hnest` | scoped premises, `hnest` unreachable in the intended use (see its docstring) |
+
+So the *demotion* of `RegisteredClosureRec` to a `Γ.recBodies` agreement is unblocked but
+not yet performed: the composition also needs the bridge instantiated at
+`Γ.withFixvars fv` under a `BridgeInv` whose `fixvars` field agrees with the block-local
+map the run installs, which is the `Γ`-inside-the-motives generalisation (design §W3.2/D8),
+not something the decomposition can supply. The recursive δ witness therefore stays the
+named record `EnvErasureRec.RegisteredClosureRec` for now — with a strictly smaller gap
+behind it than before D6.
+
+What *is* discharged from the run, and was before, is the registration half: the block
+really is in `gdecls`, under the canonical kername, at the sibling's own index. -/
 
 /-- Each sibling of a recursive block is consed by `Erasure.recConstState`. -/
 theorem mem_recConstState_gdecls (defs : List (@FixDef LBTerm)) :
