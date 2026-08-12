@@ -109,21 +109,11 @@ theorem LBClosedDefs_iff (l : List (@FixDef LBTerm)) (k : Nat) :
 
 /-! ### The `Defs` traversals in `List.map` form
 
-`Erases.lean` exposes `shiftArgs`/`shiftAlts` (and their `subst` counterparts) as maps;
-the `FixDef` traversals are missing there, and every `hfix` arm below needs them (both
-for the elementwise comparison and for the `defs.length` bookkeeping). -/
-
-theorem LBTerm.shiftDefs_eq_map (d c : Nat) (l : List (@FixDef LBTerm)) :
-    LBTerm.shiftDefs d c l = l.map (fun fd => { fd with body := LBTerm.shift d c fd.body }) := by
-  induction l with
-  | nil => rfl
-  | cons fd rest ih => simp only [LBTerm.shiftDefs, List.map, ih]
-
-theorem LBTerm.substDefs_eq_map (s : LBTerm) (d : Nat) (l : List (@FixDef LBTerm)) :
-    LBTerm.substDefs s d l = l.map (fun fd => { fd with body := LBTerm.subst s d fd.body }) := by
-  induction l with
-  | nil => rfl
-  | cons fd rest ih => simp only [LBTerm.substDefs, List.map, ih]
+`LBTerm.shiftDefs_eq_map`/`substDefs_eq_map` — needed by every `hfix` arm below, both
+for the elementwise comparison and for the `defs.length` bookkeeping — used to live
+here, next to their first consumer. They now sit in `Erases.lean` beside their four
+`Args`/`Alts` siblings, because `noBlock_shift`/`noBlock_subst` (which live in
+`ErasesCorrectData.lean`, upstream of this file) gained a `.fix` arm and need them too. -/
 
 /-! ### `shift`/`subst` are the identity on de-Bruijn-closed terms
 

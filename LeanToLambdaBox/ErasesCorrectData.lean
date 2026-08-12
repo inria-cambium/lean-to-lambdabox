@@ -43,9 +43,8 @@ open Lean Lean4Lean
 
 `NoBlock t` holds when `t` contains no *nonempty* block-constructor node
 `.construct iid c (_ :: _)`. The nullary node `.construct iid c []` (the base of a
-non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed. `proj`/`fix` are
-treated opaquely (`True`) — the data fragment of `erases_correct_data` never produces
-them (they belong to the recursor work, P3).
+non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed. `proj` is treated
+opaquely (`True`) — the data fragment of `erases_correct_data` never produces one.
 
 `.case` **is** traversed (ι Task 3): the ι forward simulation
 (`ErasesCorrectIota.lean`) inverts a target `.case (iid, np) discr' alts'` and must feed
@@ -53,15 +52,30 @@ them (they belong to the recursor work, P3).
 With a `True` clause neither is obtainable and the ι case cannot be started at all. The
 per-alternative traversal goes through the mutual helper `NoBlockAlts` (the nested-list
 occurrence defeats the structural-recursion checker in `∀ a ∈ alts, NoBlock a.2` form);
-`NoBlock_case`/`NoBlockAlts_iff` expose exactly that form. All existing consumers use
-`NoBlock` in hypothesis position or conclude it for `box`/`construct`/`lambda`/IH
-witnesses, so strengthening it here is free for them. -/
+`NoBlock_case`/`NoBlockAlts_iff` expose exactly that form.
+
+`.fix` **is** traversed too (recursion wall, slice W0), for the same reason one step
+later: once the simulations accept `.fix` targets, the β case's target step is
+`WcbvEval.fix_guarded`, whose reduct is
+`.app (substList (fixSubst defs) defs[idx].body) av` — so the induction must carry
+`NoBlock` *through a fix unfolding*, and that is underivable from an opaque `True`
+clause (the unfolded body is `defs[idx].body` with `.fix defs j` substituted in, and
+both halves need the predicate). The traversal mirrors `LBClosedDefs` (`Closed.lean`)
+via the mutual helper `NoBlockDefs`, with `NoBlock_fix`/`NoBlockDefs_iff` exposing the
+per-definition form. Note `NoFix` needs no such change: it is `False` on `.fix` by
+construction, so there is nothing to traverse.
+
+All existing consumers use `NoBlock` in hypothesis position, or in `¬ NoBlock`
+(conclusion) position, or conclude it for `box`/`construct`-spine/`lambda`/`subst1`/
+`mkLambdas`/IH witnesses — never for a `.fix` head — so both strengthenings are free
+for them. -/
 mutual
 def NoBlock : LBTerm → Prop
   | .lambda _ b => NoBlock b
   | .letIn _ v b => NoBlock v ∧ NoBlock b
   | .app f a => NoBlock f ∧ NoBlock a
   | .case _ d alts => NoBlock d ∧ NoBlockAlts alts
+  | .fix defs _ => NoBlockDefs defs
   | .construct _ _ [] => True
   | .construct _ _ (_ :: _) => False
   | .box => True
@@ -69,13 +83,17 @@ def NoBlock : LBTerm → Prop
   | .fvar _ => True
   | .const _ => True
   | .proj _ _ => True
-  | .fix _ _ => True
   | .prim _ => True
 
 /-- `NoBlock` over `case` alternatives (each branch body is `NoBlock`). -/
 def NoBlockAlts : List (List BinderName × LBTerm) → Prop
   | [] => True
   | (_, b) :: rest => NoBlock b ∧ NoBlockAlts rest
+
+/-- `NoBlock` over `fix` definitions (each definition body is `NoBlock`). -/
+def NoBlockDefs : List (@FixDef LBTerm) → Prop
+  | [] => True
+  | fd :: rest => NoBlock fd.body ∧ NoBlockDefs rest
 end
 
 /-- `NoBlockAlts` in the natural per-element form. -/
@@ -84,6 +102,13 @@ theorem NoBlockAlts_iff (l : List (List BinderName × LBTerm)) :
   induction l with
   | nil => simp [NoBlockAlts]
   | cons a rest ih => obtain ⟨ns, b⟩ := a; simp [NoBlockAlts, ih]
+
+/-- `NoBlockDefs` in the natural per-element form. -/
+theorem NoBlockDefs_iff (l : List (@FixDef LBTerm)) :
+    NoBlockDefs l ↔ ∀ d ∈ l, NoBlock d.body := by
+  induction l with
+  | nil => simp [NoBlockDefs]
+  | cons fd rest ih => simp [NoBlockDefs, ih]
 
 @[simp] theorem NoBlock_box : NoBlock .box := trivial
 @[simp] theorem NoBlock_bvar (i : Nat) : NoBlock (.bvar i) := trivial
@@ -104,7 +129,9 @@ theorem NoBlockAlts_iff (l : List (List BinderName × LBTerm)) :
   rw [NoBlockAlts_iff]
 @[simp] theorem NoBlock_proj (p : ProjectionInfo) (e : LBTerm) : NoBlock (.proj p e) := trivial
 @[simp] theorem NoBlock_fix (defs : List (@FixDef LBTerm)) (i : Nat) :
-    NoBlock (.fix defs i) := trivial
+    NoBlock (.fix defs i) ↔ ∀ d ∈ defs, NoBlock d.body := by
+  show NoBlockDefs defs ↔ _
+  rw [NoBlockDefs_iff]
 @[simp] theorem NoBlock_prim (p : PrimVal) : NoBlock (.prim p) := trivial
 
 /-- `NoBlock` is preserved by de Bruijn shifting. -/
@@ -125,6 +152,12 @@ theorem noBlock_shift {s : LBTerm} (hs : NoBlock s) (d c : Nat) :
       refine ⟨ihd hs.1 c, fun a ha => ?_⟩
       obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
       exact iha b hb (hs.2 b hb) _
+  | hfix defs i ih =>
+      rw [NoBlock_fix] at hs
+      simp only [LBTerm.shift, NoBlock_fix, LBTerm.shiftDefs_eq_map]
+      intro fd hfd
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hfd
+      exact ih y hy (hs y hy) _
   | _ => trivial
 
 /-- `NoBlock` is preserved by substitution (the substitutee `s` must be `NoBlock`
@@ -152,10 +185,50 @@ theorem noBlock_subst {t : LBTerm} (ht : NoBlock t) {s : LBTerm} (hs : NoBlock s
       refine ⟨ihd ht.1 d, fun a ha => ?_⟩
       obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
       exact iha b hb (ht.2 b hb) _
+  | hfix defs i ih =>
+      rw [NoBlock_fix] at ht
+      simp only [LBTerm.subst, NoBlock_fix, LBTerm.substDefs_eq_map]
+      intro fd hfd
+      obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hfd
+      exact ih y hy (ht y hy) _
   | _ => trivial
 
 theorem noBlock_subst1 {t s : LBTerm} (ht : NoBlock t) (hs : NoBlock s) :
     NoBlock (LBTerm.subst1 s t) := noBlock_subst ht hs 0
+
+/-- `NoBlock` is preserved by simultaneous substitution. -/
+theorem noBlock_substList {ss : List LBTerm} (hs : ∀ s ∈ ss, NoBlock s) :
+    ∀ {t : LBTerm}, NoBlock t → NoBlock (LBTerm.substList ss t) := by
+  induction ss with
+  | nil => exact fun ht => ht
+  | cons a as ih =>
+      intro t ht
+      exact ih (fun s hsm => hs s (List.mem_cons_of_mem _ hsm))
+        (noBlock_subst1 ht (hs a (List.mem_cons_self ..)))
+
+/-- Every entry of `fixSubst defs` is `.fix defs j` for some `j`, and `NoBlock` of a
+`.fix` node does not depend on the index — so a `NoBlock` fix block has a `NoBlock`
+unfolding substitution. -/
+theorem noBlock_fixSubst {defs : List (@FixDef LBTerm)} {i : Nat}
+    (h : NoBlock (.fix defs i)) : ∀ s ∈ LBTerm.fixSubst defs, NoBlock s := by
+  rw [NoBlock_fix] at h
+  intro s hsm
+  obtain ⟨j, _, rfl⟩ := List.mem_map.mp hsm
+  rw [NoBlock_fix]
+  exact h
+
+/-- **`NoBlock` survives a `fix` unfolding.** This is what the β case of the forward
+simulations needs once `.fix` targets are admitted: `WcbvEval.fix_guarded`'s reduct is
+`.app (mkApps (substList (fixSubst defs) def_i.body) argsv) av`, and its head must stay
+in the applied (non-block) fragment for the induction to continue. Underivable while
+`NoBlock` was opaque on `.fix` — that is the whole reason for the `NoBlockDefs`
+traversal above. -/
+theorem noBlock_fixUnfold {defs : List (@FixDef LBTerm)} {i : Nat}
+    {def_i : @FixDef LBTerm} (h : NoBlock (.fix defs i)) (hsel : defs[i]? = some def_i) :
+    NoBlock (LBTerm.substList (LBTerm.fixSubst defs) def_i.body) := by
+  refine noBlock_substList (noBlock_fixSubst h) ?_
+  rw [NoBlock_fix] at h
+  exact h def_i (List.mem_of_getElem? hsel)
 
 /-- A `NoBlock`-headed application spine with `NoBlock` arguments is `NoBlock`. -/
 theorem noBlock_mkApps {hd : LBTerm} (hhd : NoBlock hd) {args : List LBTerm}

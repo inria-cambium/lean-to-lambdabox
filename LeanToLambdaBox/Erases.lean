@@ -112,12 +112,14 @@ def LBTerm.recData
 
 /-! ### The `shift`/`subst` list traversals in `List.map` form
 
-`LBTerm.shiftArgs`/`shiftAlts` (and their `subst` counterparts) are hand-rolled
-traversals (the structural-recursion checker cannot see through `List.map` for a nested
-inductive). These four lemmas expose them as maps, which is what every `LBTerm.recData`
-induction below needs in its `hconstruct`/`hcase` arm. Stated here (rather than after
-`mkLambdas`, where they used to live) because `noFix_shift`/`noFix_subst` now have a
-`.case` arm. -/
+`LBTerm.shiftArgs`/`shiftAlts`/`shiftDefs` (and their `subst` counterparts) are
+hand-rolled traversals (the structural-recursion checker cannot see through `List.map`
+for a nested inductive). These six lemmas expose them as maps, which is what every
+`LBTerm.recData` induction below needs in its `hconstruct`/`hcase`/`hfix` arm. Stated
+here (rather than after `mkLambdas`, where they used to live) because
+`noFix_shift`/`noFix_subst` now have a `.case` arm; the two `Defs` variants moved up
+from `Closed.lean` for the same reason, once `noBlock_shift`/`noBlock_subst` gained a
+`.fix` arm (recursion wall, slice W0). -/
 
 theorem LBTerm.shiftArgs_eq_map (d c : Nat) (l : List LBTerm) :
     LBTerm.shiftArgs d c l = l.map (LBTerm.shift d c) := by
@@ -142,6 +144,18 @@ theorem LBTerm.substAlts_eq_map (s : LBTerm) (d : Nat) (l : List (List BinderNam
   induction l with
   | nil => rfl
   | cons a as ih => simp only [LBTerm.substAlts, List.map, ih]
+
+theorem LBTerm.shiftDefs_eq_map (d c : Nat) (l : List (@FixDef LBTerm)) :
+    LBTerm.shiftDefs d c l = l.map (fun fd => { fd with body := LBTerm.shift d c fd.body }) := by
+  induction l with
+  | nil => rfl
+  | cons fd rest ih => simp only [LBTerm.shiftDefs, List.map, ih]
+
+theorem LBTerm.substDefs_eq_map (s : LBTerm) (d : Nat) (l : List (@FixDef LBTerm)) :
+    LBTerm.substDefs s d l = l.map (fun fd => { fd with body := LBTerm.subst s d fd.body }) := by
+  induction l with
+  | nil => rfl
+  | cons fd rest ih => simp only [LBTerm.substDefs, List.map, ih]
 
 /-! ### `NoFix`: fix-free target terms
 
