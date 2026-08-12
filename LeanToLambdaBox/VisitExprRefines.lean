@@ -826,39 +826,36 @@ field was *not* preserved by state growth:
 * `consts` — **soundness**: every *registered* kername agrees with `Γ`. This is
   `ColdStartShape.RegInvShape.kn`, and it is what survives state growth
   (`BridgeInv.mono_state`, via `Erasure.RunConcl.canon`).
-* `known_dom` — the residue of the old field's **completeness** direction, weakened to
-  the *domain*: a `known` constant is already registered. The value it used to assert
-  now comes from `consts`. Domain membership is monotone in `Erasure.StateLe`, so this
-  too survives state growth.
+## δ-inclusion, slice D4a: the field `known_dom` is gone
 
-`known_dom` is what still forces `get_constant_kername`'s hit branch (motive 5), and it
-is the reason the cold-start capstone must still take `known = ⊥` at `s = {}`. Closing
-that gap is *not* a matter of relaxing this invariant: `get_constant_kername`'s miss
-branch returns `s'.constants[n]!` after `visitMutual n`, and neither
-"`visitMutual n` registers `n`" (its recursive exit registers the *block*'s names, read
-out of the opaque `Compiler.LCNF.getDeclInfo?`) nor generator-monotonicity of
-`visitMutual`'s primitives is derivable here. Both are `RegBridgeHyps`-class obligations
-belonging to the cold-start entry slice; see the note at motive 5.
+There used to be a third field here, the residue of the old `consts`' **completeness**
+direction weakened to the domain:
 
-## δ-inclusion, slice D3: what has to happen to this field, and what blocks it
+```lean
+  known_dom : ∀ n, known n → (s.constants.get? n).isSome
+```
 
-`known_dom` states a *state* fact about a fragment that a cold run has not reached yet, so
-at the entry configuration it is not merely strong but **false** for every non-empty
-fragment — `bridgeInv_cold_known_refuted` below proves exactly that. The δ-inclusion plan
-is therefore to delete it and to carry the fragment's obligations scope-side instead, in
-`DeltaHyps` (`DeltaHyps.lean`), which is now in the tree: fragment δ-closure, decl-fetch /
+It said a `known` constant is *already registered*. That is a **state** fact about a
+fragment a cold run has not reached yet, so at the entry configuration it was not merely
+strong but false for every non-empty fragment (`old_known_dom_cold_refuted` below keeps
+that on the record) — which is what forced every cold-start capstone to `known = ⊥`, and
+hence made the cold-start fragment δ-free, since `Supported.const` needs `known n`.
+
+The invariant therefore no longer mentions `known` at all: `known` survives as a
+parameter, documenting that this is the *state-side* half of a two-part contract whose
+*scope-side* half is `DeltaHyps` (`DeltaHyps.lean`) — fragment δ-closure, decl-fetch /
 `Esrc` agreement, prepared dependency bodies `Supported` and translatable, `axiom_free`,
-and the generator bookkeeping for the `visitMutual`-only primitives.
+and the generator bookkeeping for the `visitMutual`-only primitives. `bridgeInv_cold_known`
+below is the payoff: the invariant is now satisfiable at the empty state at a *non-empty*
+fragment.
 
-The deletion itself is **not separable** from giving `visitMutual`'s motive a registration
-conclusion, and it is not landed here. The reason is one step: with `known_dom` gone,
-motive 5's *hit* branch is no longer forced, and its *miss* branch returns
-`s'.constants[n]!`, which is `default` — not `Γ.constants n` — unless the intervening
-`visitMutual n` registered `n` (`DeltaHyps.constants_get!_unregistered_ne` proves the
-inequality on real data). Inside this induction the only handle on that call is the
-abstract `_vMut` and motive 6, which is `True`. So the field's death and motive 6's content
-are one atomic change, not two slices: no formulation of `BridgeInv` and no external
-composition avoids it. -/
+The field's job was to force `get_constant_kername`'s hit branch (motive 5). Its deletion
+was **not separable** from giving `visitMutual`'s motive a registration conclusion: with
+`known_dom` gone, motive 5's *miss* branch returns `s'.constants[n]!`, which is `default`
+— not `Γ.constants n` — unless the intervening `visitMutual n` registered `n`
+(`DeltaHyps.constants_get!_unregistered_ne` proves the inequality on real data). Inside
+this induction the only handle on that call is the abstract `_vMut` and its motive, so the
+field's death and motive 6's content are one change (this slice), not two. -/
 structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
     (Γ : ErasureCtx) (gen : NameGenerator)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
@@ -897,9 +894,6 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
   knames : ∀ n : Name, Γ.constants n = toKername n
   /-- Registered kernames agree with `Γ` — SOUNDNESS. -/
   consts : ∀ {n : Name} {k : Kername}, s.constants.get? n = some k → k = Γ.constants n
-  /-- A `known` constant is already registered (domain only; its kername comes from
-  `consts`). -/
-  known_dom : ∀ n, known n → (s.constants.get? n).isSome
 
 /-- The `TrLCtx` correspondence, re-derived from the `mlc` witness (the old
 `BridgeInv.trlctx` field). Keeps every downstream `hinv.trlctx` use-site valid. -/
@@ -926,12 +920,13 @@ theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
   reserved := fun fv hfv => (h.reserved fv hfv).mono hle
   knames := h.knames
   consts := h.consts
-  known_dom := h.known_dom
 
 /-- **The invariant is monotone in the *state*** — the cold-start companion of
-`BridgeInv.mono`. Only `consts` and `known_dom` mention `s`: the first is re-established
-from `Erasure.RunConcl.canon` (canonicity of the registry survives every registration
-write) together with `knames`, the second from `Erasure.StateLe`'s domain monotonicity.
+`BridgeInv.mono`. Only `consts` mentions `s`, and it is re-established from
+`Erasure.RunConcl.canon` (canonicity of the registry survives every registration write)
+together with `knames`. (Before slice D4a there was a second state field, `known_dom`,
+carried across by `Erasure.StateLe`'s domain monotonicity; see the structure's docstring
+for why it had to go.)
 
 This is what makes the widened motive conclusion usable: after a sub-run has grown the
 state, the invariant travels to the larger state and the next sub-run's IH applies. -/
@@ -952,7 +947,6 @@ theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Pro
     intro n k hk
     rw [h.knames n]
     exact hrc.canon (fun {m} {k'} hm => (h.consts hm).trans (h.knames m)) hk
-  known_dom := fun n hn => hrc.le.consts (h.known_dom n hn)
 
 /-- Extend the invariant across `Erasure.withLocalDecl`'s context extension
 (the `visitLambda` case). Needs the fresh fvar `x` reserved both by the target
@@ -1005,7 +999,6 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
     · exact (hinv.reserved fv hfv').mono hle
   knames := hinv.knames
   consts := hinv.consts
-  known_dom := hinv.known_dom
 
 /-- Extend the invariant across `Erasure.withLocalDef`'s context extension
 (the `visitLet` case). The shipping `withLocalDef` builds the let-decl with the
@@ -1061,7 +1054,6 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     · exact (hinv.reserved fv hfv').mono hle
   knames := hinv.knames
   consts := hinv.consts
-  known_dom := hinv.known_dom
 
 /-! ## Opening an alternative's λ-telescope -/
 
@@ -1163,6 +1155,20 @@ theorem bridge_alt_telescope {env : VEnv} {Us : List Name} {known : Name → Pro
       | _ => exact absurd hfml id
     | _ => exact absurd hlam id
 
+/-- A `Std.HashMap` `get!` at a key the `get?` finds: what turns the `panic!`-defaulting
+lookup of `get_constant_kername`'s miss branch into the kername the registry holds. -/
+theorem hashMap_get!_of_get? {m : Std.HashMap Name Kername} {k : Name} {v : Kername}
+    (h : m.get? k = some v) : m[k]! = v := by
+  rw [Std.HashMap.getElem!_eq_get!_getElem?, show m[k]? = some v from h]
+  rfl
+
+/-- `ConstantInfo.value!` is `value?` where the latter succeeds — what makes the shipping
+`visitMutual`'s `.get!` on the declaration's value total on the fragment. -/
+theorem constantInfo_value!_of_value? {ci : ConstantInfo} {v : Expr}
+    (h : ci.value? (allowOpaque := true) = some v) :
+    ci.value! (allowOpaque := true) = v := by
+  cases ci <;> simp [ConstantInfo.value?, ConstantInfo.value!] at h ⊢ <;> simp [h]
+
 /-! ## The main induction -/
 
 set_option maxHeartbeats 1000000 in
@@ -1178,8 +1184,11 @@ Motive 18 opens the alternative's full λ-telescope (`bridge_alt_telescope`),
 so `Erases.cases`' `harity` premise is met at each constructor's real field
 count. -/
 theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cctx ref)
     (henv : env.Ordered) :
     (∀ e s ctx cctx ref w t s' w', visitExpr e s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
@@ -1211,7 +1220,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
       kn = Γ.constants n ∧ RunConcl s s' ∧ gw w ≤ gw w') ∧
     (∀ n s ctx cctx ref w r s' w', visitMutual n s ctx cctx ref w = .ok (r, s') w' →
-      True) ∧
+      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      RunConcl s s' ∧ gw w ≤ gw w' ∧ (s'.constants.get? n).isSome) ∧
     (∀ f' args s ctx cctx ref w t s' w',
       visitAppArgs f' args s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ (hd : Expr), BridgeInv env Us known Γ (gw w) ctx s Δ →
@@ -1335,7 +1345,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
       kn = Γ.constants n ∧ RunConcl s s' ∧ gw w ≤ gw w')
     (motive_6 := fun f => ∀ n s ctx cctx ref w r s' w',
-      f n s ctx cctx ref w = .ok (r, s') w' → True)
+      f n s ctx cctx ref w = .ok (r, s') w' →
+      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      RunConcl s s' ∧ gw w ≤ gw w' ∧ (s'.constants.get? n).isSome)
     (motive_7 := fun f => ∀ f' args s ctx cctx ref w t s' w',
       f f' args s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ (hd : Expr), BridgeInv env Us known Γ (gw w) ctx s Δ →
@@ -1683,29 +1695,191 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       rw [run_pure] at hp2; cases hp2
       obtain ⟨hknE, hs, hle⟩ := ih5 _ _ _ _ _ _ _ _ _ hgck Δ hinv hkn'
       exact ⟨.const n us kn hknE.symm hctor hcases, hs, hle⟩
-  -- Step 5: get_constant_kername — the hit branch is forced by `BridgeInv.known_dom`
-  -- (the constant is already registered), and its kername is `Γ`-sound by
-  -- `BridgeInv.consts`. The miss branch stays refuted rather than proved: it returns
-  -- `s'.constants[n]!` after `visitMutual n`, and both facts that would discharge it —
-  -- that `visitMutual n` registers `n` (its recursive exit registers the block names
-  -- read out of the opaque `Compiler.LCNF.getDeclInfo?`) and generator-monotonicity of
-  -- `visitMutual`'s primitives — are `RegBridgeHyps`-class obligations of the
-  -- cold-start entry slice, unavailable here. Motive 6 therefore stays `True`.
-  · intro _vMut _ih6
+  -- Step 5: get_constant_kername — BOTH branches (δ-inclusion, D4a). The hit branch
+  -- reads the kername off the registry and is `Γ`-sound by `BridgeInv.consts`. The miss
+  -- branch — the one a *cold* run actually takes, and the one the deleted
+  -- `BridgeInv.known_dom` used to rule out by fiat — returns `s'.constants[n]!` after
+  -- `visitMutual n`; it closes on motive 6's registration conclusion (which makes the
+  -- `panic!`-defaulting lookup total) plus `RunConcl.canon` (which makes it canonical at
+  -- the *post*-state, where `hinv.consts` no longer applies), exactly as
+  -- `BridgeInv.mono_state` re-establishes soundness after a sub-run.
+  · intro _vMut ih6
     intro n s ctx cctx ref w kn s' w' hrun Δ hinv hkn
     simp only [] at hrun
     rw [run_bind_ok] at hrun
     obtain ⟨s₀, s₁, w₁, hget, hk⟩ := hrun
     rw [run_get] at hget
     cases hget
-    obtain ⟨kn₀, hkn₀⟩ := Option.isSome_iff_exists.mp (hinv.known_dom n hkn)
-    rw [hkn₀] at hk
-    simp only [] at hk
-    rw [run_pure] at hk
-    cases hk
-    exact ⟨hinv.consts hkn₀, RunConcl.rfl' _, NameGenerator.LE.rfl⟩
-  -- Step 6: visitMutual (trivial conclusion).
-  · intros; trivial
+    cases hcs : s.constants.get? n with
+    | some kn₀ =>
+      rw [hcs] at hk
+      simp only [] at hk
+      rw [run_pure] at hk
+      cases hk
+      exact ⟨hinv.consts hcs, RunConcl.rfl' _, NameGenerator.LE.rfl⟩
+    | none =>
+      rw [hcs] at hk
+      simp only [] at hk
+      rw [run_bind_ok] at hk
+      obtain ⟨uu, s₂, w₂, hvm, hk2⟩ := hk
+      rw [run_bind_ok] at hk2
+      obtain ⟨s₃, s₄, w₄, hget2, hp⟩ := hk2
+      rw [run_get] at hget2
+      cases hget2
+      rw [run_pure] at hp
+      cases hp
+      obtain ⟨hrc, hle, hdom⟩ := ih6 _ _ _ _ _ _ _ _ _ hvm Δ hinv hkn
+      obtain ⟨kn₀, hkn₀⟩ := Option.isSome_iff_exists.mp hdom
+      refine ⟨?_, hrc, hle⟩
+      rw [hashMap_get!_of_get? hkn₀, hinv.knames n]
+      exact hrc.canon (fun {m} {k'} hm => (hinv.consts hm).trans (hinv.knames m)) hkn₀
+  -- Step 6: visitMutual — the δ-inclusion content (D4a), and the one genuinely new
+  -- inductive argument of the slice. Its shape is `ColdStartInduction`'s step 6 (the
+  -- output-shape induction walks the same four exits), with two differences forced by
+  -- the conclusion: the world is indexed as well as the state, so every
+  -- state-transparent primitive on the path still needs a generator clause
+  -- (`DeltaHyps`' bookkeeping group — `BridgeHyps` specs the *term* path's primitives,
+  -- not these); and the erasure IH is conditional, so the dependency's body has to
+  -- arrive with a `BridgeInv`, a `Supported` and a `TrExprS`. The invariant is rebuilt
+  -- field by field at the dependency's reader (`withReader` moves `fixvars` and
+  -- `lparams` and nothing else, `Erasure.lean:889`), and the other two come from
+  -- `DeltaHyps.prepared` — the fragment's defining scope statement.
+  · intro vE ih1
+    intro n s ctx cctx ref w u s₁ w₁ hrun Δ hinv hkn
+    simp only [] at hrun
+    -- (1) the declaration fetch. State-transparent; `DeltaHyps.decl_run` pins what it
+    -- returns, and every branch below is a function of that.
+    rw [run_bind_ok] at hrun
+    obtain ⟨di, sa, wa, hdi, hrun⟩ := hrun
+    have hsa := run_liftCoreM_state (x := (Compiler.LCNF.getDeclInfo? n : CoreM _))
+      _ _ cctx ref _ hdi
+    subst sa
+    have hdiC := ((run_liftCoreM_ok _ _ cctx ref _).mp hdi).1
+    obtain ⟨hled, ci, hci, hall, hlp, hvalue⟩ := (Hδ cctx ref).decl_run hkn hdiC
+    have hdg : di.get! = ci := by rw [hci]; rfl
+    rw [hdg] at hrun
+    -- (2) getEnv, for the `@[inline]` attribute lookup.
+    rw [run_bind_ok] at hrun
+    obtain ⟨env0, sb, wb, henv0, hrun⟩ := hrun
+    have hsb := run_getEnv_state _ _ cctx ref _ henv0
+    subst sb
+    have hle : gw w ≤ gw wb :=
+      NameGenerator.LE.trans hled ((Hδ cctx ref).env_run henv0)
+    have hrc : RunConcl s s := RunConcl.rfl' _
+    clear hdi henv0
+    -- (3) the block is a single declaration (`decl_run`), so the prefix is entered.
+    split at hrun
+    case isFalse hns => exact absurd (by simp [hall]) hns
+    case isTrue =>
+      -- (4) the `@[inline]` prefix: `inlinings` only, and one `logInfo` world step.
+      obtain ⟨s₀, w₀, u₀, hpre, hrun⟩ := run_inline_prefix_decomp' hrun
+      obtain ⟨hrc, hle⟩ : RunConcl s s₀ ∧ gw w ≤ gw w₀ := by
+        rcases hpre with ⟨rfl, rfl⟩ | ⟨u', hlog, rfl⟩
+        · exact ⟨hrc, hle⟩
+        · exact ⟨hrc.trans (runConcl_inlinings _ _),
+            NameGenerator.LE.trans hle ((Hδ cctx ref).log_run hlog)⟩
+      -- (5) the `value?` / `isExtern` / `config.extern` match.
+      rw [run_bind_ok] at hrun
+      obtain ⟨env2, se, we, henv2, hrun⟩ := hrun
+      have hz := run_getEnv_state _ _ cctx ref _ henv2
+      subst se
+      replace hle := NameGenerator.LE.trans hle ((Hδ cctx ref).env_run henv2)
+      rw [run_bind_ok] at hrun
+      obtain ⟨c1, sr, wr, hread, hrun⟩ := hrun
+      rw [run_read] at hread
+      cases hread
+      clear henv2
+      have hkey : ∀ v : Expr, ci.value? (allowOpaque := true) = some v →
+          ci.value! (allowOpaque := true) = v ∧ name_occurs n v = false :=
+        fun v hv => ⟨constantInfo_value!_of_value? hv, (hvalue v hv).1⟩
+      cases hval : ci.value? (allowOpaque := true) <;>
+        cases hext : isExtern env2 n <;>
+          cases hcfg : ctx.config.extern <;>
+            simp only [hval, hext, hcfg] at hrun
+      all_goals
+        try
+          (rw [run_bind_ok] at hrun
+           obtain ⟨u3, s3, w3, hlog, hrun⟩ := hrun
+           have hz2 := run_logInfo_state _ _ cctx ref _ hlog
+           subst s3
+           replace hle := NameGenerator.LE.trans hle ((Hδ cctx ref).log_run hlog))
+      all_goals
+        first
+          -- (6a) the two axiom exits: the world does not move, and the registration is
+          -- the `addAxiom` insert itself.
+          | (obtain ⟨rfl, rfl⟩ := run_addAxiom_ok hrun
+             exact ⟨hrc.trans (runConcl_addAxiomState n _), hle, addAxiomState_get? n _⟩)
+          | (split at hrun
+             case isFalse hnr =>
+               -- (6c) the recursive exit is out of the fragment: `decl_run` says the
+               -- value does not mention `n`, which forces `nonrecursive` true.
+               exact absurd (by
+                 simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
+             case isTrue =>
+               -- (6b) the non-recursive exit — the content arm.
+               rw [run_bind_ok] at hrun
+               obtain ⟨t, st, wt, hvis, hrun⟩ := hrun
+               rw [run_withReader, run_bind_ok] at hvis
+               obtain ⟨pe, sp, wp, hpr, hvis⟩ := hvis
+               obtain ⟨hlep, hsp⟩ := (Hδ cctx ref).prep_run hpr
+               subst sp
+               replace hle := NameGenerator.LE.trans hle hlep
+               -- the dependency's body is in the fragment: `Esrc` records its prepared
+               -- form (`prep_esrc`, keyed on the same two runs we hold), and the
+               -- fragment says that form is `Supported` and translatable.
+               rw [(hkey _ hval).1] at hpr
+               obtain ⟨hsupp, htr⟩ :=
+                 (Hδ cctx ref).prepared hkn
+                   ((Hδ cctx ref).prep_esrc hkn hdiC hci hval hpr) hpr
+               -- the invariant travels to the dependency's reader: `withReader` moves
+               -- `fixvars` (to `none`, which `DeltaHyps.nofixvars` matches) and
+               -- `lparams` (to the declaration's own, which `decl_run` pins at `Us`).
+               have hinvb := (hinv.mono_state hrc).mono hle
+               have hinv' : BridgeInv env Us known Γ (gw wp)
+                   { ctx with fixvars := none, lparams := ci.levelParams } s₀ Δ :=
+                 { mlc := hinvb.mlc
+                   lparams := hlp
+                   natcfg := hinvb.natcfg
+                   kfresh := hinvb.kfresh
+                   fixvars := by
+                     intro nm x
+                     show (none : Option (Std.HashMap Name FVarId)).bind _ = _ ↔ _
+                     rw [(Hδ cctx ref).nofixvars]
+                     simp
+                   fixfresh := by
+                     intro nm x hx
+                     rw [(Hδ cctx ref).nofixvars] at hx
+                     simp at hx
+                   reserved := hinvb.reserved
+                   knames := hinvb.knames
+                   consts := hinvb.consts }
+               obtain ⟨-, hrcv, hlev⟩ := ih1 _ _ _ _ _ _ _ _ _ hvis Δ hinv' hsupp (htr Δ)
+               replace hle := NameGenerator.LE.trans hle hlev
+               replace hrc := hrc.trans hrcv
+               -- the registration, then the inlining tail (which registers nothing).
+               rw [run_bind_ok] at hrun
+               obtain ⟨u2, sm, wm, hmod, hrun⟩ := hrun
+               rw [run_modify] at hmod
+               cases hmod
+               rw [run_bind_ok] at hrun
+               obtain ⟨c2, sc, wc, hread2, hrun⟩ := hrun
+               rw [run_read] at hread2
+               cases hread2
+               refine run_inline_tail_ok'
+                 (P := fun s' w' => RunConcl s s' ∧ gw w ≤ gw w' ∧
+                   (s'.constants.get? n).isSome)
+                 (fun hP => ⟨hP.1.trans (runConcl_inlinings _ _), hP.2.1, hP.2.2⟩)
+                 (fun hl hP => by
+                   obtain rfl := run_logInfo_state _ _ cctx ref _ hl
+                   exact ⟨hP.1, NameGenerator.LE.trans hP.2.1 ((Hδ cctx ref).log_run hl),
+                     hP.2.2⟩)
+                 (fun hi hP => by
+                   obtain rfl := run_liftCoreM_state _ _ cctx ref _ hi
+                   exact ⟨hP.1, NameGenerator.LE.trans hP.2.1 ((Hδ cctx ref).inst_run hi),
+                     hP.2.2⟩)
+                 ⟨hrc.trans (runConcl_nonrecConstState n t _), hle,
+                   nonrecConstState_get? n t _⟩
+                 hrun)
   -- Step 7: visitAppArgs — the Array.foldlM loop rule with the prefix-spine
   -- invariant.
   · intro vE ih1
@@ -2308,15 +2482,18 @@ an artefact of `DataBridgeHyps.reg_run`/`CasesBridgeHyps.casesreg_run` asserting
 (`Erasure.run_register_inductive_cold_ok`). Those clauses are gone; this conclusion is
 what the run actually does. -/
 theorem visitExpr_refines_erases {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cctx ref)
     (henv : env.Ordered) :
     ∀ e s ctx cctx ref w t s' w',
       Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w' →
       ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
         Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
         Erases env Us Γ Δ e t ∧ RunConcl s s' ∧ gw w ≤ gw w' :=
-  (visitExpr_refines_erases_core H HD C henv).1
+  (visitExpr_refines_erases_core H HD C Hδ henv).1
 
 /-! ## Non-vacuity guards
 
@@ -2348,7 +2525,6 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
   reserved := fun _ hfv => nomatch hfv
   knames := hkn
   consts := by intro n k hk; simp at hk
-  known_dom := fun _ h => h.elim
 
 /-- (i') **The fixvar agreement is satisfiable at a genuinely *block-local*
 configuration** (recursion wall, W3.1) — the guard that `BridgeInv.fixvars` is a real
@@ -2380,18 +2556,22 @@ example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
   reserved := fun _ hfv => nomatch hfv
   knames := fun _ => rfl
   consts := by intro n k hk; simp at hk
-  known_dom := fun _ h => h.elim
 
 /-- (ii) The non-run premises of `visitExpr_refines_erases` are jointly
 instantiable: a concrete one-fvar context (with `TrLCtx` *constructed*, not
 assumed) and the supported term `.fvar x` satisfy every premise except the run
-itself and the trust bundle, which stay hypothetical because the primitives
-are opaque. -/
+itself and the trust bundles, which stay hypothetical because the primitives
+are opaque. The fourth bundle (`DeltaHyps`, slice D4a) is hypothetical for exactly the
+same reason and no other: at this guard's `known = ⊥` its whole *scope* half is free
+(`DeltaHyps.of_bot`), and what is left is the generator bookkeeping for the five
+primitives only `visitMutual` reaches. -/
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
     (henv : env.Ordered)
     (x : FVarId) (nm : Name) (bi : BinderInfo)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
@@ -2429,8 +2609,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
         · exact hres
         · exact nomatch h
       knames := hkn
-      consts := by intro n k hk; simp at hk
-      known_dom := fun _ h => h.elim }
+      consts := by intro n k hk; simp at hk }
   have hfind2 : VLCtx.find?
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] (.inr x)
       = some ((VLocalDecl.vlam (.sort .zero)).value, (VLocalDecl.vlam (.sort .zero)).type) := by
@@ -2438,7 +2617,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
   have hex : ∃ ve, TrExprS env Us
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] (.fvar x) ve :=
     ⟨_, .fvar hfind2⟩
-  exact visitExpr_refines_erases H HD C henv _ _ _ _ _ _ _ _ _ hrun _ hinv (.fvar x) hex
+  exact visitExpr_refines_erases H HD C Hδ henv _ _ _ _ _ _ _ _ _ hrun _ hinv (.fvar x) hex
 
 
 /-- (iii) **The bridge fires on a `Nat` literal** (Nat-literals wall, L4) — the literal
@@ -2459,6 +2638,8 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
     (C : CasesBridgeHyps ΓnatLit gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envNatT [] (fun _ => False) ΓnatLit (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -2475,32 +2656,83 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
       fixfresh := by intro nm x hx; simp [ΓnatLit] at hx
       reserved := fun _ h => nomatch h
       knames := fun _ => rfl
-      consts := by intro n k hk; simp at hk
-      known_dom := fun _ h => h.elim }
-  exact visitExpr_refines_erases H HD C envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _ hinv
+      consts := by intro n k hk; simp at hk }
+  exact visitExpr_refines_erases H HD C Hδ envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _ hinv
     (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
     ⟨_, trExprS_natLit 2⟩
 
-/-- (iv) **The cold-start wall, stated negatively** (δ-inclusion, slice D3) — the
-counterpart of (i), and the reason the δ-inclusion design deletes `known_dom` rather than
-weakening it.
+/-- (iv) **The cold-start wall, gone** (δ-inclusion, slice D4a) — the counterpart of (i)
+at a *non-empty* fragment, and the guard the whole slice exists to make provable.
 
 At the entry configuration the state is the empty one (`ColdStartRun.run_eq`:
-`Erasure.run x cfg … = x {} { «config» := cfg } …`), and `known_dom` is the only field
-that mentions `known`. So for *any* non-empty fragment the invariant is not merely hard to
-establish there — it is refutable, whatever `env`, `Us`, `Γ`, `gen` and `cfg` are. That is
-what forces every cold-start capstone to `known = ⊥`, and hence what makes the cold-start
-fragment δ-free: `Supported.const` needs `known n`.
+`Erasure.run x cfg … = x {} { «config» := cfg } …`). Before this slice the invariant was
+*refutable* there for every non-empty fragment, because `known_dom` asserted that a
+`known` constant is already registered (`old_known_dom_cold_refuted`, next). Now the
+invariant is `known`-blind, so the same configuration carries it at `known = (· = n)` —
+and, with `gDeltaSupported` (`DeltaHyps.lean`) exhibiting `Supported known Γ (.const n [])`
+at such a fragment, the two premises `visitExpr_refines_erases` needs at a δ-reference are
+jointly satisfiable at the cold-start entry. That is δ-inclusion, at the invariant. -/
+theorem bridgeInv_cold_known (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (hkn : ∀ m : Name, Γ.constants m = toKername m) (hfv : Γ.fixvars = fun _ => none)
+    (gen : NameGenerator) (cfg : ErasureConfig)
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano) (n : Name) :
+    BridgeInv env Us (fun m => m = n) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+  mlc := ⟨.nil, trivial, rfl, rfl⟩
+  lparams := rfl
+  natcfg := hcfg
+  kfresh := fun _ hfv => nomatch hfv
+  fixvars := by intro nm x; rw [hfv]; simp
+  fixfresh := by intro nm x hx; rw [hfv] at hx; simp at hx
+  reserved := fun _ hfv => nomatch hfv
+  knames := hkn
+  consts := by intro m k hk; simp at hk
 
-Together with `DeltaHyps.constants_get!_unregistered_ne` this pins the shape of the fix:
-the field has to go, and it cannot go alone, because motive 5's hit branch is forced by it
-and by nothing else. See the field's own docstring. -/
-theorem bridgeInv_cold_known_refuted (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
-    (gen : NameGenerator) (cfg : ErasureConfig) (n : Name) :
-    ¬ BridgeInv env Us (fun m => m = n) Γ gen ⟨{}, none, Us, cfg⟩ {} [] := by
+/-- (iv') **Why the deleted field could not simply be weakened** — the negative guard,
+kept so that the reason `BridgeInv.known_dom` died stays on the record.
+
+Its statement, at the cold-start configuration and any non-empty fragment, is refutable:
+nothing is registered at `{}`. Together with `DeltaHyps.constants_get!_unregistered_ne`
+(the *other* half: without a registration conclusion from `visitMutual`'s own motive, the
+miss branch of `get_constant_kername` returns `default`, which is not the canonical
+kername) this pins the shape of the fix that slice D4a implements — delete the field,
+give motive 6 content, carry the fragment scope-side in `DeltaHyps`. -/
+theorem old_known_dom_cold_refuted (n : Name) :
+    ¬ (∀ m : Name, (fun k => k = n) m → ((({} : ErasureState)).constants.get? m).isSome) := by
   intro h
-  have := h.known_dom n rfl
+  have := h n rfl
   simp at this
+
+/-- (v) **The bridge fires on a δ-reference, at the cold-start entry state** (δ-inclusion,
+slice D4a) — the payoff guard, and the one the whole slice exists for.
+
+Everything except the run and the four trust bundles is *constructed*, at a genuinely
+non-empty fragment: the invariant at the empty state and a `known` that holds of
+`Nat.zero` (`bridgeInv_cold_known` — refutable before this slice,
+`old_known_dom_cold_refuted`); the `Supported.const` derivation, whose `known n`
+disjunct is what `known = ⊥` used to kill; and the source translation, at the
+three-axiom `envNatT` where `Nat.zero` is declared *and typed*.
+
+The run this fires on is one that takes `get_constant_kername`'s **miss** branch — the
+constant is not registered at `{}` — so the conclusion is carried by motive 6's
+registration content: `visitMutual` registers the name, `s'.constants[n]!` is therefore
+the kername the registry holds, and `RunConcl.canon` makes it `Γ`'s. Before this slice
+none of that existed and the branch was refuted by fiat. -/
+example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envNatT [] gΓδ gw) (HD : DataBridgeHyps gΓδ gw)
+    (C : CasesBridgeHyps gΓδ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envNatT [] (fun m => m = ``Nat.zero) gΓδ (fun _ => none) gw cc rf)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.const ``Nat.zero []) {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w') :
+    Erases envNatT [] gΓδ [] (.const ``Nat.zero []) t ∧
+      RunConcl ({} : ErasureState) s' ∧ gw w ≤ gw w' :=
+  visitExpr_refines_erases H HD C Hδ envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _
+    (bridgeInv_cold_known envNatT [] gΓδ (fun _ => rfl) rfl (gw w) cfg
+      (fun h => absurd h (by decide)) ``Nat.zero)
+    (.const ``Nat.zero [] (Or.inl rfl) rfl rfl)
+    ⟨.const ``Nat.zero [], .const envNatT_zero (by simp) (by simp)⟩
 
 end NonVacuity
 

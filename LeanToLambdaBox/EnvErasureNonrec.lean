@@ -310,8 +310,10 @@ specialization of `visitExpr_refines_erases`; its premises' non-vacuity is inher
 from `visitExpr_refines_erases`'s own guards (`VisitExprRefines.lean` NonVacuity), plus
 the `Δ = []` invariant guard below. -/
 theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     (henv : env.Ordered)
     {prepbody : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {body' : LBTerm}
@@ -321,7 +323,7 @@ theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name →
     (hsupp : Supported known Γ prepbody)
     (hex : ∃ ve, TrExprS env Us [] prepbody ve) :
     Erases env Us Γ [] prepbody body' :=
-  (visitExpr_refines_erases H HD C henv _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
+  (visitExpr_refines_erases H HD C Hδ henv _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
 
 /-- **Cold-start closure registration for the non-recursive fragment** (a clean `Prop`
 hypothesis; P3-v2b's DAG registration discharges it). For every source constant `n`
@@ -441,6 +443,5 @@ theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
   reserved := fun _ hfv => nomatch hfv
   knames := hkn
   consts := by intro n k hk; simp at hk
-  known_dom := fun _ h => h.elim
 
 end LeanToLambdaBox

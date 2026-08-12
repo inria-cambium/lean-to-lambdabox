@@ -62,6 +62,8 @@ theorem shipping_erase_correct_firstorder
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -78,7 +80,7 @@ theorem shipping_erase_correct_firstorder
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv⟩ :=
     shipping_visitExpr_correct_data henv (Δ := []) trivial hcon hdelta hctorenv hcc hrec
-      hnfv H HD C hrun hinv hsup htr hnb hev
+      hnfv H HD C Hδ hrun hinv hsup htr hnb hev
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv,
     fun tu hertu hnbtu =>
       firstOrder_value_erases_unique henv (Δ := []) trivial hfo hertu hnbtu herv hnbv⟩
@@ -94,6 +96,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOd (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
@@ -107,7 +111,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_erase_correct_firstorder envFO_wf (Us := []) (Esrc := fun _ => none)
     (E := EFOd) ?_ ?_ ΓFOd_envctor ?_ (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl
-    H HD C hrun hinv hsup envFO_trC hnb ?_
+    H HD C Hδ hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
@@ -184,6 +188,8 @@ example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
     (C : CasesBridgeHyps ΓnatLit gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envNatT [] (fun _ => False) ΓnatLit (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -203,12 +209,11 @@ example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
       fixfresh := by intro nm x hx; simp [ΓnatLit] at hx
       reserved := fun _ h => nomatch h
       knames := fun _ => rfl
-      consts := by intro n k hk; simp at hk
-      known_dom := fun _ h => h.elim }
+      consts := by intro n k hk; simp at hk }
   refine shipping_erase_correct_firstorder envNatT_wf (Us := []) (Esrc := fun _ => none)
     (E := EnatLit) ?_ ?_ erasesEnvCtor_natLit (fun _ => rfl)
     (recEnvConsistent_of_noRec (Γ := ΓnatLit) rfl) rfl
-    H HD C hrun hinv (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
+    H HD C Hδ hrun hinv (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
     (trExprS_natLit 2) hnb (sevalDataC_natLit 2) (firstOrderValue_srcNatTower harity 2)
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)

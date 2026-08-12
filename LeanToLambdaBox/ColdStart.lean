@@ -261,6 +261,8 @@ theorem shipping_erase_correct_firstorderι_coldstart
     -- runtime Hoare bundles
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
     -- the subject
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
@@ -302,7 +304,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
       (ctorFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
-      hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C
+      hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C Hδ
       hvis hinv hsup htr (S.noBlock hvis) hcl (hev hpr) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
@@ -321,6 +323,8 @@ theorem shipping_erase_correct_firstorder_coldstart
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
     (S : ColdStartSubject env Us Γ e cfg cctx ref w)
@@ -349,7 +353,7 @@ theorem shipping_erase_correct_firstorder_coldstart
       (by intro Δ n us body cve h; exact absurd h (by simp))
       (by intro Δ n body h; exact absurd h (by simp))
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
-      hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C
+      hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ
       hvis hinv hsup htr (S.noBlock hvis) (hev hpr) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
@@ -385,6 +389,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (S : ColdStartSubject envFO [] ΓFOι e cfg cctx ref w)
@@ -399,7 +405,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C S hev
+    (by simp [ΓFOι]) Hr hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ S hev
     (envFO_foC_ι harity) hrun
 
 /-- The βζδ+data flavour of the same guard, at the same pin. -/
@@ -408,6 +414,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (S : ColdStartSubject envFO [] ΓFOι e cfg cctx ref w)
@@ -422,6 +430,6 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr ΓFOι_cc H HD C S hev (envFO_foC_ι harity) hrun
+    (by simp [ΓFOι]) Hr ΓFOι_cc H HD C Hδ S hev (envFO_foC_ι harity) hrun
 
 end LeanToLambdaBox

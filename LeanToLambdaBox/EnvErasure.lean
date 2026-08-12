@@ -37,13 +37,13 @@ remaining gap:
   (`RegisteredClosureData`/`RegisteredCtors`/…) are here *assumed* about the run's output
   env `E`; `ColdStartShape`/`ColdStartInduction` (slice S1) prove the *shape* half of them
   from a real run, and slice S2 widened the bridge's conclusion from `s' = s` to
-  `Erasure.RunConcl` so the two can be composed at a growing state. What is still open is
-  the `get_constant_kername` **miss** branch: `VisitExprRefines.BridgeInv.consts` is now
-  soundness-flavoured, but its `known_dom` residue still forces the hit branch, because
-  discharging the miss branch needs facts about `Compiler.LCNF.getDeclInfo?` that belong
-  to the entry slice's `RegBridgeHyps` (see the note at motive 5). That branch is also
-  what would supply the top-level term bridge (`hrun`/`hinv`), which is why the subject
-  here is still `visitExpr e` under a registered state, not cold-start `erase`.
+  `Erasure.RunConcl` so the two can be composed at a growing state. Slice D4a then closed
+  the `get_constant_kername` **miss** branch: the invariant's `known_dom` residue — which
+  forced the hit branch — is gone, `visitMutual`'s motive concludes state growth,
+  generator monotonicity and "`n` is now registered", and the facts about
+  `Compiler.LCNF.getDeclInfo?` the branch needs come scope-side from `DeltaHyps`. The
+  subject here is still `visitExpr e` under a registered state rather than cold-start
+  `erase`, which is the capstone's own slice.
 * **`visitConst`-fixvar bridge (P3.12, DONE at the term level — recursion wall, W3.1).**
   `visitConst`'s fixvar branch is no longer dead: `BridgeInv.fixvars` is an agreement
   between the reader's block-local map and `Γ.fixvars`, and motive 4 concludes
@@ -105,6 +105,8 @@ theorem shipping_erase_correct_firstorder_registered
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -121,7 +123,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hrec hnfv H HD C hrun hinv hsup htr hnb hev hfo
+    hctorenv hcc hrec hnfv H HD C Hδ hrun hinv hsup htr hnb hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -134,6 +136,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOd (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
@@ -149,7 +153,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_
     (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)        -- ΓFOd registers no recursion
     rfl                                                -- …and installs no fixvar map
-    H HD C hrun hinv hsup envFO_trC hnb ?_
+    H HD C Hδ hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.disj, vacuous

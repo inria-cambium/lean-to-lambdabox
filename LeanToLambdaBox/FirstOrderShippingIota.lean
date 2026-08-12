@@ -136,6 +136,8 @@ theorem shipping_erase_correct_firstorderι
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -154,7 +156,7 @@ theorem shipping_erase_correct_firstorderι
   obtain ⟨t', vve, heval, htrv, herv, hnbv, hclv⟩ :=
     erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
       (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hnfv hclenv hev htr
-      (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
+      (visitExpr_refines_erases H HD C Hδ henv.ordered e s ctx cctx ref w t s' w' hrun
         [] hinv hsup ⟨ve, htr⟩).1
       hnb hcl
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv, hclv,
@@ -199,6 +201,8 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -216,7 +220,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
     (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C
+    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ
     hrun hinv hsup htr hnb hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
@@ -258,6 +262,8 @@ theorem shipping_erase_correct_firstorderι_registered
     (hclenv : ClosedEnv E)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -278,7 +284,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
-    hiacoh hrel hcc hrec hnfv hclenv H HD C hrun hinv hsup htr hnb hcl hev hfo
+    hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ hrun hinv hsup htr hnb hcl hev hfo
 
 /-! ## Non-vacuity guards
 
@@ -443,15 +449,18 @@ Cold-start S2 tightened this guard twice: the run is now taken at the **empty st
 empty context** (`Erasure.run`'s own initial configuration) rather than an abstract
 registered one, and `BridgeInv` is **constructed** there rather than assumed — the
 invariant's `consts` field became soundness-flavoured, hence vacuous at `{}`. `known` is
-`⊥` because the subject is constructor-headed and needs no δ-constant; at `⊤` the
-invariant's `known_dom` field would demand every `Name` be registered in a finite
-`Std.HashMap`, i.e. it was unsatisfiable (as was its `consts` predecessor). -/
+`⊥` because the subject is constructor-headed and needs no δ-constant. (Before slice
+D4a a *non-empty* `known` was not merely unnecessary here but unavailable: the
+invariant's deleted `known_dom` field demanded that every `known` name already be
+registered, which at `{}` is false — `VisitExprRefines.old_known_dom_cold_refuted`.) -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hiota : IotaConsistent envFO [] ΓFOι iaFOι)
     (hrel : IotaRelevant envFO [] ΓFOι)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     (s' : ErasureState) (cfg : ErasureConfig) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -472,7 +481,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
     (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl) rfl
-    EFOd_closedEnv H HD C hrun hinv hsup envFO_trC hnb hcl ?_
+    EFOd_closedEnv H HD C Hδ hrun hinv hsup envFO_trC hnb hcl ?_
     (envFO_foC_ι harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro Δ n body h; exact absurd h (by simp)          -- ErasesEnvDeltaData, vacuous

@@ -15,7 +15,7 @@ costs to let an erased program **call** something — the δ (constant-unfolding
 `BridgeInv` (`VisitExprRefines.lean`) is the *state-side* half of the bridge's contract: it
 relates the reader and the registry to `Γ` at the entry state of each sub-run. A cold start
 begins at the empty state, so no *state* condition can say anything about a constant the
-walk has not reached yet — that is exactly the wall `BridgeInv.known_dom` runs into, and
+walk has not reached yet — that is exactly the wall `BridgeInv.known_dom` ran into, and
 recording a δ-obligation there would make it unsatisfiable at `{}` rather than merely
 strong. What a δ-reference actually needs is the *scope-side* half: the fragment `known` is
 closed under dependency, each dependency's prepared body is itself in the fragment, and the
@@ -83,7 +83,12 @@ program that forces one does not evaluate).
 
 The five `…_run` bookkeeping clauses are the generator-monotonicity specs for the
 primitives only `visitMutual` reaches; `BridgeHyps` covers the four the *term* path
-touches, and this bundle deliberately does not duplicate them. -/
+touches, and this bundle deliberately does not duplicate them.
+
+Two clauses are keyed on a *pair* of runs rather than one: `prep_esrc` (the declaration
+fetch plus the preparation of its value) and, at the consumer, `prepared`. That shape is
+forced by the point of use — inside `Erasure.visitExpr.mutual_fixpoint_induct` the caller
+holds runs, not an environment — and is documented at each field. -/
 structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : ErasureCtx)
     (Esrc : SEnv) (gw : Void IO.RealWorld → NameGenerator)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
@@ -121,12 +126,37 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 
   Note for the consumer: `Esrc n = some pe` is a *premise*, at the run's own output `pe`.
   That is the canonical instantiation's defining equation (`Esrc` **is** the collection of
-  prepared bodies), not something to be derived from the run. -/
+  prepared bodies), not something to be derived from the run — `prep_esrc` below is what
+  hands it to a caller who has only the run. -/
   prepared : ∀ {n : Name} {v pe : Expr} {s s₁ : ErasureState} {ctx : ErasureContext}
       {w w₁ : Void IO.RealWorld},
     known n → Esrc n = some pe →
     prepare_erasure v s ctx cctx ref w = .ok (pe, s₁) w₁ →
     Supported known Γ pe ∧ (∀ Δ : VLCtx, ∃ ve, TrExprS env Us Δ pe ve)
+  /-- **`Esrc` records the prepared body of the declaration the walk fetched** — the
+  run-keyed half of `prepared`'s premise, and the canonical instantiation's defining
+  equation (slice D4a).
+
+  `prepared` is keyed on `Esrc n = some pe` at the run's *own* output `pe`. A caller
+  inside the bridge induction holds the `prepare_erasure` run and `decl_run`'s
+  `(Esrc n).isSome`, and those two cannot be joined: `(Esrc n).isSome` names *some* body,
+  the run produces *its* body, and nothing in the logic identifies the two. So the
+  identification is stated here, keyed on exactly the two runs such a caller has in hand —
+  the `getDeclInfo?` fetch, which is what ties the value `v` to the name `n` (without it
+  the clause would be plainly false: `prepare_erasure` runs on every expression the walk
+  prepares, the top-level subject included), and the `prepare_erasure` run itself.
+
+  It is the same fact `ColdStartDelta.registeredClosureData_step_nonrec` takes as its
+  `hEsrc` premise at the composition site; it lives in the bundle because inside the
+  induction there is no composition site to take it at. -/
+  prep_esrc : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v pe : Expr}
+      {s s₁ : ErasureState} {ctx : ErasureContext}
+      {wd wd₁ w w₁ : Void IO.RealWorld},
+    known n →
+    (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref wd = .ok r wd₁ →
+    r = some ci → ci.value? (allowOpaque := true) = some v →
+    prepare_erasure v s ctx cctx ref w = .ok (pe, s₁) w₁ →
+    Esrc n = some pe
   /-- **No fragment constant is emitted as an axiom** — scope restriction 3. Covers both
   `addAxiom` sites: `visitMutual`'s value-less / `@[extern] + preferAxiom` exits, and the
   `@[extern]`-constructor prefix inside `register_inductive`. -/
@@ -151,18 +181,80 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   ci_run : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState} {ctx : ErasureContext}
       {w w' : Void IO.RealWorld},
     (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' → gw w ≤ gw w'
-  /-- Bookkeeping: `prepare_erasure` is generator-monotone. Its *state* transparency is
-  **not** assumed: it is derived from the csimp gate (`ColdStartRun.run_prepare_erasure_state`),
-  which is `PrepareHyps`' documented trust item, so keeping it out of this bundle keeps the
-  two trust surfaces from overlapping. -/
+  /-- Bookkeeping: `prepare_erasure` is generator-monotone and leaves the `ErasureState`
+  alone.
+
+  The state conjunct is the `hprep`-class item `ErasureRun`'s registration-exit rules
+  already carry (`Erasure.run_nonrec_exit_ok`'s `hprep`, whose docstring gives the same
+  classification): `prepare_erasure`'s `csimp` branch runs `Lean.Core.transform` *at*
+  `EraseM` through `MonadControlT`, so state transparency does not follow from the `liftM`
+  lemmas the way it does for the other four primitives here. It is *proved* for every
+  csimp-off configuration (`ColdStartRun.run_prepare_erasure_state`), and csimp-off is the
+  only configuration any capstone runs in — `PrepareHyps`' gate, for the independent
+  reason that csimp replacement is not kernel-semantics-preserving. It is assumed rather
+  than derived here (slice D4a) because the reader's config is an *induction variable*
+  inside the bridge: `BridgeInv` does not pin `csimp`, so the gate is not visible at the
+  point of use. A csimp-on instance of this bundle is out of scope, which is the failure
+  mode the gate already fixes everywhere else. -/
   prep_run : ∀ {e pe : Expr} {s s' : ErasureState} {ctx : ErasureContext}
       {w w' : Void IO.RealWorld},
-    prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w'
+    prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s
   /-- **Context-uniformity of a constant body's erasure** — the `huni` residue
   `ColdStartDelta.registeredClosureData_step_nonrec` already carries. Discharged outright
   once `Erases`/`TrExprS` gain fvar-extension weakening; a premise until then. -/
   uniform : ∀ {n : Name} {pe : Expr} {t : LBTerm} {Δ : VLCtx},
     Esrc n = some pe → Erases env Us Γ [] pe t → Erases env Us Γ Δ pe t
+
+/-- **What the bundle costs at the empty fragment** — the honest accounting for every
+consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
+
+The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
+`prepared`, `prep_esrc` and `uniform` all have `known n` or `(Esrc n).isSome` in their
+premises, and `axiom_free`'s conclusion is `none = none`. The *bookkeeping* half is
+**not** free and is passed in: `log_run`/`env_run`/`inst_run`/`ci_run`/`prep_run` are
+generator-monotonicity (and, for `prep_run`, state-transparency) statements about real
+primitives, and `gw` is an arbitrary map from world tokens to generators — nothing in the
+logic makes `gw w ≤ gw w'` hold across a world-advancing call. They are the same
+epistemic class as `BridgeHyps.fresh_run`, which is why `BridgeHyps` assumes its four and
+this bundle its five. `nofixvars` is likewise a real side condition on `Γ` — the `hnfv`
+every top-level entry point already pins.
+
+So: a `known = ⊥` consumer buys exactly six things, and no fragment-scope obligation. -/
+theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State}
+    (hnfv : Γ.fixvars = fun _ => none)
+    (hlog : ∀ {m : MessageData} {u : Unit} {s s' : ErasureState} {ctx : ErasureContext}
+        {w w' : Void IO.RealWorld},
+      (logInfo m : EraseM Unit) s ctx cctx ref w = .ok (u, s') w' → gw w ≤ gw w')
+    (henv : ∀ {e : Environment} {s s' : ErasureState} {ctx : ErasureContext}
+        {w w' : Void IO.RealWorld},
+      (getEnv : EraseM Environment) s ctx cctx ref w = .ok (e, s') w' → gw w ≤ gw w')
+    (hinst : ∀ {m : Name} {b : Bool} {s s' : ErasureState} {ctx : ErasureContext}
+        {w w' : Void IO.RealWorld},
+      (liftM (Lean.Meta.isInstance m) : EraseM Bool) s ctx cctx ref w = .ok (b, s') w' →
+        gw w ≤ gw w')
+    (hci : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState} {ctx : ErasureContext}
+        {w w' : Void IO.RealWorld},
+      (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' →
+        gw w ≤ gw w')
+    (hprep : ∀ {e pe : Expr} {s s' : ErasureState} {ctx : ErasureContext}
+        {w w' : Void IO.RealWorld},
+      prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s) :
+    DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cctx ref where
+  esrc_sub := by intro n h; simp at h
+  disj := fun h => h.elim
+  nofixvars := hnfv
+  decl_run := fun h => h.elim
+  prepared := fun h => h.elim
+  prep_esrc := fun h => h.elim
+  axiom_free := fun _ => rfl
+  log_run := hlog
+  env_run := henv
+  inst_run := hinst
+  ci_run := hci
+  prep_run := hprep
+  uniform := by intro n pe t Δ h; simp at h
 
 /-! ## Non-vacuity
 
@@ -221,8 +313,9 @@ between registered nothing, that lookup returns `default`, and `default` is not 
 canonical kername of `n`. So the motive-5 conclusion `kn = Γ.constants n` is *false* on a
 run whose `visitMutual` does not register, at any `Γ` filing constants canonically: it
 cannot be discharged from `Γ`-side or scope-side data alone, and needs either the registry
-domain in the state invariant (`BridgeInv.known_dom`, today) or a registration conclusion in
-`visitMutual`'s own motive. This is the exact statement of that gap. -/
+domain in the state invariant (`BridgeInv.known_dom`, the field slice D4a deleted) or a
+registration conclusion in `visitMutual`'s own motive (what D4a put in its place). This is
+the exact statement of that gap. -/
 theorem constants_get!_unregistered_ne :
     ({} : ErasureState).constants.get? `f = none ∧
       Kername.beq (({} : ErasureState).constants[`f]!) (toKername `f) = false := by

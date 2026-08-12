@@ -1266,9 +1266,9 @@ open LeanToLambdaBox
 --
 -- THE WALL, RESTATED. A cold start begins at the empty state, so `BridgeInv.known_dom`
 -- ("a `known` constant is already registered") is not merely strong there — it is FALSE
--- for every non-empty fragment (`bridgeInv_cold_known_refuted`, proved below). That is
--- what pins every cold-start capstone to `known = ⊥`, and `Supported.const` needs
--- `known n`, so a cold-started program cannot CALL anything.
+-- for every non-empty fragment (`old_known_dom_cold_refuted`, kept below). That is what
+-- pinned every cold-start capstone to `known = ⊥`, and `Supported.const` needs `known n`,
+-- so a cold-started program could not CALL anything. Slice D4a removes the wall.
 --
 -- WHAT LANDED.
 --   * D1 — `run_visitMutual_decomp` now hands back the `getDeclInfo?` run itself (at the
@@ -1301,19 +1301,19 @@ open LeanToLambdaBox
 -- axiom set changed, and `run_visitMutual_decomp` in particular is byte-identical in its
 -- ledger row after the widening.
 --
--- WHAT DID **NOT** LAND, AND WHY. The design's D3 also called for DELETING
+-- WHAT DID **NOT** LAND IN D3, AND WHY. The design's D3 also called for DELETING
 -- `BridgeInv.known_dom` with the promise "green after this slice". That is not achievable
 -- as a separate slice, and the two guards below are the proof:
---   * `bridgeInv_cold_known_refuted` — the field is refutable at the entry configuration,
+--   * `old_known_dom_cold_refuted` — the field is refutable at the entry configuration,
 --     so it does have to go (the design's diagnosis is right);
 --   * `constants_get!_unregistered_ne` — but it is the ONLY thing forcing motive 5's hit
 --     branch, and the miss branch returns `s'.constants[n]!`, i.e. `default`, which is not
 --     `Γ.constants n`. Discharging the miss branch needs "`visitMutual n` registered `n`",
---     which inside `visitExpr.mutual_fixpoint_induct` can only come from motive 6 — today
---     `True`. Giving motive 6 content is a statement change to the crown theorem
+--     which inside `visitExpr.mutual_fixpoint_induct` can only come from motive 6 — before
+--     D4a, `True`. Giving motive 6 content is a statement change to the crown theorem
 --     (it must then take `DeltaHyps`, which is NOT vacuous at `known = ⊥` because of the
 --     bookkeeping clauses, hence a new premise at every consumer). So the field's death
---     and motive 6's content are one atomic change (D4a), not two slices.
+--     and motive 6's content are one atomic change — slice D4a, below.
 -- ============================================================================
 
 -- D1: the widened decomposition (ledger row unchanged).
@@ -1333,4 +1333,84 @@ open LeanToLambdaBox
 
 -- D3: the two negative guards that scope the `known_dom` deletion.
 #print axioms LeanToLambdaBox.constants_get!_unregistered_ne
-#print axioms LeanToLambdaBox.bridgeInv_cold_known_refuted
+#print axioms LeanToLambdaBox.old_known_dom_cold_refuted
+
+-- ============================================================================
+-- δ-inclusion, slice D4a (2026-08-12): `BridgeInv.known_dom` is DELETED, `visitMutual`'s
+-- motive gets content, and `get_constant_kername`'s miss branch closes. A cold-started
+-- program may now CALL a constant.
+--
+-- WHAT LANDED, in one atomic change (the field's death and the motive's content are not
+-- separable — see the D3 note above):
+--   * `BridgeInv` loses `known_dom` (field + 4 transports + 7 vacuous construction sites);
+--     the invariant no longer mentions `known` at all, and `bridgeInv_cold_known` shows it
+--     is now SATISFIABLE at the entry configuration for a non-empty fragment — the exact
+--     statement that was refutable before (`old_known_dom_cold_refuted`, kept).
+--   * motive 6 (`visitMutual`) stops being `True`: under `BridgeInv` + `known n` a
+--     successful call now concludes `RunConcl s s' ∧ gw w ≤ gw w' ∧ (s'.constants.get? n).isSome`
+--     — the same CONDITIONAL shape motive 5 has. Step 6 is proved by walking the four
+--     exits (`@[inline]` prefix, the two `addAxiom` exits, the non-recursive exit; the
+--     recursive exit is refuted inside the fragment by `DeltaHyps.decl_run`'s
+--     `name_occurs`), rebuilding `BridgeInv` field-by-field at the dependency's reader —
+--     `withReader` moves only `fixvars` (matched by `DeltaHyps.nofixvars`) and `lparams`
+--     (pinned at `Us` by `decl_run`) — and feeding motive 1's OWN IH with the fragment's
+--     `Supported`/`TrExprS` (`DeltaHyps.prepared`).
+--   * motive 5's miss branch is proved, not refuted: `hashMap_get!_of_get?` makes the
+--     `panic!`-defaulting lookup total from the registration conclusion, and
+--     `RunConcl.canon` makes it canonical at the POST-state (where `BridgeInv.consts` no
+--     longer applies) — the same move `BridgeInv.mono_state` makes.
+--   * `visitExpr_refines_erases{,_core}` take `DeltaHyps` (∀ `cctx`/`ref`, since those are
+--     bound inside the conclusion), threaded opaquely through every consumer:
+--     `erases_nonrec_const_body`, `shipping_visitExpr_correct{,'}`,
+--     `shipping_visitExpr_correct_data`, `shipping_erase_correct_firstorder{,_registered}`,
+--     `shipping_erase_correct_firstorderι{,_of_shape,_registered}`,
+--     `erases_nonrec_const_registered`, `registeredClosureData_step_nonrec`, and the two
+--     cold-start capstones.
+--
+-- TWO CLAUSES THE BUNDLE WAS SHORT, both forced by the point of use and both recorded at
+-- their fields (this is a STRENGTHENING of a hypothesis, so it is stated, not buried):
+--   * `prep_esrc` — `prepared` is keyed on `Esrc n = some pe` at the run's own output,
+--     while `decl_run` only gives `(Esrc n).isSome`; the two cannot be joined in-logic
+--     (one names *some* body, the other produces *its* body). `prep_esrc` states the
+--     identification, keyed on the two runs a caller inside the induction holds. It is the
+--     same fact `registeredClosureData_step_nonrec` takes as `hEsrc` at the composition
+--     site; there is no composition site inside an induction.
+--   * `prep_run` gains `s' = s`. `prepare_erasure`'s state transparency is PROVED for
+--     csimp-off configurations (`run_prepare_erasure_state`), but the reader's config is
+--     an induction variable and `BridgeInv` does not pin `csimp`, so the gate is invisible
+--     at the point of use. Same classification as `Erasure.run_nonrec_exit_ok`'s `hprep`,
+--     whose docstring already says so.
+--
+-- LEDGER: no new axiom, no `sorry`. Deleting an invariant field WEAKENS every theorem's
+-- premise; adding two bundle clauses strengthens `DeltaHyps`, which is a `Prop` premise,
+-- never an axiom. The bridge's own axiom row is unchanged.
+-- ============================================================================
+
+-- The crown theorem and its core, after the deletion + the new premise.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+
+-- The invariant is satisfiable at a NON-EMPTY fragment at the cold-start entry state
+-- (this is the wall, gone), and the deleted field's statement is still refutable there.
+#print axioms LeanToLambdaBox.bridgeInv_cold_known
+#print axioms LeanToLambdaBox.old_known_dom_cold_refuted
+
+-- The two small totality lemmas the miss branch needs.
+#print axioms LeanToLambdaBox.hashMap_get!_of_get?
+#print axioms LeanToLambdaBox.constantInfo_value!_of_value?
+
+-- The registration deltas the new motive reports, as `RunConcl` steps.
+#print axioms Erasure.run_inline_prefix_decomp'
+#print axioms Erasure.runConcl_nonrecConstState
+#print axioms Erasure.runConcl_addAxiomState
+#print axioms Erasure.nonrecConstState_get?
+
+-- What the empty fragment still buys (the bookkeeping half, spelled out).
+#print axioms LeanToLambdaBox.DeltaHyps.of_bot
+
+-- The consumers, threaded: the capstones' axiom sets must be UNCHANGED.
+#print axioms LeanToLambdaBox.shipping_visitExpr_correct
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

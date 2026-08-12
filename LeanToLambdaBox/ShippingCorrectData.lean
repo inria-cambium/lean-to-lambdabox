@@ -60,6 +60,8 @@ theorem shipping_visitExpr_correct_data
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -72,7 +74,7 @@ theorem shipping_visitExpr_correct_data
     ∃ t' vve, WcbvEval E appliedFlags t t' ∧ TrExprS env Us Δ v vve ∧
       Erases env Us Γ Δ v t' ∧ NoBlock t' :=
   erases_correct_data henv hΔ hcon hdelta hctorenv hcc hrec hnfv hev htr
-    (visitExpr_refines_erases H HD C henv.ordered e s ctx cctx ref w t s' w' hrun
+    (visitExpr_refines_erases H HD C Hδ henv.ordered e s ctx cctx ref w t s' w' hrun
       Δ hinv hsup ⟨ve, htr⟩).1
     hnb
 
@@ -86,6 +88,8 @@ everything else — including the `NoBlock` witness — is constructed. -/
 example (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envFO [] (fun _ => False) ΓFOd (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
@@ -98,7 +102,7 @@ example (gw : Void IO.RealWorld → NameGenerator)
   have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   refine shipping_visitExpr_correct_data envFO_wf (Us := []) (Δ := []) trivial
     (Esrc := fun _ => none) (E := EFOd) ?_ ?_ ΓFOd_envctor ?_
-    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C hrun hinv hsup htr hnb ?_
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C Hδ hrun hinv hsup htr hnb ?_
   · intro Δ n us body cve h; exact absurd h (by simp)
   · intro Δ n body h; exact absurd h (by simp)
   · intro cn iid cidx hc

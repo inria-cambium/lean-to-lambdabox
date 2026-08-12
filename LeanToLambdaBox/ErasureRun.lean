@@ -2428,6 +2428,96 @@ theorem run_rec_exit_ok' {Nf Cl : LBTerm → Prop} {vE : Expr → EraseM LBTerm}
   cases hrun
   exact hrec hP.1 hP.2.1 hP.2.2
 
+/-! #### The prefix, decomposed, and the two registration deltas as `RunConcl` steps
+
+The Hoare form above propagates a predicate that already holds at the call's entry. A
+caller whose conclusion is *false* at the entry and becomes true at the registration —
+"`n` is in the registry when this call returns", the content δ-inclusion gives
+`visitMutual`'s motive — cannot use it: no `P` is both established at `s` and strong
+enough at `s₁`. For the `@[inline]` prefix, which registers nothing, the decomposition
+form below is what such a caller needs; the registration itself then supplies the fact
+directly, and the *tail* (which again registers nothing) goes back through
+`run_inline_tail_ok'`, whose entry is past the registration. -/
+
+/-- World-indexed decomposition twin of `run_inline_prefix_ok`: the prefix conses at most
+one `inlinings` entry, and the `logInfo` run that advanced the world is handed back (the
+caller needs it to charge the generator against a bookkeeping spec). -/
+theorem run_inline_prefix_decomp' {b : Bool} {msg : MessageData} {rest : EraseM Unit}
+    {s : ErasureState} {ctx : ErasureContext} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : (if b = true then do
+        logInfo msg
+        modify (fun s => { s with inlinings := toKername n :: s.inlinings })
+        rest
+      else rest) s ctx cctx ref w = .ok (u, s₁) w₁) :
+    ∃ (s₀ : ErasureState) (w₀ : Void IO.RealWorld) (u₀ : Unit),
+      ((s₀ = s ∧ w₀ = w) ∨ ∃ u' : Unit,
+        (logInfo msg : EraseM Unit) s ctx cctx ref w = .ok (u', s) w₀ ∧
+          s₀ = { s with inlinings := toKername n :: s.inlinings }) ∧
+      rest s₀ ctx cctx ref w₀ = .ok (u₀, s₁) w₁ := by
+  split at hrun
+  · rw [run_bind_ok] at hrun
+    obtain ⟨u1, s2, w2, hlog, hrun⟩ := hrun
+    obtain rfl := run_logInfo_state _ _ cctx ref _ hlog
+    rw [run_bind_ok] at hrun
+    obtain ⟨u2, s3, w3, hmod, hrun⟩ := hrun
+    rw [run_modify] at hmod
+    cases hmod
+    exact ⟨_, _, _, Or.inr ⟨u1, hlog, rfl⟩, hrun⟩
+  · exact ⟨_, _, _, Or.inl ⟨rfl, rfl⟩, hrun⟩
+
+/-- The `@[inline]` bookkeeping cons is a `RunConcl` step: it writes `inlinings` only. -/
+theorem runConcl_inlinings (s : ErasureState) (kn : Kername) :
+    RunConcl s { s with inlinings := kn :: s.inlinings } where
+  le := ⟨id, id, ⟨[], rfl⟩⟩
+  canon := id
+
+/-- The axiom exit's state delta is a `RunConcl` step. -/
+theorem runConcl_addAxiomState (m : Name) (s : ErasureState) :
+    RunConcl s (addAxiomState m s) where
+  le := ⟨(AxiomExt.addAxiom m s).dom, by rw [(AxiomExt.addAxiom m s).inds]; exact id,
+    ⟨[(toKername m, .constantDecl ⟨none⟩)], rfl⟩⟩
+  canon := (AxiomExt.addAxiom m s).canon
+
+/-- The non-recursive exit's state delta is a `RunConcl` step: one constant registered
+under its own canonical kername (so canonicity survives) and one `gdecls` cons. -/
+theorem runConcl_nonrecConstState (m : Name) (t : LBTerm) (s : ErasureState) :
+    RunConcl s (nonrecConstState m t s) where
+  le := ⟨by
+      intro k hk
+      show (Std.HashMap.get? (Std.HashMap.insert s.constants m (toKername m)) k).isSome
+      rw [Std.HashMap.get?_insert]
+      split
+      · simp
+      · exact hk,
+    id, ⟨[(toKername m, .constantDecl ⟨some t⟩)], rfl⟩⟩
+  canon := by
+    intro hc k kn hk
+    simp only [nonrecConstState] at hk
+    rw [Std.HashMap.get?_insert] at hk
+    split at hk
+    · rename_i heq
+      cases hk
+      have : m = k := by simpa using heq
+      subst this
+      rfl
+    · exact hc hk
+
+/-- The name the non-recursive exit registers *is* in the registry afterwards — the
+registration conclusion `visitMutual`'s motive reports. -/
+theorem nonrecConstState_get? (m : Name) (t : LBTerm) (s : ErasureState) :
+    ((nonrecConstState m t s).constants.get? m).isSome := by
+  show (Std.HashMap.get? (Std.HashMap.insert s.constants m (toKername m)) m).isSome
+  rw [Std.HashMap.get?_insert]
+  simp
+
+/-- Ditto for the axiom exit. -/
+theorem addAxiomState_get? (m : Name) (s : ErasureState) :
+    ((addAxiomState m s).constants.get? m).isSome := by
+  show (Std.HashMap.get? (Std.HashMap.insert s.constants m (toKername m)) m).isSome
+  rw [Std.HashMap.get?_insert]
+  simp
+
 end WorldHelpers
 
 /-! ### Binder-helper run lemmas

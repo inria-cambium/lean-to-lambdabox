@@ -109,8 +109,10 @@ Nothing here is assumed about the state: the entry's presence is read off the co
 decomposition reports, and its shape off `visitExpr_noFix_closed`, which has no
 hypotheses at all. -/
 theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -123,7 +125,7 @@ theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Na
     LBTerm.envLookup s₁.gdecls (Γ.constants n) = some (.constantDecl ⟨some t⟩) ∧
       Erases env Us Γ [] pe t ∧ NoFix t ∧ LBClosed t 0 := by
   obtain ⟨hnf, hcl⟩ := visitExpr_noFix_closed hvis
-  refine ⟨?_, erases_nonrec_const_body H HD C henv hvis hinv hsupp hex, hnf, hcl⟩
+  refine ⟨?_, erases_nonrec_const_body H HD C Hδ henv hvis hinv hsupp hex, hnf, hcl⟩
   rw [hpost.gdecls, hknames n]
   exact envLookup_cons_self _ _ _
 
@@ -193,10 +195,12 @@ named one per row, so that a consumer sees exactly what it is buying. -/
 cold start, the *operative* — case: with no source constants there is nothing to register,
 so the record holds at any `E`.
 
-This is not a convenience: the cold-start bridge invariant's `known_dom` field forces
-`known = ⊥` at the empty state (nothing is registered yet), and `Supported.const` needs
-`known n`, so the cold-start fragment contains no δ-constant at all. See `ColdStart.lean`
-for the full statement of that scope restriction. -/
+It was more than a convenience before slice D4a: the cold-start bridge invariant's
+`known_dom` field forced `known = ⊥` at the empty state (nothing is registered yet) and
+`Supported.const` needs `known n`, so the cold-start fragment contained no δ-constant at
+all. That field is now deleted and the bridge fires at a non-empty fragment; what still
+instantiates `Esrc` at `⊥` is the capstone's own wiring (`ColdStart.lean`), not the
+bridge. -/
 theorem registeredClosureData_empty {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {E : GlobalDeclarations} : RegisteredClosureData env Us Γ (fun _ => none) E where
   disj := by intro n body h; exact absurd h (by simp)
@@ -227,6 +231,8 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ Esrc gw cc rf)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -249,7 +255,7 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     · subst hm
       obtain rfl : body = pe := hEsrc hunf
       obtain ⟨hlook, her, -, -⟩ :=
-        erases_nonrec_const_registered H HD C henv hknames hvis hinv hsupp hex hpost
+        erases_nonrec_const_registered H HD C Hδ henv hknames hvis hinv hsupp hex hpost
       exact ⟨t, hlook, fun {Δ} => huni (Δ := Δ) her, hnb⟩
     · obtain ⟨body', hlook, her, hnbb⟩ := hold.erase hunf
       exact ⟨body', envLookup_mono_stateLe hle hkeys hlook, her, hnbb⟩
