@@ -1,0 +1,4 @@
+# Erasure outputs (.ast / .ast.inlinings) are build artifacts, like benchmarks/.
+# The directory itself is tracked because `#erase … to` does not create it.
+*
+!.gitignore

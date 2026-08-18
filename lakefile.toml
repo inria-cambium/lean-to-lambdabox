@@ -20,3 +20,20 @@ rev = "1a1ebe8b72c22e0bf6b4a670a6787bdb70c0a3f9"
 
 [[lean_lib]]
 name = "LeanToLambdaBox"
+
+# csimp-off duplicates of the five `frontend_bench` programs that the coverage
+# measurement (§H) tracks. The originals live in the sibling `benchmarks` repo and are
+# byte-frozen; these copies differ only in their `#erase` line (`csimp := false`, which
+# every correctness theorem requires — finding D1 — plus an output path under
+# `VerifyBench/ast/`). Deliberately NOT in `defaultTargets`: `lake build` is unchanged,
+# and elaborating these roots writes `.ast` files, which CI should not do. Build with
+# `lake build VerifyBench` from the repo root.
+[[lean_lib]]
+name = "VerifyBench"
+roots = [
+  "VerifyBench.Arith",
+  "VerifyBench.Sieve",
+  "VerifyBench.Quicksort",
+  "VerifyBench.BinaryTrees",
+  "VerifyBench.Fannkuch",
+]
