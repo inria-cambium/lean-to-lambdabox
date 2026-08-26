@@ -50,11 +50,16 @@ is written down:
    `ci.levelParams = Us`: realistically `Us = []` and every dependency monomorphic. A
    polymorphic dependency does not make any theorem *false*; it makes `DeltaHyps`
    uninhabited.
-2. **Non-recursive dependencies.** `Erasure.ErasureContext.fixvars` is installed per block
-   while `Γ.fixvars` is a single global map, so one `Γ` cannot be both "outside every block"
-   (what a top-level subject needs) and "inside this block" (what a recursive dependency's
-   body needs). `nofixvars` pins the first; lifting the restriction means moving `Γ` inside
-   the bridge's motives, which is a separate, larger change.
+2. **Non-recursive dependencies, on the fragment.** `Erasure.ErasureContext.fixvars` is
+   installed per block while `Γ.fixvars` is a single global map, so one `Γ` cannot be both
+   "outside every block" (what a top-level subject needs) and "inside this block" (what a
+   recursive dependency's body needs). `nofixvars` pins the first — but since slice δ-D8
+   only **on the fragment** (`∀ {n}, known n → …`), which is all its two consumption sites
+   ever had in scope. That is what lets the *same* bundle be instantiated a second time at
+   the block-local `Γ.withFixvars fv` with `known = ⊥`, which is how the recursive walk
+   gets at the bridge without moving `Γ` inside the motives
+   (`ColdStartDelta.erases_rec_block_of_run`). The price is a different scope restriction,
+   named there: a block body calls only its own siblings, constructors and `casesOn`s.
 3. **No fragment constant is emitted as an axiom.** `axiom_free` covers both `addAxiom`
    sites — the value-less and `@[extern] + preferAxiom` exits of `visitMutual` — which is
    what a capstone needs to know that a fragment constant the walk reached really has a
@@ -133,10 +138,24 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   fragment-scoped form of the `hkinj` naming-scheme assumption the cold-start capstone has
   to pay anyway for `KeysDistinct`. -/
   kinj : ∀ {m m' : Name}, known m → known m' → Γ.constants m = Γ.constants m' → m = m'
-  /-- **No block-local fixvar map** — scope restriction 2. This is the `hnfv` every
-  top-level capstone already pins, moved into the bundle because it is exactly what the
-  dependency's reader (`withReader (… fixvars := .none …)`) has to agree with. -/
-  nofixvars : Γ.fixvars = fun _ => none
+  /-- **No block-local fixvar map, where it matters** — scope restriction 2, conditioned
+  on the fragment (slice δ-D8).
+
+  This is the `hnfv` every top-level capstone already pins, and it lives in the bundle
+  because it is exactly what a *dependency's* reader
+  (`withReader (… fixvars := .none …)`) has to agree with. That reader is installed by
+  `visitMutual`'s **non-recursive** exit, and the bridge reaches it only under
+  `known n` — the field's two consumption sites both have that hypothesis in scope. So
+  the equation is asked for only on an inhabited fragment.
+
+  Conditioning is what makes the bundle inhabitable at a *block-local*
+  `Γ.withFixvars fv` with `known = ⊥`, which is what the recursive walk instantiates the
+  bridge at (design §D8): the unconditioned form is outright false there, since
+  `(Γ.withFixvars fv).fixvars = fv` is the block's own map. At a top-level `Γ` with an
+  inhabited fragment it is the same equation it always was, so no consumer weakens.
+  `of_bot` losing its `hnfv` argument is the tell that the field was doing nothing at
+  `known = ⊥`. -/
+  nofixvars : ∀ {n : Name}, known n → Γ.fixvars = fun _ => none
   /-- **The declaration fetch agrees with the fragment.** For a `known` name: the fetch is
   generator-monotone, the block is a *single* declaration, it is universe-monomorphic at
   the ambient `Us` (scope restriction 1), and — when it has a value — that value does not
@@ -260,21 +279,23 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
 
 The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
-`prepared`, `prep_esrc` and `closed` all have `known n` or `(Esrc n).isSome` in their
-premises, and `axiom_free`'s conclusion is `none = none`. The *bookkeeping* half is
-**not** free and is passed in: `log_run`/`env_run`/`inst_run`/`ci_run`/`prep_run` are
+`prepared`, `prep_esrc` and `esrc_shape` all have `known n` or `(Esrc n).isSome` in their
+premises, and `axiom_free`'s conclusion is `none = none`. Since slice δ-D8 `nofixvars`
+joins them — it is conditioned on `known n` too, which is why this lemma no longer takes
+an `hnfv` argument and why the bundle is inhabitable at a *block-local* `Γ`. The
+*bookkeeping* half is **not** free and is passed in:
+`log_run`/`env_run`/`inst_run`/`ci_run`/`prep_run` are
 generator-monotonicity (and, for `prep_run`, state-transparency) statements about real
 primitives, and `gw` is an arbitrary map from world tokens to generators — nothing in the
 logic makes `gw w ≤ gw w'` hold across a world-advancing call. They are the same
 epistemic class as `BridgeHyps.fresh_run`, which is why `BridgeHyps` assumes its four and
-this bundle its five. `nofixvars` is likewise a real side condition on `Γ` — the `hnfv`
-every top-level entry point already pins.
+this bundle its five.
 
-So: a `known = ⊥` consumer buys exactly six things, and no fragment-scope obligation. -/
+So: a `known = ⊥` consumer buys exactly five things, and no `Γ`-side or fragment-scope
+obligation at all. -/
 theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {gw : Void IO.RealWorld → NameGenerator} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State}
-    (hnfv : Γ.fixvars = fun _ => none)
     (hlog : ∀ {m : MessageData} {u : Unit} {s s' : ErasureState} {ctx : ErasureContext}
         {w w' : Void IO.RealWorld},
       (logInfo m : EraseM Unit) s ctx cctx ref w = .ok (u, s') w' → gw w ≤ gw w')
@@ -296,7 +317,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   esrc_sub := by intro n h; simp at h
   disj := fun h => h.elim
   kinj := fun h => h.elim
-  nofixvars := hnfv
+  nofixvars := fun h => h.elim
   decl_run := fun h => h.elim
   prepared := fun h => h.elim
   prep_esrc := fun h => h.elim
@@ -489,14 +510,35 @@ about a name the fragment really contains. -/
 theorem gDeltaScope (pe : Expr) :
     (∀ {n : Name}, (gEsrcδ pe n).isSome → n = `f) ∧
     (∀ {n : Name}, n = `f → gΓδ.ctors n = none ∧ gΓδ.casesOns n = none) ∧
-    gΓδ.fixvars = fun _ => none := by
-  refine ⟨?_, ?_, rfl⟩
+    (∀ {n : Name}, n = `f → gΓδ.fixvars = fun _ => none) := by
+  refine ⟨?_, ?_, fun _ => rfl⟩
   · intro n hn
     by_cases h : n = `f
     · exact h
     · simp [gEsrcδ, h] at hn
   · rintro n rfl
     exact ⟨rfl, rfl⟩
+
+/-- **The conditioning is load-bearing** (slice δ-D8): at a **block-local** `Γ` — one
+carrying the fixvar map `visitMutual` installs — the *unconditioned* `nofixvars` is
+outright false, while the conditioned field is free at `known = ⊥`. That is the whole
+content of the change: it is what lets the recursive walk instantiate the same bundle a
+second time inside the block (`ColdStartDelta.erases_rec_block_of_run`) instead of moving
+`Γ` inside the bridge's eighteen motives. -/
+theorem gNofixvars_blocklocal_refuted (x : FVarId) :
+    ¬ (gΓδ.withFixvars (fun n => if n = `f then some x else none)).fixvars
+        = fun _ => none := by
+  intro h
+  have := congrFun h `f
+  simp at this
+
+/-- …and the conditioned field *is* satisfiable there — vacuously, which is the point:
+`known = ⊥` inside a block, so nothing in the bundle ever asks for the equation. -/
+theorem gNofixvars_blocklocal (x : FVarId) :
+    ∀ {n : Name}, (fun _ => False) n →
+      (gΓδ.withFixvars (fun m => if m = `f then some x else none)).fixvars
+        = fun _ => none :=
+  fun h => h.elim
 
 /-- **The fragment's constant is `Supported`** — the derivation that was unreachable at
 `known = ⊥` (`Supported.const` needs `known n`, and `Γ.fixvars = ⊥` kills the other

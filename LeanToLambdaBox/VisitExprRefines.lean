@@ -969,6 +969,85 @@ theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Pro
     rw [h.knames n]
     exact hrc.canon (fun {m} {k'} hm => (h.consts hm).trans (h.knames m)) hk
 
+/-- **The bridge invariant enters a mutual block** (slice δ-D8). `visitMutual`'s recursive
+exit erases each sibling body under `withReader (… fixvars := some (nms.zip ids) …)`; this
+is the invariant at that reader, against the block-local `Γ.withFixvars fv`.
+
+Six of the nine fields are literally `Γ`'s — `withFixvars` moves *only* `fixvars`, so
+`natPeano`/`constants` are `rfl` — and `mlc`/`lparams`/`kfresh`/`reserved` never mentioned
+`Γ` at all. The two fixvar fields become claims about the block's own map: `hagree` is the
+reader-vs-`fv` agreement the `withReader` establishes by construction, and `hfresh` is
+`BridgeHyps.fresh_run` against `BridgeInv.reserved` — `visitMutual` mints the block's ids
+*before* any binder is opened, so a block id is generator-reserved and is not a `Δ` entry.
+
+The fragment is free to change (`known'` is unconstrained): `BridgeInv` has not mentioned
+`known` since slice D4a retired `known_dom`, which is exactly what lets the block's inner
+runs be taken at `known' = ⊥`.
+
+The callee's reader is left abstract and pinned componentwise (`hlctx`/`hlp`/`hcfg`/`hfvm`)
+rather than written as `{ ctx with … }`, because `visitMutual` installs it in *two* steps —
+the block's `withReader … fixvars` and then the per-sibling `withReader … lparams`. -/
+theorem BridgeInv.withFixvars {env : VEnv} {Us : List Name} {known known' : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx ctx' : ErasureContext}
+    {s : ErasureState} {Δ : VLCtx} {fv : Name → Option FVarId}
+    {fvmap : Std.HashMap Name FVarId}
+    (h : BridgeInv env Us known Γ gen ctx s Δ)
+    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
+    (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
+    (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
+    (hfresh : ∀ (nm : Name) (x : FVarId), fv nm = some x → gen.Reserves x ∧ x ∉ Δ.fvars) :
+    BridgeInv env Us known' (Γ.withFixvars fv) gen ctx' s Δ where
+  mlc := by
+    obtain ⟨m, mwf, hml, hmv⟩ := h.mlc
+    exact ⟨m, mwf, by rw [hlctx]; exact hml, hmv⟩
+  lparams := hlp
+  natcfg := by intro hp; rw [hcfg]; exact h.natcfg (by simpa using hp)
+  kfresh := h.kfresh
+  fixvars := by
+    intro nm x
+    rw [hfvm]
+    show (some fvmap).bind (fun m => m[nm]?) = some x ↔ _
+    simpa using hagree nm x
+  fixfresh := by intro nm x hx; exact hfresh nm x (by simpa using hx)
+  reserved := h.reserved
+  knames := h.knames
+  consts := h.consts
+
+/-! ### The three trust bundles at a block-local `Γ`
+
+`ErasureCtx.withFixvars` moves exactly one field, and none of `BridgeHyps`,
+`DataBridgeHyps`, `CasesBridgeHyps` reads it: they speak about `Γ.ctors`, `Γ.casesOns`,
+`Γ.ctorArities`, `Γ.casesDiscrPos` and `Γ.ctorFields`, every one of which is `rfl` at
+`Γ.withFixvars fv`. So each transports field-by-field, with no proof obligation at all —
+which is the concrete form of the design's claim that the three bundles are
+`rfl`-invariant under the block instantiation. -/
+
+theorem BridgeHyps.withFixvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} (H : BridgeHyps env Us Γ gw)
+    (fv : Name → Option FVarId) : BridgeHyps env Us (Γ.withFixvars fv) gw where
+  orc_run := H.orc_run
+  fresh_run := H.fresh_run
+  cases_run := H.cases_run
+  ctor_run := H.ctor_run
+
+theorem DataBridgeHyps.withFixvars {Γ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} (HD : DataBridgeHyps Γ gw)
+    (fv : Name → Option FVarId) : DataBridgeHyps (Γ.withFixvars fv) gw where
+  ctor_run := HD.ctor_run
+  ctorinfo_run := HD.ctorinfo_run
+  indinfo_run := HD.indinfo_run
+  reg_run := HD.reg_run
+  extern_run := HD.extern_run
+  infer_run := HD.infer_run
+
+theorem CasesBridgeHyps.withFixvars {Γ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} (C : CasesBridgeHyps Γ gw)
+    (fv : Name → Option FVarId) : CasesBridgeHyps (Γ.withFixvars fv) gw where
+  cases_run_pos := C.cases_run_pos
+  casesind_run := C.casesind_run
+  casesreg_run := C.casesreg_run
+  infer_lam_run := C.infer_lam_run
+
 /-- Extend the invariant across `Erasure.withLocalDecl`'s context extension
 (the `visitLambda` case). Needs the fresh fvar `x` reserved both by the target
 generator (`hres`) and by the kernel generator (`hkres`, from `fresh_run`). -/
@@ -1857,6 +1936,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- the invariant travels to the dependency's reader: `withReader` moves
                -- `fixvars` (to `none`, which `DeltaHyps.nofixvars` matches) and
                -- `lparams` (to the declaration's own, which `decl_run` pins at `Us`).
+               -- Both fixvar slots are reached only under `hkn : known n`, which is why
+               -- `nofixvars` can be — and since slice δ-D8 is — conditioned on the
+               -- fragment.
                have hinvb := (hinv.mono_state hrc.rc).mono hle
                have hinv' : BridgeInv env Us known Γ (gw wp)
                    { ctx with fixvars := none, lparams := ci.levelParams } s₀ Δ :=
@@ -1867,11 +1949,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                    fixvars := by
                      intro nm x
                      show (none : Option (Std.HashMap Name FVarId)).bind _ = _ ↔ _
-                     rw [(Hδ cctx ref).nofixvars]
+                     rw [(Hδ cctx ref).nofixvars hkn]
                      simp
                    fixfresh := by
                      intro nm x hx
-                     rw [(Hδ cctx ref).nofixvars] at hx
+                     rw [(Hδ cctx ref).nofixvars hkn] at hx
                      simp at hx
                    reserved := hinvb.reserved
                    knames := hinvb.knames
@@ -2526,6 +2608,64 @@ theorem visitExpr_refines_erases {env : VEnv} {Us : List Name}
         Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ Esrc s s' ∧ gw w ≤ gw w' :=
   (visitExpr_refines_erases_core H HD C Hδ henv).1
 
+/-- **The bridge, instantiated *inside* a mutual block** (slice δ-D8).
+
+The theorem above binds `Γ` as a plain implicit and this file declares no `variable`, so
+it is Γ-polymorphic **as a statement** and every application picks its own `Γ`. That is
+what the recursive walk needs: `visitMutual` erases each sibling body under a reader
+carrying the block's fixvar map, i.e. against `Γ.withFixvars fv`, not against the ambient
+`Γ`. No motive changes; the whole question is which premises survive `Γ ↦ Γ.withFixvars fv`,
+and the answer is *all but one*:
+
+* `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps` read only registration fields that
+  `withFixvars` leaves alone — `withFixvars` above;
+* `BridgeInv` is rebuilt by `BridgeInv.withFixvars`, whose two new obligations are the
+  reader-vs-`fv` agreement the `withReader` establishes by construction and the block
+  freshness `BridgeHyps.fresh_run` gives against `BridgeInv.reserved`;
+* `Supported` transports and in fact *grows*: `Supported.const`'s `known n ∨ Γ.fixvars n ≠
+  none` gains the whole block as its second disjunct, which is what makes a sibling
+  reference derivable at `known = ⊥`;
+* the `TrExprS` witness and `env.Ordered` never mentioned `Γ`;
+* **`DeltaHyps` is the one break.** Its `nofixvars` field said `Γ.fixvars = ⊥`
+  unconditionally, which is *false* at a block-local `Γ`. Slice δ-D8 conditions it on the
+  fragment — the only thing its two consumption sites ever had in scope — after which the
+  bundle is inhabitable at `Γ.withFixvars fv` with `known = ⊥`, which is what `Hδ'` here
+  asks for.
+
+The price is a scope restriction, and it is the `known = ⊥` in `Hδ'`/`hsupp`: a block body
+may reference its own siblings (via `Γ.fixvars`), registered constructors and registered
+`casesOn`s, but **not an external constant**. Lifting it means giving `DeltaHyps` a second
+context parameter and quantifying `Γ` inside motives 1/5/6, since a dependency reached from
+inside a block is genuinely erased at a *third* `Γ` (`fixvars := none`). -/
+theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
+    {known : Name → Prop} {Γ : ErasureCtx} {Esrcb : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
+             (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us (fun _ => False) (Γ.withFixvars fv) Esrcb gw cc rf)
+    (henv : env.Ordered)
+    {fv : Name → Option FVarId} {fvmap : Std.HashMap Name FVarId}
+    {ctx ctx' : ErasureContext} {gen : NameGenerator}
+    {s s' : ErasureState} {Δ : VLCtx} {e : Expr} {t : LBTerm}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld}
+    (hinv : BridgeInv env Us known Γ gen ctx s Δ) (hgen : gen ≤ gw w)
+    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
+    (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
+    (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
+    (hfresh : ∀ (nm : Name) (x : FVarId), fv nm = some x →
+      (gw w).Reserves x ∧ x ∉ Δ.fvars)
+    (hsupp : Supported (fun _ => False) (Γ.withFixvars fv) e)
+    (hex : ∃ ve, TrExprS env Us Δ e ve)
+    (hrun : Erasure.visitExpr e s ctx' cctx ref w = .ok (t, s') w') :
+    Erases env Us (Γ.withFixvars fv) Δ e t ∧ Erasure.RunConcl s s' ∧ gw w ≤ gw w' := by
+  have hinv' : BridgeInv env Us (fun _ => False) (Γ.withFixvars fv) (gw w) ctx' s Δ :=
+    (hinv.mono hgen).withFixvars hlctx hlp hcfg hfvm hagree hfresh
+  have h := visitExpr_refines_erases (H.withFixvars fv) (HD.withFixvars fv)
+    (C.withFixvars fv) (Hδ' fv) henv e s ctx' cctx ref w t s' w' hrun Δ hinv' hsupp hex
+  exact ⟨h.1, h.2.1.rc, h.2.2⟩
+
 /-! ## Non-vacuity guards
 
 The `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps` fields quantify over opaque
@@ -2587,6 +2727,79 @@ example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
   reserved := fun _ hfv => nomatch hfv
   knames := fun _ => rfl
   consts := by intro n k hk; simp at hk
+
+/-- (i'') **The block instantiation is jointly instantiable** (slice δ-D8) — the guard for
+`visitExpr_refines_erases_block`, at the recursion fixture's two stages.
+
+The ambient `Γ` is `ΓfixRec` (`Erases.lean`), which registers the one-def block for `f`
+and leaves `fixvars` at its top-level `fun _ => none`; the block-local one is
+`ΓfixRec.withFixvars {f ↦ x}`, which is `ΓfixOpen x` on the nose. The reader is the
+one `visitMutual`'s `withReader` installs. Two things this checks that nothing else does:
+
+* `Supported` really **grows** at the block-local `Γ`. The subject `.const f []` is
+  supported at `known = ⊥` *only* through `Supported.const`'s second disjunct
+  `Γ.fixvars n ≠ none` — at the ambient `ΓfixRec` the same term is not supported at all,
+  which is what makes the block's `known = ⊥` bundle usable instead of vacuous;
+* `DeltaHyps` at `ΓfixRec.withFixvars {f ↦ x}` is asked for, and it is inhabitable
+  precisely because slice δ-D8 conditioned `nofixvars` — before that, this premise was
+  false (`DeltaHyps.gNofixvars_blocklocal_refuted`).
+
+Hypothetical: the run, the four bundles, and the `TrExprS` witness (the fixture's `env`
+is a parameter, so nothing here can declare `f`). -/
+example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
+    (gw : Void IO.RealWorld → NameGenerator) (w w' : Void IO.RealWorld)
+    (x : FVarId) (hres : (gw w).Reserves x)
+    (H : BridgeHyps env Us ΓfixRec gw) (HD : DataBridgeHyps ΓfixRec gw)
+    (C : CasesBridgeHyps ΓfixRec gw)
+    (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
+             (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us (fun _ => False) (ΓfixRec.withFixvars fv) (fun _ => none) gw cc rf)
+    (henv : env.Ordered)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (ve : VExpr) (htr : TrExprS env Us [] (.const `f []) ve)
+    (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr (.const `f []) {}
+      ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩ cctx ref w
+      = .ok (t, s') w') :
+    Erases env Us (ΓfixOpen x) [] (.const `f []) t ∧
+      Erasure.RunConcl {} s' ∧ gw w ≤ gw w' :=
+  visitExpr_refines_erases_block H HD C Hδ' henv
+    (Γ := ΓfixRec) (fv := fun n => if n = `f then some x else none)
+    (ctx := ⟨{}, none, Us, cfg⟩) (known := fun _ => False)
+    (ctx' := ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩)
+    (fvmap := (∅ : Std.HashMap Name FVarId).insert `f x)
+    { mlc := ⟨.nil, trivial, rfl, rfl⟩
+      lparams := rfl
+      natcfg := fun h => absurd h (by simp [ΓfixRec])
+      kfresh := fun _ hfv => nomatch hfv
+      fixvars := by intro nm y; simp [ΓfixRec]
+      fixfresh := by intro nm y hy; simp [ΓfixRec] at hy
+      reserved := fun _ hfv => nomatch hfv
+      knames := fun _ => rfl
+      consts := by intro n k hk; simp at hk }
+    NameGenerator.LE.rfl rfl rfl rfl rfl
+    (by
+      intro nm y
+      rw [Std.HashMap.getElem?_insert]
+      by_cases h : nm = `f
+      · subst h; simp
+      · simp [h, Ne.symm h])
+    (by
+      intro nm y hy
+      obtain rfl : y = x := by by_cases h : nm = `f <;> simp_all
+      exact ⟨hres, fun hm => nomatch hm⟩)
+    (.const `f [] (Or.inr (by simp)) rfl rfl)
+    ⟨ve, htr⟩ hrun
+
+/-- …and at the **ambient** `Γ` the same subject is *not* supported, which is what the
+block instantiation buys. The fragment is `⊥` in both, so the only difference is the
+fixvar map. -/
+theorem supported_const_fixOpen_not_ambient :
+    ¬ Supported (fun _ => False) ΓfixRec (.const `f []) := by
+  intro h
+  rcases h.const_inv' with ⟨hk, -, -⟩ | ⟨_, _, _, hc, _⟩
+  · rcases hk with h' | h' <;> simp [ΓfixRec] at h'
+  · simp [ΓfixRec] at hc
 
 /-- (ii) The non-run premises of `visitExpr_refines_erases` are jointly
 instantiable: a concrete one-fvar context (with `TrLCtx` *constructed*, not

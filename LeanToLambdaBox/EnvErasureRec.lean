@@ -345,7 +345,69 @@ target. Hence the two new premises: `hnfv` (the fixvar leaf is dead at the outer
 the same scope restriction every top-level capstone already pins) and `hsclosed` (the
 block's sources are closed, which for top-level recursive definitions they are, and which
 `heclosed` already asserted for the `idx`-th one alone). `henv` is needed because
-`erases_weak_any` weakens lean4lean witnesses. -/
+`erases_weak_any` weakens lean4lean witnesses.
+
+## The `[]`-only form (slice δ-D8)
+
+The proof below instantiates `hopen` at **exactly one** context, `Δf := []`, and nowhere
+else — the freshness side condition exists to make *that* instantiation legal. So the
+`∀ Δf` is not load-bearing, and `erases_fix_of_open_nil` states the premise where it is
+actually consumed. That is a strictly weaker premise, hence a strictly stronger theorem,
+and it is what a *run* can supply: `ColdStartRun.run_rec_exit_siblings` hands back one
+`visitExpr` run per sibling, at one context, not a family of them.
+`erases_fix_of_open` is now the corollary, kept verbatim in signature so its guard and
+every other consumer are untouched. -/
+theorem erases_fix_of_open_nil {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
+    {fv : Name → Option FVarId}
+    {Δ : VLCtx} {n : Name} {ty b : Expr} {bi : BinderInfo}
+    {nms : List Name} {ids : List FVarId} {srcs : List Expr} {obodies : List LBTerm}
+    {defs : List (@FixDef LBTerm)} {idx : Nat}
+    (hidx : idx < defs.length)
+    (hnlen : nms.length = defs.length)
+    (hslen : srcs.length = defs.length)
+    (hblen : obodies.length = defs.length)
+    (hilen : ids.length = defs.length)
+    (hnd : ids.Nodup)
+    (hsrc : (srcs[idx]'(hslen ▸ hidx)) = .lam n ty b bi)
+    (hreg : ∀ j (h : j < defs.length), Γ.recBodies (nms[j]'(hnlen ▸ h)) = some (defs, j))
+    (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
+    (heclosed : Closed (.lam n ty b bi) 0)
+    (henofv : FVarsIn (fun _ => False) (.lam n ty b bi))
+    (hfclosed : LBClosed (.fix defs idx) 0)
+    (hffv : ∀ x, ¬ hasFVar x (.fix defs idx))
+    (hoclosed : ∀ j (h : j < defs.length), LBClosed (obodies[j]'(hblen ▸ h)) 0)
+    (hclose : ∀ j (h : j < defs.length),
+        (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
+    (hlink : ∀ (nm : Name) (x : FVarId), fv nm = some x →
+      ∃ j, ∃ h : j < ids.length, (ids[j]'h) = x ∧ Γ.recBodies nm = some (defs, j))
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (Γ.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i'))
+    (hsrcfv : ∀ j (h : j < defs.length),
+        FVarsIn (fun _ => False) (srcs[j]'(hslen ▸ h)))
+    (hsclosed : ∀ j (h : j < defs.length), Closed (srcs[j]'(hslen ▸ h)) 0)
+    (hopen : ∀ j (h : j < defs.length),
+        Erases env Us (Γ.withFixvars fv) [] (srcs[j]'(hslen ▸ h))
+          (obodies[j]'(hblen ▸ h))) :
+    Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx) :=
+  erases_fix_of_closed hidx hnlen hslen hblen hilen hsrc hreg hrarg heclosed henofv
+    hfclosed hffv hoclosed hclose
+    (fun j h Δf =>
+      -- The open premise fires at `[]`, which is fresh for the block outright
+      -- (`VLCtx.fvars [] = []`). Instantiating there and re-widening afterwards is what
+      -- makes the rebuilt `hbodies` unrestricted again — see the docstring.
+      erases_weak_any henv hnfv (hsclosed j h) (hsrcfv j h)
+        (LBClosed.substFVarList _
+          (fun q hq => by obtain ⟨-, -, rfl⟩ := List.mem_map.mp hq; exact hfclosed)
+          _ 0 (hoclosed j h))
+        (Erases.instFixvars hnd hfclosed hffv hlink hnest (hopen j h)
+          ((hsrcfv j h).mono (fun _ hf => hf.elim)))
+        Δf)
+
+/-- **The `∀`-fresh-`Δf` form**, unchanged in signature since slice `rec`: the corollary
+of `erases_fix_of_open_nil` at `Δf := []`, which is fresh for the block outright. -/
 theorem erases_fix_of_open {env : VEnv} (henv : env.Ordered) {Us : List Name}
     {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
     {fv : Name → Option FVarId}
@@ -382,19 +444,9 @@ theorem erases_fix_of_open {env : VEnv} (henv : env.Ordered) {Us : List Name}
         Erases env Us (Γ.withFixvars fv) Δf (srcs[j]'(hslen ▸ h))
           (obodies[j]'(hblen ▸ h))) :
     Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx) :=
-  erases_fix_of_closed hidx hnlen hslen hblen hilen hsrc hreg hrarg heclosed henofv
-    hfclosed hffv hoclosed hclose
-    (fun j h Δf =>
-      -- The open premise fires only at a *fresh* `Δf`; `[]` is fresh outright
-      -- (`VLCtx.fvars [] = []`). Instantiating there and re-widening afterwards is what
-      -- makes the rebuilt `hbodies` unrestricted again — see the docstring.
-      erases_weak_any henv hnfv (hsclosed j h) (hsrcfv j h)
-        (LBClosed.substFVarList _
-          (fun q hq => by obtain ⟨-, -, rfl⟩ := List.mem_map.mp hq; exact hfclosed)
-          _ 0 (hoclosed j h))
-        (Erases.instFixvars hnd hfclosed hffv hlink hnest (hopen j h [] (by simp))
-          ((hsrcfv j h).mono (fun _ hf => hf.elim)))
-        Δf)
+  erases_fix_of_open_nil henv hnfv hidx hnlen hslen hblen hilen hnd hsrc hreg hrarg
+    heclosed henofv hfclosed hffv hoclosed hclose hlink hnest hsrcfv hsclosed
+    (fun j h => hopen j h [] (by simp))
 
 /-! ## Part 3 — recursive `ErasesEnvDelta` discharge
 

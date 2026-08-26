@@ -112,6 +112,18 @@ def ErasureCtx.withFixvars (Γ : ErasureCtx) (fv : Name → Option FVarId) : Era
     (Γ.withFixvars fv).ctorFields = Γ.ctorFields := rfl
 @[simp] theorem ErasureCtx.withFixvars_recBodies (Γ : ErasureCtx) (fv : Name → Option FVarId) :
     (Γ.withFixvars fv).recBodies = Γ.recBodies := rfl
+/-- The three projections the original W3.1 list forgot. They hold by `rfl` like the
+others, but until they are `@[simp]` a `simp` at a block-local `Γ.withFixvars fv` leaves
+`(Γ.withFixvars fv).ctorArities` (motives 2/3/13/14), `.natPeano` (`BridgeInv.natcfg`) and
+`.inductives` unreduced — which is exactly what the D8 instantiation walks into. -/
+@[simp] theorem ErasureCtx.withFixvars_ctorArities (Γ : ErasureCtx)
+    (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).ctorArities = Γ.ctorArities := rfl
+@[simp] theorem ErasureCtx.withFixvars_natPeano (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).natPeano = Γ.natPeano := rfl
+@[simp] theorem ErasureCtx.withFixvars_inductives (Γ : ErasureCtx)
+    (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).inductives = Γ.inductives := rfl
 
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
