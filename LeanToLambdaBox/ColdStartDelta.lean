@@ -38,7 +38,7 @@ back — plus the bridge (`erases_nonrec_const_body`) and the output-shape corol
 | the stored entry erases the prepared source body, at `Δ = []` | **proved** (same) |
 | the stored entry is fix-free and closed | **proved** (`visitExpr_noFix_closed`) |
 | the stored entry is *there* (recursive exit) | **proved** (`recConstState_envLookup`) |
-| the recursive entry erases its source body | **scoped premise** (`RegisteredClosureRec`) — see the recursion section |
+| the recursive entry erases its source body | **proved from the run** (`erases_rec_block_of_run`, slice δ-D8), modulo the `Γ`↔run registration agreement — see the recursion section |
 | context-uniformity (`∀ Δ`) of a constant body's erasure | **proved** (`ErasesUniform.erases_uniform_closed`), modulo the one commissioned `ErasableStrengthen` |
 | `Esrc`-domain ↔ walk agreement | **named premise** — `Esrc` and `Γ` are parameters |
 
@@ -151,18 +151,38 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
 | `hilen`/`hnlen`/lengths | **from the run** |
 | `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design |
-| `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that should replace `RegisteredClosureRec` |
+| `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that *replaces* `RegisteredClosureRec` (slice δ-D8) |
 | `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value |
-| `hopen`'s `∀ Δf` | **repaired** (slice `rec`): unrestricted it was unsatisfiable for every self-referential block; now conditioned on a fresh `Δf`, with `Erases.fix`'s `hbodies` rebuilt through `[]` |
-| `hlink`, `hnest` | scoped premises, `hnest` unreachable in the intended use (see its docstring) |
+| `hopen`'s `∀ Δf` | **gone** (slice δ-D8). `rec` conditioned it on a fresh `Δf`; the proof instantiates it at `Δf := []` and nowhere else, so `erases_fix_of_open_nil` states it there. That is the shape a *run* can supply |
+| `hopen` at the block-local `Γ.withFixvars fv` | **from the bridge** (slice δ-D8): `VisitExprRefines.visitExpr_refines_erases_block`. No motive changes — the bridge theorem is Γ-polymorphic as a statement, and exactly one premise breaks at `Γ.withFixvars fv` (`DeltaHyps.nofixvars`, now conditioned on the fragment) |
+| `hlink`, `hnest` | scoped premises; `hlink` is derived from `hreg` plus the block map, `hnest` is unreachable in the intended use (see its docstring) |
 
-So the *demotion* of `RegisteredClosureRec` to a `Γ.recBodies` agreement is unblocked but
-not yet performed: the composition also needs the bridge instantiated at
-`Γ.withFixvars fv` under a `BridgeInv` whose `fixvars` field agrees with the block-local
-map the run installs, which is the `Γ`-inside-the-motives generalisation (design §W3.2/D8),
-not something the decomposition can supply. The recursive δ witness therefore stays the
-named record `EnvErasureRec.RegisteredClosureRec` for now — with a strictly smaller gap
-behind it than before D6.
+So the *demotion* is performed, below: `erases_rec_block_of_run` turns the per-sibling
+block-local erasures into the `Erases.fix` derivation at the outer `Γ`, at every context,
+and `recEnvConsistent_of_block` turns that into the environment-level record. What
+`EnvErasureRec.RegisteredClosureRec` used to assert as a certificate is now a *theorem*
+about the run, modulo the `Γ`↔run registration agreement (`hreg`/`hfv`/`hcov`), which is
+`BridgeInv.knames`-class rather than `Erases`-class, and `hnest`.
+
+**The one scope restriction this buys, stated honestly.** The block's inner runs are taken
+at `known = ⊥`, so `Supported (fun _ => False) (Γ.withFixvars fv) body` forces every
+`.const` in a block body to be a sibling, a registered constructor or a registered
+`casesOn`. **A mutual block whose bodies call an external constant is out of scope.**
+Lifting that needs `DeltaHyps` to carry the *dependency's* context as a second parameter
+and motives 1/5/6 to quantify `Γ`, because such a callee is genuinely erased at a third
+`Γ` (`fixvars := none`); nothing else in this section needs it.
+
+**What is still not wired to the capstones, and why.** The cold-start capstones' `hnorec`
+does *not* trade for these results yet, and the obstruction is upstream of them:
+`DeltaHyps.decl_run` demands `name_occurs n v = false` for every fragment name, which
+forces `visitMutual`'s `nonrecursive` test `true` — so the bridge's step 6 refutes the
+recursive exit rather than walking it (`VisitExprRefines`, case `isFalse hnr`). A cold
+start therefore never *takes* the recursive exit inside the fragment, and there is no run
+for these theorems to consume there. Wiring them in means giving step 6 a recursive branch
+— `RunConclδ`'s `δ` transport across `recConstState` (which is exactly
+`erases_rec_block_of_run`'s conclusion, so it composes), the generator bookkeeping for the
+block's `mkFreshFVarId`/`getConstInfo` loop, and one further scope restriction, since the
+registration is keyed on `remove_unsafe_rec n` and not on `n`.
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/
@@ -196,6 +216,121 @@ theorem recConstState_envLookup {names : List Name} {defs : List (@FixDef LBTerm
   rw [recConstState_eq] at hkeys ⊢
   exact envLookup_of_mem_of_keys
     (mem_recConstState_gdecls defs names.zipIdx s (m, j) hmem) hkeys
+
+/-! ### The block's δ witness, assembled (slice δ-D8)
+
+This is the demotion the ledger above asks for. `EnvErasureRec.RegisteredClosureRec` is a
+monolithic certificate: it *asserts* that the recorded block erases the source body, at
+every context. What replaces it is two things that are not certificates —
+
+* the **run**: D6's per-sibling `prepare_erasure`/`visitExpr` runs at the block's own
+  reader, plus `mkDef`'s closing equation and the per-sibling output shape;
+* one **agreement**, `hreg`/`hfv`: "the `Γ` you supply names *this* block, under the map
+  the run installed". That one is irreducible — `Γ` is fixed before the run builds `defs`,
+  so no run fact can say it — and it changes epistemic class rather than disappearing:
+  from an `Erases` witness to a registration agreement, the same class as
+  `BridgeInv.knames`.
+
+Everything between them is now derived: the erasure of each sibling body comes from the
+bridge instantiated at `Γ.withFixvars fv`
+(`VisitExprRefines.visitExpr_refines_erases_block`), and `erases_fix_of_open_nil` turns the
+per-sibling open erasures into the `Erases.fix` derivation at the *outer* `Γ`, at every
+context. -/
+
+/-- **From the block's open erasures to `Erases.fix`.** The `hopen` slot is exactly what
+`visitExpr_refines_erases_block` produces for one sibling; everything else is the run's
+own output shape (`ColdStartRun.run_rec_exit_siblings{,_closed}`) or the `Γ`-side
+agreement. The conclusion is context-uniform, which is what the environment-level records
+need. -/
+theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
+    {fv : Name → Option FVarId}
+    {fixnames : List Name} {ids : List FVarId} {srcs : List Expr} {obodies : List LBTerm}
+    {defs : List (@FixDef LBTerm)}
+    (hnlen : fixnames.length = defs.length)
+    (hilen : ids.length = defs.length)
+    (hslen : srcs.length = defs.length)
+    (hblen : obodies.length = defs.length)
+    (hnd : ids.Nodup)
+    -- the one irreducible `Γ`↔run agreement, in two halves: the registration and the map
+    (hreg : ∀ j (h : j < defs.length),
+        Γ.recBodies (fixnames[j]'(hnlen ▸ h)) = some (defs, j))
+    (hfv : ∀ (nm : Name) (x : FVarId), fv nm = some x →
+        ∃ j, ∃ h : j < defs.length,
+          (fixnames[j]'(hnlen ▸ h)) = nm ∧ (ids[j]'(hilen ▸ h)) = x)
+    -- the block, as the run built it
+    (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
+    (hfclosed : ∀ j : Nat, LBClosed (.fix defs j) 0)
+    (hffv : ∀ (x : FVarId) (j : Nat), ¬ hasFVar x (.fix defs j))
+    (hoclosed : ∀ j (h : j < defs.length), LBClosed (obodies[j]'(hblen ▸ h)) 0)
+    (hclose : ∀ j (h : j < defs.length),
+        (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
+    -- the block's sources: closed, fvar-free λ-telescopes, as a top-level def body is
+    (hsrc : ∀ j (h : j < defs.length),
+        ∃ n ty b bi, (srcs[j]'(hslen ▸ h)) = .lam n ty b bi)
+    (hsclosed : ∀ j (h : j < defs.length), Closed (srcs[j]'(hslen ▸ h)) 0)
+    (hsrcfv : ∀ j (h : j < defs.length),
+        FVarsIn (fun _ => False) (srcs[j]'(hslen ▸ h)))
+    -- the block-local erasures — the Γ'-instantiated bridge's output, one per sibling
+    (hopen : ∀ j (h : j < defs.length),
+        Erases env Us (Γ.withFixvars fv) [] (srcs[j]'(hslen ▸ h))
+          (obodies[j]'(hblen ▸ h)))
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (Γ.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    ∀ j (h : j < defs.length) (Δ : VLCtx),
+      Erases env Us Γ Δ (srcs[j]'(hslen ▸ h)) (.fix defs j) := by
+  intro j h Δ
+  obtain ⟨n, ty, b, bi, hsj⟩ := hsrc j h
+  rw [hsj]
+  refine erases_fix_of_open_nil henv hnfv (nms := fixnames) (ids := ids) (srcs := srcs)
+    (obodies := obodies) h hnlen hslen hblen hilen hnd (hsj ▸ rfl) hreg hrarg
+    (hsj ▸ hsclosed j h) (hsj ▸ hsrcfv j h) (hfclosed j) (fun x => hffv x j)
+    hoclosed hclose ?_ hnest hsrcfv hsclosed hopen
+  -- `hlink`: the block map names the block's own ids, and `Γ` records the block at the
+  -- matching index. This is where the two halves of the agreement meet.
+  intro nm x hx
+  obtain ⟨k, hk, hnm, hid⟩ := hfv nm x hx
+  exact ⟨k, hilen ▸ hk, hid, hnm ▸ hreg k hk⟩
+
+/-- **`RecEnvConsistent` for one walked block** (slice δ-D8) — what
+`EnvErasureRec.recEnvConsistent_of_registeredClosureRec` used to buy from the certificate,
+now bought from the run plus the agreement.
+
+`hcov` is the other direction of the same agreement `erases_rec_block_of_run`'s `hreg` is
+one half of: every constant `Γ` records as recursive is a member of *this* block. At a
+single-block cold start that is the whole of `Γ.recBodies`; a `Γ` describing several
+blocks needs the per-block records combined, which is a `List`-level fold and not a new
+idea. -/
+theorem recEnvConsistent_of_block {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {fixnames : List Name} {srcs : List Expr}
+    {defs : List (@FixDef LBTerm)} {sd : ErasureState}
+    (hslen : srcs.length = defs.length) (hnlen : fixnames.length = defs.length)
+    (hkeys : KeysDistinct (recConstState fixnames defs sd).gdecls)
+    (hkn : ∀ j (h : j < defs.length),
+        Γ.constants (fixnames[j]'(hnlen ▸ h)) = toKername (fixnames[j]'(hnlen ▸ h)))
+    (hdisj : ∀ j (h : j < defs.length),
+        Γ.ctors (fixnames[j]'(hnlen ▸ h)) = none ∧
+          Γ.casesOns (fixnames[j]'(hnlen ▸ h)) = none)
+    (hesrc : ∀ j (h : j < defs.length),
+        Esrc (fixnames[j]'(hnlen ▸ h)) = some (srcs[j]'(hslen ▸ h)))
+    (her : ∀ j (h : j < defs.length) (Δ : VLCtx),
+        Erases env Us Γ Δ (srcs[j]'(hslen ▸ h)) (.fix defs j))
+    (hcov : ∀ {n : Name} {d : List (@FixDef LBTerm)} {i : Nat},
+        Γ.recBodies n = some (d, i) →
+        ∃ h : i < defs.length, (fixnames[i]'(hnlen ▸ h)) = n ∧ d = defs) :
+    RecEnvConsistent env Us Γ Esrc (recConstState fixnames defs sd).gdecls where
+  reg := by
+    intro n d i hrec
+    obtain ⟨hi, hnm, rfl⟩ := hcov hrec
+    subst hnm
+    refine ⟨?_, (hdisj i hi).1, (hdisj i hi).2, _, hesrc i hi, fun {Δ} => her i hi Δ⟩
+    rw [hkn i hi]
+    refine recConstState_envLookup ?_ hkeys
+    have hz : (fixnames.zipIdx[i]'(by simpa using hnlen ▸ hi)) =
+        ((fixnames[i]'(hnlen ▸ hi)), i) := by simp
+    exact hz ▸ List.getElem_mem _
 
 /-! ## Assembling `RegisteredClosureData` from the walk
 
@@ -653,5 +788,135 @@ theorem gRecConstState_no_shadow :
       ≠ LBTerm.envLookup (recConstState [`f, `g] gRecDefs {}).gdecls (toKername `g) := by
   rw [gRecConstState_lookups.1, gRecConstState_lookups.2]
   simp [gRecDefs]
+
+/-! ### The recursive-dependency guard (slice δ-D8)
+
+The chain the slice builds, run end to end on the repo's own recursion fixture — the
+genuinely self-referential one-def block `def f (a : Prop) := f a` (`Erases.lean`'s
+`fixRecSrc`/`fixRecDefs`/`ΓfixRec`), at its two stages:
+
+* the **open** stage, `λa. x #0`, where the sibling still sits as the fresh fixvar the run
+  minted and the derivation lives at the block-local `ΓfixRec.withFixvars {f ↦ x}` — which
+  is `ΓfixOpen x` on the nose. That is the shape
+  `VisitExprRefines.visitExpr_refines_erases_block` produces from a sibling's `visitExpr`
+  run, and the guard there checks its premise set is jointly instantiable at exactly this
+  `Γ`;
+* the **closed** stage, `fix f. λa. f a`, which is what the walk stores.
+
+`erases_rec_block_of_run` carries the first to the second, and `recEnvConsistent_of_block`
+turns that into the environment-level record the forward simulations consume — at a `Γ`
+that genuinely registers recursion and an `Esrc` that genuinely records the body, so
+neither is true by emptiness.
+
+One premise stays hypothetical, and it is not new: `hnest`, the residue
+`Erases.instFixvars` has carried since W3.1 and which `EnvErasureRec.gErases_fix_of_open`
+already leaves open for the same reason (the repaired theorem pins `Γ.fixvars = ⊥`, so the
+older guards' dodge — taking the outer `Γ` to be the block-local one, where `hnest` is
+`id` — is gone). Everything else is constructed. -/
+
+/-- The block-local fixvar map `visitMutual` installs for the fixture's one-def block. -/
+private def gFvD8 (x : FVarId) : Name → Option FVarId :=
+  fun n => if n = `f then some x else none
+
+/-- The run's **opened** target body: `λa. x #0`, before `mkDef` closes the fixvar. -/
+private def gObodyD8 (x : FVarId) : LBTerm :=
+  .lambda (nameToBinder `a) (.app (.fvar x) (.bvar 0))
+
+/-- `mkDef`'s closing really does turn the opened body into the stored block's body. -/
+private theorem gCloseD8 (x : FVarId) :
+    (fixRecDefs[0]'(by simp [fixRecDefs])).body = closeFix [x] 0 (gObodyD8 x) := by
+  rw [closeFix_cons]
+  simp [fixRecDefs, gObodyD8, closeFix, toBvar]
+
+/-- **The composition fires**: from the block-local erasure of the sibling body — the
+`Γ.withFixvars fv` stage, which is what the instantiated bridge hands back — to the
+`Erases.fix` derivation at the outer `Γ`, at **every** context. -/
+theorem gErasesRecBlockD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (x : FVarId)
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (ΓfixRec.withFixvars (gFvD8 x)) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    ∀ Δ : VLCtx, Erases env Us ΓfixRec Δ fixRecSrc (.fix fixRecDefs 0) := by
+  intro Δ
+  refine erases_rec_block_of_run henv (Γ := ΓfixRec) rfl (fv := gFvD8 x)
+    (fixnames := [`f]) (ids := [x]) (srcs := [fixRecSrc]) (obodies := [gObodyD8 x])
+    (defs := fixRecDefs) rfl rfl rfl rfl (by simp) (fun j h => ?_) (fun nm y hy => ?_) (fun d hd => ?_)
+    (fun j => ?_) (fun y j => ?_) (fun j h => ?_) (fun j h => ?_) (fun j h => ?_)
+    (fun j h => ?_) (fun j h => ?_) (fun j h => ?_) hnest 0 (by simp [fixRecDefs]) Δ
+  · -- hreg
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ΓfixRec_recBodies
+  · -- hfv: the block map names the block's own id, at index 0
+    refine ⟨0, by simp [fixRecDefs], ?_, ?_⟩ <;>
+      · by_cases hf : nm = `f <;> simp_all [gFvD8]
+  · -- hrarg
+    simp only [fixRecDefs, List.mem_cons, List.not_mem_nil, or_false] at hd
+    subst hd; rfl
+  · -- the stored block is de Bruijn closed
+    show LBClosed (LBTerm.fix fixRecDefs j) 0
+    simp [fixRecDefs, LBClosedDefs]
+  · -- …and fvar-free
+    show ¬ hasFVar y (LBTerm.fix fixRecDefs j)
+    simp [fixRecDefs, hasFVarDefs]
+  · -- the opened body is de Bruijn closed
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    show LBClosed (gObodyD8 x) 0
+    simp [gObodyD8]
+  · -- hclose
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact gCloseD8 x
+  · -- the source is a λ-telescope
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ⟨_, _, _, _, rfl⟩
+  · -- …closed
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ⟨trivial, trivial, Nat.zero_lt_one⟩
+  · -- …and fvar-free
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ⟨rfl, by simp [FVarsIn], trivial⟩
+  · -- hopen: the block-local erasure, through the `Erases.fixvar` leaf
+    obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    show Erases env Us (ΓfixRec.withFixvars (gFvD8 x)) [] fixRecSrc (gObodyD8 x)
+    exact .lam (ty' := .sort .zero) (.sort rfl)
+      (.app (erases_fixvar_fixOpen env Us x [] _ (by simp)) (.bvar 0))
+
+/-- The fixture's source environment: `f` unfolds to the recursive body. -/
+private def gEsrcD8 : SEnv := fun n => if n = `f then some fixRecSrc else none
+
+/-- The one-entry environment the block registration conses has distinct keys. -/
+private theorem gKeysD8 : KeysDistinct (recConstState [`f] fixRecDefs {}).gdecls := by
+  simp [recConstState, KeysDistinct]
+
+/-- **`RecEnvConsistent` from the walk, for a recursive block** (slice δ-D8) — the
+demotion of `EnvErasureRec.RegisteredClosureRec` on real data. Nothing here is a
+certificate about an erasure: the `Erases` witness is *derived* through
+`erases_rec_block_of_run`, and what is left assumed is the `Γ`↔run registration
+agreement (`hcov`, discharged here by `ΓfixRec`'s own defining equation) and `hnest`. -/
+theorem gRecEnvConsistentD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (x : FVarId)
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (ΓfixRec.withFixvars (gFvD8 x)) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    RecEnvConsistent env Us ΓfixRec gEsrcD8 (recConstState [`f] fixRecDefs {}).gdecls := by
+  refine recEnvConsistent_of_block (fixnames := [`f]) (srcs := [fixRecSrc]) rfl rfl gKeysD8
+    (fun j h => ?_) (fun j h => ?_) (fun j h => ?_)
+    (fun j h Δ => by
+      obtain rfl : j = 0 := by
+        simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+      exact gErasesRecBlockD8 env henv Us x hnest Δ)
+    (fun {n d i} hrec => ?_)
+  · obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    rfl
+  · obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    exact ⟨rfl, rfl⟩
+  · obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
+    simp [gEsrcD8]
+  · by_cases hn : n = `f
+    · subst hn
+      obtain ⟨rfl, rfl⟩ : d = fixRecDefs ∧ i = 0 := by
+        have := (by simpa [ΓfixRec] using hrec : fixRecDefs = d ∧ 0 = i)
+        exact ⟨this.1.symm, this.2.symm⟩
+      exact ⟨by simp [fixRecDefs], rfl, rfl⟩
+    · simp [ΓfixRec, hn] at hrec
 
 end LeanToLambdaBox

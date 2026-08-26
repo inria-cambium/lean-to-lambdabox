@@ -464,16 +464,23 @@ with a recursive unfolding `Esrc n = some body`, the run consed
 that **fix** body in *any* context `Δ` (the constant body is closed, so `Erases.fix`'s
 free-`Δ` conclusion gives context-uniformity for free).
 
-**Status after slice D6.** `ColdStartRun.run_rec_exit_siblings` now walks the `List.mapM`
-this record was standing in for, and hands back the per-sibling `getConstInfo` /
-`prepare_erasure` / `visitExpr` runs plus `mkDef`'s closing equation — which discharges
-`erases_fix_of_open`'s `hoclosed`, `hclose` and length premises from the run. What still
-blocks turning this record into a *conclusion* is not the loop: it is `hreg`, "`Γ.recBodies`
-names the block this run built", which no run fact can supply at a parameter `Γ` and which
-should therefore become a run-keyed agreement rather than an `Erases` witness; and the
-`Γ`-inside-the-motives generalisation the per-sibling erasures need, since each is taken at
-`Γ.withFixvars fv` under the run's own block-local fixvar map. `ColdStartDelta`'s recursion
-section carries the premise-by-premise ledger. -/
+**Status after slice δ-D8: DEMOTED.** `ColdStartRun.run_rec_exit_siblings` (D6) walks the
+`List.mapM` this record was standing in for and hands back the per-sibling runs plus
+`mkDef`'s closing equation; `VisitExprRefines.visitExpr_refines_erases_block` (δ-D8)
+supplies the per-sibling erasures at the block-local `Γ.withFixvars fv`, which is what the
+`Γ`-inside-the-motives generalisation was wanted for and which the bridge turns out to
+give for free — it is Γ-polymorphic as a statement, and exactly one of its premises breaks
+at a block-local `Γ`. `ColdStartDelta.erases_rec_block_of_run` composes the two into this
+record's `erase` field, and `ColdStartDelta.recEnvConsistent_of_block` into
+`RecEnvConsistent` outright.
+
+What survives is **not** a certificate about an erasure: it is the `Γ`↔run registration
+agreement — "the `Γ` you supply names *this* block, under the map the run installed" —
+which is irreducible at a parameter `Γ` (fixed before the run builds `defs`) and is
+`BridgeInv.knames`-class, plus the standing `hnest` residue. This structure is kept as the
+shape the *warm* theorems consume and as the record its own guards are stated at;
+`ColdStartDelta`'s recursion section carries the premise-by-premise ledger and the note on
+what still separates all this from the cold-start capstones. -/
 structure RegisteredClosureRec (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (Esrc : SEnv) (E : GlobalDeclarations) : Prop where
   disj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
