@@ -315,8 +315,39 @@ content) ⟹ `instFixvars` instantiates the fixvars ⟹ `closeFix_substList_fixS
 environment-level walk that supplies the per-sibling run facts: slice D6
 (`ColdStartRun.run_rec_exit_siblings`) produces the runs, but at the block-local
 `Γ.withFixvars fv`, so consuming them needs `Γ` inside the bridge's motives (§W3.2/D8) —
-`ColdStartDelta`'s recursion section is the premise-by-premise ledger. -/
-theorem erases_fix_of_open {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+`ColdStartDelta`'s recursion section is the premise-by-premise ledger.
+
+## The `hopen` repair (slice `rec`)
+
+`hopen` used to quantify over **every** `Δf`, unrestricted, and in that form it is
+**unsatisfiable for every self-referential block** — that is, for every real one. A body
+that references a sibling `nm` must, at `Γ.withFixvars fv`, derive
+`Erases … Δf (.const nm us) (.fvar x)`, and `Erases.fixvar` is the *only* rule with source
+`.const` and target `.fvar` (the others give `.const kn`, `.construct …`, `.fix …` or
+`.box`). Its `hfresh : x ∉ Δf.fvars` then fails the moment `Δf` mentions one of the block's
+own ids. The theorem was therefore vacuous in its intended use, and nothing caught it
+because it had **no non-vacuity guard**: this file's own fixture `gErasesOpenR` carries
+precisely the missing side condition (`gIdR ∉ Δ.fvars`) and so could never feed the
+theorem, which is why the guard chain went `gErasesOpenR → gInstFixvarsR → gErases_fix`
+through `erases_fix_of_closed` instead. The absent guard was the tell.
+
+`hopen` is now conditioned on `Δf` being fresh for `ids`, which is exactly what the run
+establishes (`visitMutual` mints the block's fixvars *before* `visitExpr` opens any
+binder — `BridgeInv.fixfresh`) and exactly what `gErasesOpenR` provides.
+
+That leaves `Erases.fix`'s `hbodies` premise, which is genuinely `∀ Δf` with no side
+condition, to be rebuilt. It is, and at the *outer* `Γ`, where the fixvar leaf is gone:
+instantiate `hopen` at `Δf := []` (fresh outright, `VLCtx.fvars [] = []`), push it through
+`Erases.instFixvars` — after which the block's fixvars have become `.fix defs j` nodes and
+no `.fvar` survives — and re-widen with `ErasesStrengthen.erases_weak_any`, which
+transports out of `[]` into *every* `VLCtx` for a closed, fvar-free source and a closed
+target. Hence the two new premises: `hnfv` (the fixvar leaf is dead at the outer `Γ` —
+the same scope restriction every top-level capstone already pins) and `hsclosed` (the
+block's sources are closed, which for top-level recursive definitions they are, and which
+`heclosed` already asserted for the `idx`-th one alone). `henv` is needed because
+`erases_weak_any` weakens lean4lean witnesses. -/
+theorem erases_fix_of_open {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
     {fv : Name → Option FVarId}
     {Δ : VLCtx} {n : Name} {ty b : Expr} {bi : BinderInfo}
     {nms : List Name} {ids : List FVarId} {srcs : List Expr} {obodies : List LBTerm}
@@ -345,14 +376,25 @@ theorem erases_fix_of_open {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
         Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i'))
     (hsrcfv : ∀ j (h : j < defs.length),
         FVarsIn (fun _ => False) (srcs[j]'(hslen ▸ h)))
+    (hsclosed : ∀ j (h : j < defs.length), Closed (srcs[j]'(hslen ▸ h)) 0)
     (hopen : ∀ j (h : j < defs.length) (Δf : VLCtx),
+        (∀ x ∈ ids, x ∉ Δf.fvars) →
         Erases env Us (Γ.withFixvars fv) Δf (srcs[j]'(hslen ▸ h))
           (obodies[j]'(hblen ▸ h))) :
     Erases env Us Γ Δ (.lam n ty b bi) (.fix defs idx) :=
   erases_fix_of_closed hidx hnlen hslen hblen hilen hsrc hreg hrarg heclosed henofv
     hfclosed hffv hoclosed hclose
-    (fun j h Δf => Erases.instFixvars hnd hfclosed hffv hlink hnest (hopen j h Δf)
-      ((hsrcfv j h).mono (fun _ hf => hf.elim)))
+    (fun j h Δf =>
+      -- The open premise fires only at a *fresh* `Δf`; `[]` is fresh outright
+      -- (`VLCtx.fvars [] = []`). Instantiating there and re-widening afterwards is what
+      -- makes the rebuilt `hbodies` unrestricted again — see the docstring.
+      erases_weak_any henv hnfv (hsclosed j h) (hsrcfv j h)
+        (LBClosed.substFVarList _
+          (fun q hq => by obtain ⟨-, -, rfl⟩ := List.mem_map.mp hq; exact hfclosed)
+          _ 0 (hoclosed j h))
+        (Erases.instFixvars hnd hfclosed hffv hlink hnest (hopen j h [] (by simp))
+          ((hsrcfv j h).mono (fun _ hf => hf.elim)))
+        Δf)
 
 /-! ## Part 3 — recursive `ErasesEnvDelta` discharge
 
@@ -547,6 +589,73 @@ theorem gInstFixvarsR (env : VEnv) (Us : List Name) {Δ : VLCtx} (hx : gIdR ∉ 
         · by_cases hf : nm = `f <;> simp_all [gFvR, gΓOpenR, gΓR])
     (fun H => H) (gErasesOpenR env Us hx) ⟨rfl, by simp [FVarsIn], trivial⟩
   rwa [gSubstFixR] at h
+
+/-! ### The repaired `erases_fix_of_open` fires on the same fixture (slice `rec`)
+
+The guard the theorem never had. Before the repair `hopen`'s unrestricted `∀ Δf` was
+unsatisfiable here — `gErasesOpenR` needs `gIdR ∉ Δ.fvars`, and that is not optional: the
+block body references its own sibling, so the derivation goes through `Erases.fixvar`,
+whose `hfresh` is anti-monotone in `Δ`. Conditioned on freshness, the fixture feeds the
+theorem directly, and the rebuilt `hbodies` comes out unrestricted on the far side.
+
+One premise stays hypothetical, and it is not new: `hnest`. The earlier guards
+(`gInstFixvarsR`) sidestepped it by taking the *outer* `Γ` to be `gΓOpenR` itself, where
+`hnest` is `id`; that is no longer available, because the repaired theorem pins
+`Γ.fixvars = ⊥` and `gΓOpenR`'s is `gFvR`. Discharging it needs a genuine `Γ`-transport
+for a `.lam`-source that erases to a block, which is the `Γ`-inside-the-motives
+generalisation the ledger already names as part of residue 1. Everything else here is
+constructed, and the point of the guard — that a genuinely self-referential block
+satisfies the repaired `hopen` and comes out the other side as `Erases.fix` — is
+unaffected by it. -/
+
+/-- **Non-vacuity for the repaired `erases_fix_of_open`**: the self-referential one-def
+block `def f (a : Prop) := f a`, from the run's *open* stage all the way to the stored
+`fix f. λa. f a`, through the theorem rather than around it. -/
+theorem gErases_fix_of_open (env : VEnv) (henv : env.Ordered) (Us : List Name) {Δ : VLCtx}
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (gΓR.withFixvars gFvR) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us gΓR Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    Erases env Us gΓR Δ gLamR gFixR := by
+  have hrec : gΓR.recBodies `f = some (gFixDefsR, 0) := by simp [gΓR]
+  refine erases_fix_of_open henv (Γ := gΓR) (by simp [gΓR]) (fv := gFvR) (nms := [`f])
+    (ids := [gIdR]) (srcs := [gLamR]) (obodies := [gObodyR])
+    Nat.zero_lt_one rfl rfl rfl rfl (by simp) rfl (fun j h => ?_) (fun d hd => ?_)
+    ⟨trivial, trivial, Nat.zero_lt_one⟩ ⟨rfl, by simp [FVarsIn], trivial⟩ ?_ ?_
+    (fun j h => ?_) (fun j h => ?_) (fun nm x hnm => ?_) hnest (fun j h => ?_)
+    (fun j h => ?_) (fun j h Δf hfr => ?_)
+  · -- hreg
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact hrec
+  · -- hrarg
+    simp only [gFixDefsR, List.mem_cons, List.not_mem_nil, or_false] at hd
+    subst hd; rfl
+  · -- LBClosed gFixR 0
+    show LBClosed gFixR 0
+    simp [gFixR, gFixDefsR, LBClosedDefs]
+  · -- no fvars in gFixR
+    intro x
+    show ¬ hasFVar x gFixR
+    simp [gFixR, gFixDefsR, hasFVarDefs]
+  · -- hoclosed
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    show LBClosed gObodyR 0
+    simp [gObodyR]
+  · -- hclose
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact gCloseR
+  · -- hlink: the block-local map names the block's own id, at index 0
+    refine ⟨0, by simp, ?_, ?_⟩ <;>
+      · by_cases hf : nm = `f <;> simp_all [gFvR, gΓR]
+  · -- hsrcfv
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact ⟨rfl, by simp [FVarsIn], trivial⟩
+  · -- hsclosed
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact ⟨trivial, trivial, Nat.zero_lt_one⟩
+  · -- hopen, now at a *fresh* `Δf` — which is what makes it satisfiable at all
+    obtain rfl : j = 0 := by simp only [gFixDefsR, List.length_cons, List.length_nil] at h; omega
+    exact gErasesOpenR env Us (hfr gIdR (by simp))
 
 /-- A source env where a constant unfolds to the recursive body `gLamR`. -/
 private def gEsrcR : SEnv := fun _ => some gLamR
