@@ -27,6 +27,8 @@ Everything below is *derived from the run*, not assumed:
 | `E` as a free variable | becomes `sf.gdecls`, existentially produced |
 | `hclenv : ClosedEnv E` | `RegInvShape.closed`, at the run's final state (S1e: carried by `visitExpr_regInvShape`, a theorem) |
 | `hcl : LBClosed t 0` | `visitExpr_noFix_closed` (R11, no hypotheses) |
+| `NoBlock t` (applied form of the output) | `visitExpr_noBlock` (R11's third conjunct, no hypotheses — slice δ-N) |
+| `NoBlockEnv sf.gdecls` (applied form of every recorded body) | `visitExpr_noBlockEnv` (δ-N: `NoBlockEnv` is a `RunClosed` predicate) |
 | `hregctors`/`hregcases`/`hregfields` | `RegInvShape.registeredCtors/…`, modulo saturation |
 | `hdelta : ErasesEnvDeltaData` | the walk's own δ record, converted (slice D5) |
 | `known` as a free variable | stays free — the fragment (slice D5) |
@@ -58,10 +60,9 @@ capstones. What changed here, precisely:
   (`hkinj`) premise the design expected to pay here; see `SEnv.walked`. The price is that
   the source-evaluation premise is stated at the restricted environment — the honest place
   for "the program only calls what the walk reached".
-* Two residues survive, both named and both pre-existing classes: context-uniformity
-  (`DeltaHyps.uniform`, a lean4lean-side `TrExprS`-weakening obligation) and applied form
-  of the recorded bodies (`ColdStartSubject.noBlockEnv`, an output-shape statement the
-  shape induction does not prove).
+* One residue survives at this slice: context-uniformity (`DeltaHyps.uniform`). Applied
+  form — the second residue as of D5 — is **gone** (slice δ-N): see the residue list
+  below.
 
 `SEnvConsistent` is **not** derived and should not be: it says the prepared body is defeq
 to the kernel's value for the constant, which is a `PrepareHyps`-class fact about the
@@ -99,7 +100,7 @@ Four classes, and nothing falls outside them:
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
 | `Hδ : DeltaHyps` | H + S + R | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free` are S (the fragment's own closure conditions); `uniform` is residue 2 |
-| `S : ColdStartSubject` | S + R | `supported` is S — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees; `noBlock`/`noBlockEnv` are residue 3 |
+| `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
 | `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
 | `hiota : IotaConsistent` (ι) | H | the interface premise; `…ι_of_shape` discharges it from `PatsIotaSpec + SEnvConsistent + IotaShape`, at eight further lean4lean *modelling* axioms and no axiom of ours |
@@ -128,10 +129,22 @@ below, three ways.
    bridge fires at the `Δ` of the call site; `Erases` has `abstract`/`uninstantiate`/
    `thin_vlet`, all context-*shrinking*, and the missing direction is fvar-extension,
    which is a lean4lean-side `TrExprS`-weakening obligation, not an erasure one.
-3. `ColdStartSubject.noBlock` / `noBlockEnv` — applied (`NoBlock`) form of the run's
-   output and of every body it recorded. Not carryable by the shape induction
-   (`visitExpr_noFix_closed` proves `NoFix`/`LBClosed`, not this) and not by a bridge
-   motive (the erasure argument is abstract there).
+3. ~~`ColdStartSubject.noBlock` / `noBlockEnv`~~ — **RETIRED, slice δ-N.** The stated
+   obstruction ("not carryable by the shape induction") was a misdiagnosis, and the
+   refutation is one line of the definition: `NoBlock` (`ErasesCorrectData.lean`) is
+   `True` on `.box` — boxing is *invisible* to it — and `False` on exactly one node,
+   `.construct _ _ (_ :: _)`. The eraser has exactly one `.construct` construction site
+   (`Erasure.visitConstructor`), and it is **nullary by explicit design**: "in the stage
+   of λbox I am targeting constructor application is function application". So `NoBlock`
+   is true of every `visitExpr` output for a structural reason, and the shape induction
+   carries it as `ShapeC`'s third conjunct alongside `NoFix`/`LBClosed`
+   (`visitExpr_shape_all`). At the environment level `NoBlockEnv` is a `RunClosed`
+   predicate (`ColdStartDelta.runClosed_noBlockEnv`): `inl` leaves `gdecls` alone,
+   `addAxiom` conses a value-less entry, `register_inductive` conses an `.inductiveDecl`
+   over a `ConstExt` prefix of value-less entries, and the two constant conses are handed
+   the body's `NoBlock` by the widened `RunClosed.nrc`/`rc`. Only the standing
+   `prepare_erasure` transparency item is assumed, and `DeltaHyps.prep_run` already
+   states it. `ColdStartSubject` is down to a single field.
 
 Nothing in this ledger is an axiom of ours. The measured axiom sets of both capstones are
 `shipping_erase_correct_firstorder`'s **verbatim** — the three standard Lean axioms plus
@@ -285,25 +298,6 @@ structure ColdStartSubject (env : VEnv) (Us : List Name) (known : Name → Prop)
   supported : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
     Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
     Supported known Γ pe ∧ ∃ ve, TrExprS env Us [] pe ve
-  /-- The erased term is in applied (`NoBlock`) form — the data fragment's shape premise,
-  here about the entry point's own run. -/
-  noBlock : ∀ {pe : Expr} {sp : ErasureState} {wp : Void IO.RealWorld} {t : LBTerm}
-      {sf : ErasureState} {wt : Void IO.RealWorld},
-    Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt → NoBlock t
-  /-- **…and so is every body the walk recorded on the way** (slice D5) — the applied-form
-  residue of the δ record, in the only shape available at the capstone.
-
-  It is the same statement as `noBlock` one level down, and it stays a premise for the
-  same reason: `NoBlock` is an output-shape fact about `visitExpr`, the shape induction
-  proves `NoFix`/`LBClosed` and not it (`ColdStartInduction.visitExpr_regInvShape`), and
-  inside the bridge the erasure argument is abstract, so no motive can conclude it either.
-  Note it is stated about the run's final *environment* rather than about a dependency's
-  own run: at the capstone a `gdecls` entry does not come with the run that produced it,
-  and manufacturing that link is a separate walk fact this slice does not build. -/
-  noBlockEnv : ∀ {pe : Expr} {sp : ErasureState} {wp : Void IO.RealWorld} {t : LBTerm}
-      {sf : ErasureState} {wt : Void IO.RealWorld},
-    Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
-    NoBlockEnv sf.gdecls
 
 /-! ## The capstone -/
 
@@ -361,6 +355,13 @@ theorem shipping_erase_correct_firstorderι_coldstart
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   subst hUs
+  -- δ-N: `prepare_erasure` leaves `gdecls` alone — `DeltaHyps.prep_run`'s state
+  -- transparency, which is the one assumed slot of `runClosed_noBlockEnv`.
+  have hprepg : ∀ {e' : Expr} {s : ErasureState} {ctx : ErasureContext}
+      {cc : Core.Context} {rf : ST.Ref IO.RealWorld Core.State} {w₀ : Void IO.RealWorld}
+      {pe : Expr} {s' : ErasureState} {w₁ : Void IO.RealWorld},
+      Erasure.prepare_erasure e' s ctx cc rf w₀ = .ok (pe, s') w₁ → s'.gdecls = s.gdecls :=
+    fun h => congrArg ErasureState.gdecls ((Hδ _ _).prep_run h).2
   -- R1: the entry point decomposes into the two runs, from the empty state.
   obtain ⟨pe, t, sp, sf, wp, wt, hpr, hvis, hp, -⟩ := erase_run_ok hrun
   -- R2: with csimp off, `prepare_erasure` does not touch the state, so `sp = {}`.
@@ -387,7 +388,8 @@ theorem shipping_erase_correct_firstorderι_coldstart
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ her => (Hδ cctx ref).uniform hb her) (S.noBlockEnv hvis))
+        (fun hb _ her => (Hδ cctx ref).uniform hb her)
+        (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, hclv, huniq⟩ :=
     shipping_erase_correct_firstorderι henv (Us := [])
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
@@ -400,7 +402,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
       hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C Hδ
-      hvis hinv hsup htr (S.noBlock hvis) hcl (hev hpr hvis) hfo
+      hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
 /-- **Cold-start D3 — the βζδ+data flavour.** Same composition, with the source
@@ -439,6 +441,11 @@ theorem shipping_erase_correct_firstorder_coldstart
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   subst hUs
+  have hprepg : ∀ {e' : Expr} {s : ErasureState} {ctx : ErasureContext}
+      {cc : Core.Context} {rf : ST.Ref IO.RealWorld Core.State} {w₀ : Void IO.RealWorld}
+      {pe : Expr} {s' : ErasureState} {w₁ : Void IO.RealWorld},
+      Erasure.prepare_erasure e' s ctx cc rf w₀ = .ok (pe, s') w₁ → s'.gdecls = s.gdecls :=
+    fun h => congrArg ErasureState.gdecls ((Hδ _ _).prep_run h).2
   obtain ⟨pe, t, sp, sf, wp, wt, hpr, hvis, hp, -⟩ := erase_run_ok hrun
   obtain rfl : sp = {} := run_prepare_erasure_state (by simpa using hcsimp) hpr
   have hshape : RegInvShape Γ sf := (visitExpr_regInvShape Hr hvis (RegInvShape.empty Γ)).1
@@ -452,7 +459,8 @@ theorem shipping_erase_correct_firstorder_coldstart
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ her => (Hδ cctx ref).uniform hb her) (S.noBlockEnv hvis))
+        (fun hb _ her => (Hδ cctx ref).uniform hb her)
+        (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, huniq⟩ :=
     shipping_erase_correct_firstorder henv (Us := [])
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
@@ -460,7 +468,7 @@ theorem shipping_erase_correct_firstorder_coldstart
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
       hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ
-      hvis hinv hsup htr (S.noBlock hvis) (hev hpr hvis) hfo
+      hvis hinv hsup htr (visitExpr_noBlock hvis) (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
 /-! ## Non-vacuity guards

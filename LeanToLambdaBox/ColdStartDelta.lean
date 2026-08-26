@@ -412,15 +412,123 @@ theorem SEnv.walked_lookup {Esrc : SEnv} {Γ : ErasureCtx} {E : GlobalDeclaratio
   · rename_i t hlk; exact ⟨t, hlk⟩
   · exact absurd h (by simp)
 
-/-- **Applied form of every stored body** — the one output-shape residue of the data
-conversion (`hnb`). `NoBlock` is not an invariant the shape induction can carry: it proves
-`NoFix`/`LBClosed` of a `visitExpr` output (`visitExpr_noFix_closed`) and not this, and
-inside the bridge the erasure argument is abstract, so no motive can conclude it either. It
-is therefore stated about the *environment* a run built, as a run-keyed premise of the
-capstone's subject bundle — the same epistemic class as `ColdStartSubject.noBlock`, which
-says the same thing about the top-level output. -/
+/-- **Applied form of every stored body.** Every `.constantDecl` the walk recorded with a
+value holds a term in applied form.
+
+This was residue 3 and is now a theorem (`visitExpr_noBlockEnv`, below). The obstruction
+the ledger recorded — "`NoBlock` is not an invariant the shape induction can carry" — was a
+misdiagnosis: `NoBlock` says nothing about boxing, it forbids exactly one node
+(`.construct _ _ (_ :: _)`), and the eraser's single `.construct` construction site is
+nullary by explicit design. So the shape induction carries it as `ShapeC`'s third conjunct,
+and this predicate is the environment-level fold of that fact rather than a premise. -/
 def NoBlockEnv (E : GlobalDeclarations) : Prop :=
   ∀ {kn : Kername} {t : LBTerm}, (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ E → NoBlock t
+
+/-! ### `NoBlockEnv` is a `RunClosed` predicate (slice δ-N)
+
+The five registration-side slots are free, one per way the walk touches `gdecls`:
+`inl` leaves `gdecls` alone; `addAxiom` conses a **value-less** entry
+(`Erasure.addAxiomState`); `register_inductive` conses an `.inductiveDecl` on top of a
+`ConstExt` prefix that is entirely value-less axiom entries, and its hit branch is
+state-preserving; and the two constant conses are exactly where the widened
+`RunClosed.nrc`/`rc` now hand over the `NoBlock` of the body being stored.
+
+Only `prep` is assumed, and it is the standing `PrepareHyps`-class item every `RunClosed`
+instantiation pays: `prepare_erasure`'s csimp branch runs `Lean.Core.transform` at `EraseM`
+through `MonadControlT`, so state transparency does not follow from the `liftM` lemmas.
+`DeltaHyps.prep_run` states it (as `s' = s`), which is why the capstones can feed this
+from a bundle they already carry rather than from a new premise. -/
+
+/-- The block registration's fold, one cons at a time: `recConstState` stores
+`.fix defs j` under each of the block's names, so a `NoBlock` environment stays one exactly
+when every index of the block is in applied form — which `NoBlock_fix`'s
+index-independence makes a single fact. -/
+theorem noBlockEnv_recConstState {names : List Name} {defs : List (@FixDef LBTerm)}
+    {s : ErasureState} (h : NoBlockEnv s.gdecls) (hnb : ∀ j : Nat, NoBlock (.fix defs j)) :
+    NoBlockEnv (recConstState names defs s).gdecls := by
+  rw [recConstState_eq]
+  generalize names.zipIdx = L
+  induction L generalizing s with
+  | nil => exact h
+  | cons p rest ih =>
+    refine ih ?_
+    intro kn t hm
+    simp only [recConstStep, nonrecConstState] at hm
+    rcases List.mem_cons.mp hm with heq | hm'
+    · obtain ⟨-, hd⟩ : kn = toKername p.1 ∧
+          GlobalDecl.constantDecl ⟨some t⟩
+            = GlobalDecl.constantDecl ⟨some (LBTerm.fix defs p.2)⟩ := by simpa using heq
+      obtain rfl : t = LBTerm.fix defs p.2 := by simpa using hd
+      exact hnb p.2
+    · exact h hm'
+
+/-- **`NoBlockEnv` of the registry is `RunClosed`** — the retirement of
+`ColdStartSubject.noBlockEnv`. See the section docstring for the slot-by-slot accounting;
+`hprep` is the one assumed slot and is `DeltaHyps.prep_run` at every capstone. -/
+theorem runClosed_noBlockEnv
+    (hprep : ∀ {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+        {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
+        {s' : ErasureState} {w' : Void IO.RealWorld},
+      prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → s'.gdecls = s.gdecls) :
+    RunClosed (fun s => NoBlockEnv s.gdecls) where
+  inl := fun h => h
+  ax := by
+    intro m s ctx cctx ref w u s' w' hrun h
+    obtain ⟨rfl, -⟩ := run_addAxiom_ok hrun
+    intro kn t hm
+    simp only [addAxiomState] at hm
+    rcases List.mem_cons.mp hm with heq | hm'
+    · exact absurd heq (by simp)
+    · exact h hm'
+  reg := by
+    intro ii s ctx cctx ref w r s' w' hrun h
+    cases hi : s.inductives.get? ii.name with
+    | some rc0 =>
+      obtain ⟨-, rfl, -⟩ := run_register_inductive_hit_ok hi hrun
+      exact h
+    | none =>
+      obtain ⟨bodies, sM, rfl, -, -, hext, -, -⟩ := run_register_inductive_cold_ok hi hrun
+      intro kn t hm
+      simp only [registerIndState] at hm
+      rcases List.mem_cons.mp hm with heq | hm'
+      · exact absurd heq (by simp)
+      · obtain ⟨pre, hpre, hax⟩ := hext.gdecls
+        rw [hpre] at hm'
+        rcases List.mem_append.mp hm' with hp | hp
+        · exact absurd (hax _ hp).1 (by simp)
+        · exact h hp
+  prep := fun hrun h => by rw [hprep hrun]; exact h
+  nrc := by
+    intro n t s h hnf hcl hnb
+    intro kn t' hm
+    simp only [nonrecConstState] at hm
+    rcases List.mem_cons.mp hm with heq | hm'
+    · obtain ⟨-, hd⟩ : kn = toKername n ∧
+          GlobalDecl.constantDecl ⟨some t'⟩ = GlobalDecl.constantDecl ⟨some t⟩ := by
+        simpa using heq
+      obtain rfl : t' = t := by simpa using hd
+      exact hnb
+    · exact h hm'
+  rc := fun h _ hnb => noBlockEnv_recConstState h hnb
+
+/-- **Every body a whole `visitExpr` run recorded is in applied form** — what
+`ColdStartSubject.noBlockEnv` used to assume, now derived from the run. -/
+theorem visitExpr_noBlockEnv
+    (hprep : ∀ {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+        {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {pe : Expr}
+        {s' : ErasureState} {w' : Void IO.RealWorld},
+      prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → s'.gdecls = s.gdecls)
+    {e : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {t : LBTerm}
+    {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
+    (h : NoBlockEnv s.gdecls) : NoBlockEnv s'.gdecls :=
+  (visitExpr_output_shape (runClosed_noBlockEnv hprep) hrun h).1
+
+/-- At the empty state there is nothing recorded, so the environment is trivially in
+applied form — which is what makes the capstones' instantiation free. -/
+@[simp] theorem noBlockEnv_empty : NoBlockEnv ({} : ErasureState).gdecls := by
+  intro kn t hm; simp at hm
 
 /-- **The walk's δ record becomes the capstone's, at the walk-restricted `Esrc`** (β + δ
 flavour). Compared with `registeredClosure_of_deltaMem` the existence premise `hreg` and
