@@ -388,7 +388,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ her => (Hδ cctx ref).uniform hb her)
+        (fun hb _ _ _ her => (Hδ cctx ref).uniform hb her)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, hclv, huniq⟩ :=
     shipping_erase_correct_firstorderι henv (Us := [])
@@ -459,7 +459,7 @@ theorem shipping_erase_correct_firstorder_coldstart
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ her => (Hδ cctx ref).uniform hb her)
+        (fun hb _ _ _ her => (Hδ cctx ref).uniform hb her)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, huniq⟩ :=
     shipping_erase_correct_firstorder henv (Us := [])
@@ -677,7 +677,7 @@ theorem gDeltaMemδ : DeltaMem envδ [] ΓFOd Esrcδ sδ where
       rcases hm with h | h
       · simpa [ΓFOd] using (by simpa using h : ΓFOd.constants `g = toKername `g ∧ t = tδ).2
       · exact absurd h (by simp)
-    exact ⟨[], .ctor_head `c [] _ 0 ΓFOd_ctorsC⟩
+    exact ⟨[], trivial, rfl, .ctor_head `c [] _ 0 ΓFOd_ctorsC⟩
 
 /-- **The walk restriction keeps the fragment.** `g`'s body really is stored in `Eδ`, so
 `SEnv.walked` does not quietly empty `Esrc` — the guard against the restriction being a
@@ -697,7 +697,7 @@ theorem gErasesEnvDeltaDataδ :
   erasesEnvDeltaData_of_registeredClosureData
     (registeredClosureData_of_deltaMem_walked (s := sδ) gDeltaMemδ
       (fun hb => by obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb; exact ⟨by simp [ΓFOd], rfl⟩)
-      (fun hb hm _ => by
+      (fun hb hm _ _ _ => by
         obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb
         obtain rfl : _ = tδ := by
           simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hm

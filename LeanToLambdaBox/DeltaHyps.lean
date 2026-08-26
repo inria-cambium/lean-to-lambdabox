@@ -326,15 +326,20 @@ Three deliberate choices, each forced by where this has to travel:
   existence half — "the walk did record a body for every fragment constant it reached" —
   is therefore *not* part of this record; it is a separate walk fact, and the capstone
   conversion below takes it as a premise.
-* **`∃ Δ`, not `∀ Δ`.** The bridge fires at the `Δ` of the *call site*, and `visitMutual`'s
-  `withReader` keeps the ambient `lctx`, so a dependency reached from inside a binder is
-  erased at a non-empty `Δ`. Lifting to `∀ Δ` is the `uniform`/`huni` residue this
-  development already carries as a premise everywhere else. -/
+* **`∃ Δ`, not `∀ Δ`, and the `Δ` comes with its papers.** The bridge fires at the `Δ` of
+  the *call site*, and `visitMutual`'s `withReader` keeps the ambient `lctx`, so a
+  dependency reached from inside a binder is genuinely erased at a non-empty `Δ`. Lifting
+  to `∀ Δ` is context-uniformity, and since slice δ-D7b that is a *theorem*
+  (`ErasesUniform.erases_uniform_closed`) rather than the `uniform` premise — but it needs
+  two facts about the context it starts from: that it is well-formed and that it has no
+  bvar entries (so `VLCtx.FVLift.from_nil` applies). Both are free at the production site,
+  from `BridgeInv.vlctx_wf` and `BridgeInv.noBV`, and recording them here is what lets the
+  capstone consume the record without re-deriving them from a run it no longer holds. -/
 structure DeltaMem (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Esrc : SEnv)
     (s : ErasureState) : Prop where
   erase : ∀ {n : Name} {body : Expr} {t : LBTerm}, Esrc n = some body →
     (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
-    ∃ Δ : VLCtx, Erases env Us Γ Δ body t
+    ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧ Erases env Us Γ Δ body t
 
 /-- At the entry state there is nothing recorded, so the record holds. -/
 theorem DeltaMem.empty {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv} :
@@ -376,7 +381,8 @@ theorem DeltaMem.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : 
     {s : ErasureState} {n : Name} {t : LBTerm} (h : DeltaMem env Us Γ Esrc s)
     (hkn : Γ.constants n = toKername n)
     (hinj : ∀ {m : Name}, (Esrc m).isSome → Γ.constants m = Γ.constants n → m = n)
-    (hwit : ∀ {body : Expr}, Esrc n = some body → ∃ Δ : VLCtx, Erases env Us Γ Δ body t) :
+    (hwit : ∀ {body : Expr}, Esrc n = some body →
+      ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧ Erases env Us Γ Δ body t) :
     DeltaMem env Us Γ Esrc (nonrecConstState n t s) where
   erase := by
     intro m body t' hb hm
@@ -428,7 +434,8 @@ theorem RunConclδ.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc 
     {s : ErasureState} {n : Name} {t : LBTerm}
     (hkn : Γ.constants n = toKername n)
     (hinj : ∀ {m : Name}, (Esrc m).isSome → Γ.constants m = Γ.constants n → m = n)
-    (hwit : ∀ {body : Expr}, Esrc n = some body → ∃ Δ : VLCtx, Erases env Us Γ Δ body t) :
+    (hwit : ∀ {body : Expr}, Esrc n = some body →
+      ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧ Erases env Us Γ Δ body t) :
     RunConclδ env Us Γ Esrc s (Erasure.nonrecConstState n t s) :=
   ⟨Erasure.runConcl_nonrecConstState n t s, fun h => h.nonrec hkn hinj hwit⟩
 

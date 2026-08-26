@@ -317,14 +317,15 @@ theorem registeredClosure_of_deltaMem {env : VEnv} {Us : List Name} {Γ : Erasur
     (hreg : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       ∃ t : LBTerm, (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t) :
     RegisteredClosure env Us Γ Esrc s.gdecls where
   disj := hdisj
   erase := by
     intro n body hb
     obtain ⟨t, hmem⟩ := hreg hb
-    obtain ⟨Δ, her⟩ := h.erase hb hmem
-    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb her⟩
+    obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase hb hmem
+    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb hΔwf hΔnb her⟩
 
 /-- **The walk's δ record becomes the capstone's** (data flavour): the same conversion,
 plus the applied-form conjunct the data simulation consumes. -/
@@ -336,6 +337,7 @@ theorem registeredClosureData_of_deltaMem {env : VEnv} {Us : List Name} {Γ : Er
     (hreg : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       ∃ t : LBTerm, (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
     (hnb : ∀ {kn : Kername} {t : LBTerm},
       (kn, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls → NoBlock t) :
@@ -344,8 +346,8 @@ theorem registeredClosureData_of_deltaMem {env : VEnv} {Us : List Name} {Γ : Er
   erase := by
     intro n body hb
     obtain ⟨t, hmem⟩ := hreg hb
-    obtain ⟨Δ, her⟩ := h.erase hb hmem
-    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb her, hnb hmem⟩
+    obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase hb hmem
+    exact ⟨t, envLookup_of_mem_of_keys hmem hkeys, fun {_} => huni hb hΔwf hΔnb her, hnb hmem⟩
 
 /-! ## The walk-restricted source environment (slice D5)
 
@@ -541,6 +543,7 @@ theorem registeredClosure_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ :
       Γ.ctors n = none ∧ Γ.casesOns n = none)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
       (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t) :
     RegisteredClosure env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
   disj := fun hb => hdisj (SEnv.walked_le hb)
@@ -549,8 +552,8 @@ theorem registeredClosure_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ :
     obtain ⟨t, hlk⟩ := SEnv.walked_lookup hb
     obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
     obtain rfl := Kername.eq_of_beq hbeq
-    obtain ⟨Δ, her⟩ := h.erase (SEnv.walked_le hb) hmem
-    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem her⟩
+    obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase (SEnv.walked_le hb) hmem
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem hΔwf hΔnb her⟩
 
 /-- **The walk's δ record becomes the capstone's, at the walk-restricted `Esrc`** (data
 flavour): the same conversion, plus the applied-form conjunct the data simulation
@@ -561,6 +564,7 @@ theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
       Γ.ctors n = none ∧ Γ.casesOns n = none)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
       (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
     (hnb : NoBlockEnv s.gdecls) :
     RegisteredClosureData env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
@@ -570,8 +574,8 @@ theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
     obtain ⟨t, hlk⟩ := SEnv.walked_lookup hb
     obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
     obtain rfl := Kername.eq_of_beq hbeq
-    obtain ⟨Δ, her⟩ := h.erase (SEnv.walked_le hb) hmem
-    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem her, hnb hmem⟩
+    obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase (SEnv.walked_le hb) hmem
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem hΔwf hΔnb her, hnb hmem⟩
 
 /-- **`SEnvConsistent` restricts.** The source-side δ trust item is a `∀` over `Esrc`'s
 domain, so cutting the domain down keeps it — which is what lets the capstone state its
@@ -634,7 +638,7 @@ theorem gDeltaMem (env : VEnv) (Us : List Name) :
     obtain rfl : t = .bvar 0 := by
       simp only [List.mem_cons, List.not_mem_nil, or_false] at hm
       simpa using (by simpa using hm : gΓδ.constants `f = toKername `f ∧ t = LBTerm.bvar 0).2
-    exact ⟨[], .bvar 0⟩
+    exact ⟨[], trivial, rfl, .bvar 0⟩
 
 /-- Non-vacuity: the *later*-consed sibling does not shadow the earlier one — which is
 what `envLookup_of_mem_of_keys` buys, and what a caller's `KeysDistinct` premise is for. -/

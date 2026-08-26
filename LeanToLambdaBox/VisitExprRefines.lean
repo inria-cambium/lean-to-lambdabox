@@ -905,6 +905,26 @@ theorem BridgeInv.trlctx {env : VEnv} {Us : List Name} {known : Name → Prop}
   obtain ⟨m, mwf, hlctx, hvlctx⟩ := h.mlc
   rw [← hlctx, ← hvlctx]; exact mwf.tr
 
+/-- **The bridge's context is well-formed** — `TrLCtx.wf` on `trlctx`. What
+`ErasesUniform.erases_uniform_closed` needs of the context a dependency was erased at. -/
+theorem BridgeInv.vlctx_wf {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {s : ErasureState} {Δ : VLCtx}
+    (h : BridgeInv env Us known Γ gen ctx s Δ) : VLCtx.WF env Us.length Δ :=
+  h.trlctx.wf
+
+/-- **The bridge's context has no bvar entries.** Every entry the run conses is
+fvar-tagged — `BridgeInv.mkLocalDecl`/`mkLetDecl` cons `(some (x, _), _)` and the
+cold-start entry is `[]` — which is `MLCtx.noBV` transported along `mlc`. It is what
+turns the context into an `VLCtx.FVLift`-extension of `[]` (`VLCtx.FVLift.from_nil`),
+the other half of what context-uniformity needs. -/
+theorem BridgeInv.noBV {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {s : ErasureState} {Δ : VLCtx}
+    (h : BridgeInv env Us known Γ gen ctx s Δ) : Δ.NoBV := by
+  obtain ⟨m, -, -, hvlctx⟩ := h.mlc
+  rw [← hvlctx]; exact m.noBV
+
 /-- The invariant is monotone in the generator (fvar reservations survive
 generator advancement). The `MLCtx`/`lparams`/`kfresh` data is generator-free. -/
 theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
@@ -1883,7 +1903,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                  ⟨hrc.trans (RunConclδ.nonrec (hinv.knames n)
                      (fun {m} hm hkey' => (Hδ cctx ref).kinj
                        ((Hδ cctx ref).esrc_sub hm) hkn hkey')
-                     (fun {body} hb => ⟨Δ, by
+                     (fun {body} hb => ⟨Δ, hinv'.vlctx_wf, hinv'.noBV, by
                        obtain rfl : body = pe := by
                          rw [hlink] at hb; exact (Option.some.inj hb).symm
                        exact herv⟩)),
