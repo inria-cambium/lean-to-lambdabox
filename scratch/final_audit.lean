@@ -1595,6 +1595,12 @@ open LeanToLambdaBox
 -- ============================================================================
 -- COMPOSITION COHERENCE PASS (2026-08-13): the three walls, composed.
 --
+-- SUPERSEDED 2026-08-26 by the closing section of this file. Kept verbatim, because it is
+-- the record of what the three walls measured on the day they composed. Two of its claims
+-- have since moved and are corrected there, not here: the job/entry counts, and "R residue
+-- — three, and only three" (there is now ONE, `ErasableStrengthen`; the other two were
+-- retired and demoted by the δ-residue wave below).
+--
 -- The recursion wall (W0.1–W3.1), the Nat-literals wall (L1–L4) and the DAG cold-start
 -- wall with δ-inclusion (S1–S4, D1–D6) landed as ~20 independent slices. This section
 -- records what the COMPOSITION measures, so the three are audited as one artifact rather
@@ -1980,3 +1986,94 @@ open LeanToLambdaBox
 -- Stability: the two cold-start capstones, verbatim unchanged, for the third slice running.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- COMPOSITION COHERENCE PASS (2026-08-26): the δ-residue week, composed.
+--
+-- SUPERSEDES the 2026-08-13 composition section above, which is kept as the record of
+-- what the three walls measured on the day they composed. Everything since — the
+-- verify_bench duplicates, δ-D7a, δ-N, `rec`, δ-D7b(i)/D7b, δ-D8a–d and δ-D8e/a–c —
+-- landed as thirteen slices whose common subject is the RESIDUE LIST, and this section
+-- records what the composition of those thirteen measures.
+--
+-- MEASURED AT `506d9c8` + this pass, from clean:
+--   `lake build`             = 163 jobs, green.
+--   `lake build VerifyBench` = 168 jobs, green (the five csimp-off duplicates; a separate
+--                              `lean_lib`, deliberately outside `defaultTargets`).
+--   this file                = 584 `#print axioms` entries, of which 19 report NO axiom
+--                              at all (the tight pure-`LBTerm` layers) and 565 report a
+--                              set.
+--
+-- THE FOUR CROWN THEOREMS PRINT ONE SET, VERBATIM AND IDENTICAL — the same eight as at
+-- `cef1eb8`, unmoved through thirteen slices:
+--
+--   shipping_erase_correct_firstorder
+--   shipping_erase_correct_firstorderι
+--   shipping_erase_correct_firstorder_coldstart
+--   shipping_erase_correct_firstorderι_coldstart
+--
+--     [propext, sorryAx, Classical.choice, Quot.sound,
+--      Lean.Expr.instantiate1_eq, Lean.PersistentArray.toList'_push,
+--      Lean.PersistentHashMap.WF.find?_eq, Lean.PersistentHashMap.WF.toList'_insert]
+--
+-- Discharging a residue, retiring a premise and demoting a record cost NOTHING in axioms,
+-- in either direction. No axiom of ours anywhere; no `sorry` of ours anywhere.
+--
+-- WHAT MOVED IN THE LEDGER, and it is the whole point of the week: class R went from
+-- THREE to ONE.
+--
+--   R (was) `RegisteredClosureRec`      -> DEMOTED (δ-D8). Never a capstone premise;
+--                                          `hnorec` (class S) always stood in for it. Its
+--                                          `erase` field is derived
+--                                          (`erases_rec_block_of_run`); a registration
+--                                          agreement survives.
+--   R (was) `DeltaHyps.uniform`         -> DISCHARGED (δ-D7b). The field is DELETED. What
+--                                          replaces it is ONE commissioned `VExpr`-level
+--                                          obligation, `ErasableStrengthen`, carried as an
+--                                          explicit capstone premise `hstr`.
+--   R (was) `ColdStartSubject.noBlock`  -> RETIRED (δ-N). It was never a residue: `NoBlock`
+--           `.noBlockEnv`                 is `ShapeC`'s third conjunct and `NoBlockEnv` is
+--                                          a `RunClosed` predicate. `ColdStartSubject` is
+--                                          down to ONE field.
+--   R (now) `ErasableStrengthen`        -> the only one. Commissioned upstream, not
+--                                          assumed: `../lean4lean/trproj-commission.md`
+--                                          Cluster 2. Its PROOF disjunct is ~5 lines once
+--                                          `IsDefEqU.weakN_iff`'s forward direction lands;
+--                                          the `IsArityUpTo` disjunct (forallE inversion
+--                                          through a lift) is the real frontier.
+--
+-- TWO REFUTATIONS PRICE THE ONE THING THE WEEK DID NOT LAND. `hnorec` is still class S,
+-- and δ-D8e established WHY in machine-checked form rather than by estimate:
+-- `bridgeInv_blockReader_refuted` / `bridgeInv_rec_exit_reader_refuted` show the erasure
+-- IH's own premise is FALSE at the block's reader, so the Γ-inside-the-motives
+-- generalisation is necessary INSIDE the induction even though δ-D8 correctly found it
+-- unnecessary for the bridge theorem as a STATEMENT. `nonrec_exit_stores_no_fix` shows the
+-- capstone half cannot be landed ahead of that producer without replacing a named scope
+-- restriction by an uninhabited premise. Both are in the ledger, priced.
+--
+-- ONE SHIPPING FINDING RAISED, NOT PATCHED, and it came from running the eraser rather
+-- than from proving about it: `VerifyBench/STATUS.md`'s sparse-`casesOn` panic
+-- (`notes/EQUIV_FINDINGS.md` D12). It is findings D4/D5 firing on real benchmark code —
+-- `visitCases` reads the inductive off `casesInfo.declName.getPrefix` instead of
+-- `casesInfo.indName`, the `unreachable!` returns `default : LBTerm = .box` (finding D7),
+-- and `Quicksort` erases to a program that returns box on every non-empty list, exit 0,
+-- well-formed `.ast`. Shipping code, left byte-unchanged.
+-- ============================================================================
+
+-- The composition, re-measured in one place, for the last time this week.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- The three ledger movements, as declarations rather than as prose.
+-- `uniform`, discharged: the two halves and the composition.
+#print axioms LeanToLambdaBox.erases_weak_any
+#print axioms LeanToLambdaBox.erases_strengthen_closed
+#print axioms LeanToLambdaBox.erases_uniform_closed
+-- `noBlock`, retired: the output-shape conjunct and its environment form.
+#print axioms LeanToLambdaBox.visitExpr_noBlock
+#print axioms LeanToLambdaBox.visitExpr_noBlockEnv
+-- `RegisteredClosureRec`, demoted: the derived `erase` field and `RecEnvConsistent`.
+#print axioms LeanToLambdaBox.erases_rec_block_of_run
+#print axioms LeanToLambdaBox.recEnvConsistent_of_block

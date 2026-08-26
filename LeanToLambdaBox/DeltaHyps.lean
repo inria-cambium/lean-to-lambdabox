@@ -218,7 +218,9 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   subject and every constant it calls", and it should be read in one breath with that one
   rather than as a second, independent restriction. The `Supported` half is a genuine
   fragment restriction (no `.proj`, no η-contracted minors, no machine `Nat`); the `∀ Δ` on
-  the translatability is there only because `TrExprS` weakening is missing — see `closed`.
+  the translatability is what the two-sided context transport consumes — see `esrc_shape`,
+  and `ErasesUniform.erases_uniform_closed` for the transport itself. (Slice δ-D7a
+  corrected the reason once given here: `TrExprS.weakFV` is *not* missing upstream.)
 
   Note for the consumer: `Esrc n = some pe` is a *premise*, at the run's own output `pe`.
   That is the canonical instantiation's defining equation (`Esrc` **is** the collection of

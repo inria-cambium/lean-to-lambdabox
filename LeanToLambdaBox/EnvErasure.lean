@@ -53,10 +53,13 @@ precise gap between the two:
   erasure into one at the outer `Γ` with the fixvars replaced by the block — so
   `erases_fix_of_open` now takes the *open* bodies directly. What is still missing is the
   **environment**-level walk: slice D6 (`ColdStartRun.run_rec_exit_siblings`) hands back
-  the per-sibling runs, but each is at the block-local `Γ.withFixvars fv`, so composing
-  them needs `Γ` inside the bridge's motives (design §W3.2/D8) — see `ColdStartDelta`'s
-  recursion section for the premise-by-premise ledger. So `hbodies` remains folded into
-  `RegisteredClosureRec`, and
+  the per-sibling runs, but each is at the block-local `Γ.withFixvars fv`. Slice δ-D8
+  composed them anyway and with **no** motive change — `visitExpr_refines_erases` is
+  Γ-polymorphic as a statement, so `VisitExprRefines.visitExpr_refines_erases_block` reads
+  it at the block's `Γ` and `ColdStartDelta.erases_rec_block_of_run` derives the record's
+  `erase` field. `RegisteredClosureRec` is thereby DEMOTED to a registration agreement;
+  see `ColdStartDelta`'s recursion section for the premise-by-premise ledger, and
+  `ColdStart.lean`'s residue 1 for what the *capstone* half still waits on. And
   `instFixvars` carries one residue — a *nested* block inside a body, which
   `Erases.fix`'s premises cannot transport because the rule records no fvar-freeness for
   its sibling **sources**. It is unreachable in the intended use (the eraser emits

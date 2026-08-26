@@ -3,16 +3,19 @@ import LeanToLambdaBox.ErasesStrengthen
 /-!
 # Context uniformity for `Erases`: strengthening to `[]`, and the two-sided composition
 
-`DeltaHyps.uniform` is one of the three named residues of this development: it asserts
+`DeltaHyps.uniform` *was* one of the three named residues of this development: it asserted
 that a *constant body's* erasure does not depend on the `VLCtx` it was produced at,
 
 ```
 uniform : Esrc n = some pe → Erases env Us Γ Δ pe t → Erases env Us Γ Δ' pe t
 ```
 
-and it is believed, named, and unproved. This file retires it for the fragment the
+and it was believed, named, and unproved. This file retires it for the fragment the
 consumers actually run in, by factoring the two-sided transport through the empty
-context — `Δ → [] → Δ'` — and proving both halves.
+context — `Δ → [] → Δ'` — and proving both halves. Since slice δ-D7b the field is
+**deleted** from `DeltaHyps` and the capstones call `erases_uniform_closed` below; the
+development's residue count is **one**, `ErasableStrengthen`, commissioned here and
+tracked in `ColdStart.lean`'s trust ledger.
 
 The **weakening** half (`[] → Δ'`) is done and lives in `ErasesStrengthen.lean`
 (`erases_weakFV`, `erases_weakFV_nofvars`, `erases_weak_any`). This file supplies the
@@ -435,8 +438,9 @@ theorem erases_uniform_closed {env : VEnv} (henv : env.WF) {Us : List Name} {Γ 
 This is `erases_weak_any` on the nose, restated under the `uniform` name because it is what
 discharges `ColdStartDelta.registeredClosureData_step_nonrec`'s `huni` outright: that
 premise is already `∀ {Δ}, Erases env Us Γ [] pe t → Erases env Us Γ Δ pe t`, i.e. the
-weakening half alone. Only the *two-sided* `DeltaHyps.uniform` — which must also come back
-down from the call site's `Δ` — buys the commissioned obligation.
+weakening half alone. Only the *two-sided* transport `erases_uniform_closed` — which must
+also come back down from the call site's `Δ`, and which is what replaced the deleted
+`DeltaHyps.uniform` field — buys the commissioned obligation.
 
 Recording this separately is the point: it isolates how much of the `uniform` residue was
 ever a residue. The `[]`-shaped consumers cost nothing; the `∀ Δ Δ'` one costs

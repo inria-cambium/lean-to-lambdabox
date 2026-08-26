@@ -32,7 +32,7 @@ roots and are never imported together — `Sieve` and `Quicksort` both declare `
 Outputs land in `VerifyBench/ast/` (gitignored, mirroring how the benchmarks treat `.ast`
 artifacts). The directory itself is tracked because `#erase … to` does not create it.
 
-## Erase runs (HEAD 9a10c12, Lean v4.33.0-rc2, lean4lean 1a1ebe8)
+## Erase runs (re-measured 2026-08-26 at HEAD 506d9c8; Lean v4.33.0-rc2, lean4lean 1a1ebe8)
 
 | Program | `.ast` written | Erasure clean |
 |---|---|---|
@@ -76,6 +76,17 @@ therefore erases to
 so `quicksortBench` returns `□` on every non-empty list. `CasesInfo` already carries the
 right answer in its `indName` field; `casesInfo.declName.getPrefix` is the only user of the
 wrong one. Raised, not fixed — this is shipping code.
+
+*The `indName` swap is necessary and not sufficient*, measured 2026-08-26:
+`getCasesInfo? quicksort_fuel._sparseCasesOn_1` reports `indName = List`, `arity = 5`,
+`discrPos = 2` and **two** alternatives — `.ctor List.nil (numFields := 0)` and
+`.default (numHyps := 1)`. With `indName` in place the panic goes away and the loop then
+zips those two alternatives against `List`'s two argmasks, so the catch-all — which binds
+the *whole discriminant*, one hypothesis — is emitted as the `List.cons` alternative, which
+λ□ hands two fields. That is findings D4/D5 (`notes/EQUIV_FINDINGS.md`) firing on real code:
+a wrong program instead of a panic. A complete fix has to either reject sparse `casesOn`
+and unfold it, or expand the `.default` alternative per constructor and rebuild the
+discriminant from the fields.
 
 *Scope.* Toolchain drift, not `csimp`: sparse `casesOn` does not exist on the v4.22.0
 toolchain the sibling benchmarks pin, and the panic reproduces with `csimp := true`. Only
@@ -124,13 +135,22 @@ Reading the table:
   arithmetic. §H's cold-start capstones still pin `Γ.recBodies = ⊥`; closing that is the
   `Γ`-inside-the-motives slice (§W3.2/D8).
 - **Nothing exotic is in the way.** No program touches `String`, `Int`, `Array`, `Float`,
-  `UInt*`, well-founded recursion, `brecOn` residue or `sorry`. The erased environments
-  hold `Nat`, `List`, `Prod`, `Option`, `Bool`, `Decidable`, `PUnit` and Fannkuch's `Eq`,
-  plus BinaryTrees' own `Tree` — all first-order data.
+  `UInt*`, well-founded recursion, `brecOn` residue or `sorry`. The *data* inductives in the
+  erased environments are `Nat`, `List`, `Prod`, `Option`, `Bool`, `Decidable`, `PUnit`,
+  plus BinaryTrees' own `Tree` — all first-order. (`Eq` is **not** among them: Fannkuch
+  reaches it only through the constants `Eq.ndrec`/`Eq.ndrec_symm` and the `Eq.rec` axiom.)
+  The rest of each environment's inductives are the **class structures themselves** —
+  `OfNat`, `Add`/`HAdd`, `Sub`/`HSub`, `Mul`/`HMul`, `Pow`/`HPow`/`NatPow`,
+  `Append`/`HAppend`, `Max`, `LE`, `BEq` — which is the same fact as the `tProj` column,
+  seen from the environment side: the classes are registered, and every class method erases
+  to a projection out of one.
 
-Priority order, unchanged from §H and confirmed by the measurements: (1) §W3.2/D8, which
-gates all five; (2) the `OfNat`/class-projection route; (3) the `visitCases` `indName` bug,
-which is cheap and blocks `Quicksort` outright.
+Priority order, re-read from these measurements (2026-08-26) and matching §H's: (1) the
+**class-projection route**, which is what every one of the five actually trips over and
+which waits on the commissioned `TrProj` round (`../lean4lean/trproj-commission.md`);
+(2) §W3.2/D8, the `Γ`-inside-the-motives generalisation, which also gates all five and is
+priced in `ColdStart.lean`'s residue 1; (3) the `visitCases` sparse-`casesOn` bug, which
+blocks `Quicksort` outright and is cheap only for the panic, not for the wrong output.
 
 ## Refreshing
 

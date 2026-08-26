@@ -23,8 +23,9 @@ derivation from
   slice W3.1 the fvar→block instantiation is *proved* (`Erases.instFixvars`, Part 1b), so
   what is left to supply is the run's own output at the block-local `Γ` — the bridge's
   motive 4 gives it per term, and slice D6 (`ColdStartRun.run_rec_exit_siblings`) walks
-  the block's `List.mapM` to hand back the per-sibling runs; joining the two still needs
-  `Γ` inside the motives (design §W3.2/D8).
+  the block's `List.mapM` to hand back the per-sibling runs. Slice δ-D8 joined the two
+  with **no** motive change (`VisitExprRefines.visitExpr_refines_erases_block`), so this
+  is supplied rather than assumed.
   `erases_fix_of_open` is `erases_fix_of_closed` already composed with the
   instantiation, i.e. the form that correspondence hands over;
 * the **closing fact** — `defs[j].body = closeFix ids 0 obodies[j]` (`hclose`), from the
@@ -41,8 +42,10 @@ derivation from
 As in the non-recursive fragment, the cold-start DAG registration (which recursive
 constants land in `E`, and that each is registered with a consistent `.fix` decl) is
 isolated behind a clean `Prop` hypothesis (`RegisteredClosureRec`) — the analogue of
-`RegisteredClosure`, and what a full DAG walk (P3.13, deferred) would discharge. These
-are `Prop` hypotheses, **never axioms**.
+`RegisteredClosure`, and what a full DAG walk (P3.13, deferred) would discharge. Slice
+δ-D8 did most of that walk: the record is **DEMOTED**, its `erase` field derived, and only
+a registration agreement survives (see the structure's own docstring). These are `Prop`
+hypotheses, **never axioms**.
 -/
 
 namespace LeanToLambdaBox
@@ -410,7 +413,9 @@ content) ⟹ `instFixvars` instantiates the fixvars ⟹ `closeFix_substList_fixS
 `mkDef`'s closing into the dynamic unfolding ⟹ `Erases.fix`. What is *not* here is the
 environment-level walk that supplies the per-sibling run facts: slice D6
 (`ColdStartRun.run_rec_exit_siblings`) produces the runs, but at the block-local
-`Γ.withFixvars fv`, so consuming them needs `Γ` inside the bridge's motives (§W3.2/D8) —
+`Γ.withFixvars fv`. Slice δ-D8 consumed them with no motive change
+(`VisitExprRefines.visitExpr_refines_erases_block`); what §W3.2/D8 is still wanted for is
+the *capstone* half, priced in `ColdStart.lean`'s residue 1.
 `ColdStartDelta`'s recursion section is the premise-by-premise ledger.
 
 ## The `hopen` repair (slice `rec`)
@@ -551,7 +556,11 @@ a clean `Prop` hypothesis recording, for every source constant `n` whose (recurs
 `Esrc n` the run stored as a `.fix` decl, both the disjointness fact and the `Erases`
 witness (context-uniform, `∀ Δ`) that a full DAG walk would produce — here already in the
 `.fix defs idx` shape. Its non-vacuity guard constructs that `Erases` witness through the
-`erases_fix_of_closed` reconciliation, exercising the whole chain. -/
+`erases_fix_of_closed` reconciliation, exercising the whole chain.
+
+**DEMOTED at slice δ-D8**, and never a capstone premise — `hnorec` stood in for it. The
+`erase` field is now derived from the run (`ColdStartDelta.erases_rec_block_of_run`); what
+survives is the registration agreement. Read the structure's docstring below. -/
 
 /-- **Cold-start closure registration for the recursive fragment** (a clean `Prop`
 hypothesis; the deferred DAG walk P3.13 discharges it). For every source constant `n`
@@ -566,7 +575,11 @@ free-`Δ` conclusion gives context-uniformity for free).
 supplies the per-sibling erasures at the block-local `Γ.withFixvars fv`, which is what the
 `Γ`-inside-the-motives generalisation was wanted for and which the bridge turns out to
 give for free — it is Γ-polymorphic as a statement, and exactly one of its premises breaks
-at a block-local `Γ`. `ColdStartDelta.erases_rec_block_of_run` composes the two into this
+at a block-local `Γ`. (Slice δ-D8e sharpened that: free *as a statement*, read from
+outside. Inside `visitExpr_refines_erases_core` step 6 there is no outside, and the
+erasure IH's own `BridgeInv` premise is false at the block's reader —
+`VisitExprRefines.bridgeInv_blockReader_refuted`. So the generalisation is still needed
+for the capstone half.) `ColdStartDelta.erases_rec_block_of_run` composes the two into this
 record's `erase` field, and `ColdStartDelta.recEnvConsistent_of_block` into
 `RecEnvConsistent` outright.
 

@@ -231,9 +231,10 @@ theorem run_nonrec_exit_decomp {f : ErasureContext → ErasureContext} {e : Expr
 
 /-- **The recursive exit, decomposed.** The block's `gdecls` conses are pinned to
 `Erasure.recConstState` at the state the per-definition erasures ended in; the
-per-definition runs themselves are *not* handed back (they sit under a `List.mapM`, and
-the recursive δ discharge takes them from `Erasure.erases_fix_of_open`'s own premise
-list instead). -/
+per-definition runs themselves are *not* handed back (they sit under a `List.mapM`; slice
+D6's `run_rec_exit_siblings` below walks that loop, and since δ-D8 the recursive δ
+discharge feeds those runs through `VisitExprRefines.visitExpr_refines_erases_block` into
+`EnvErasureRec.erases_fix_of_open_nil`). -/
 theorem run_rec_exit_decomp {names fixnames : List Name}
     {f : List FVarId → ErasureContext → ErasureContext}
     {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
@@ -270,7 +271,9 @@ theorem run_rec_exit_decomp {names fixnames : List Name}
 
 `run_rec_exit_decomp` reports only that the final state is a `recConstState` of *some*
 `defs`; `defs` is then an unconstrained existential, which is why the recursive δ witness
-had to stay the named record `EnvErasureRec.RegisteredClosureRec`. What is missing is not
+had to stay the named record `EnvErasureRec.RegisteredClosureRec` (DEMOTED at slice δ-D8:
+its `erase` field is now derived, and only the registration agreement survives). What is
+missing is not
 machinery — `Erasure.run_rec_exit_ok` already walks the same loop — but an
 **existentially-loaded** loop invariant: one that keeps the per-sibling *runs* rather than
 a state predicate's worth of their consequences. That is what this is.
@@ -282,10 +285,14 @@ further narrowed by `g ci` for the declaration's universe parameters), and `mkDe
 closing equation, which is what `closeFix` has to invert. Everything is stated at the
 `ids` the outer `mkFreshFVarId` loop minted, so the block's fixvars are named.
 
-Two facts a consumer still needs and this does **not** give, both for reasons outside the
+Three facts a consumer still needs and this does **not** give, all for reasons outside the
 loop: `ids.Nodup` (a freshness fact, `BridgeHyps.fresh_run`'s business — the loop rule here
-is `gw`-free by design) and the `Γ.recBodies` agreement (`Γ` is fixed before the run, so
-nothing about the run can say `Γ` names the block it built). -/
+is `gw`-free by design); the `Γ.recBodies` agreement (`Γ` is fixed before the run, so
+nothing about the run can say `Γ` names the block it built); and — recorded at slice δ-D8e
+— any *chaining* of states and worlds across the siblings. Being `gw`-free is what hands
+the per-sibling runs back at unrelated states, and an unrelated state is exactly what a
+`BridgeInv` cannot be rebuilt from, so a step-6 consumer needs a different decomposition,
+not this one. -/
 theorem run_rec_exit_siblings {names fixnames : List Name}
     {f : List FVarId → ErasureContext → ErasureContext}
     {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}

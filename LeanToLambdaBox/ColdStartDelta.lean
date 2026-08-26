@@ -176,15 +176,24 @@ and motives 1/5/6 to quantify `Γ`, because such a callee is genuinely erased at
 
 **What is still not wired to the capstones, and why.** The cold-start capstones' `hnorec`
 does *not* trade for these results yet, and the obstruction is upstream of them:
-`DeltaHyps.decl_run` demands `name_occurs n v = false` for every fragment name, which
-forces `visitMutual`'s `nonrecursive` test `true` — so the bridge's step 6 refutes the
-recursive exit rather than walking it (`VisitExprRefines`, case `isFalse hnr`). A cold
-start therefore never *takes* the recursive exit inside the fragment, and there is no run
-for these theorems to consume there. Wiring them in means giving step 6 a recursive branch
-— `RunConclδ`'s `δ` transport across `recConstState` (which is exactly
-`erases_rec_block_of_run`'s conclusion, so it composes), the generator bookkeeping for the
-block's `mkFreshFVarId`/`getConstInfo` loop, and one further scope restriction, since the
-registration is keyed on `remove_unsafe_rec n` and not on `n`.
+`DeltaHyps.nonrecursive` — split out of `decl_run` by slice δ-D8e — demands
+`name_occurs n v = false` for every fragment name, which forces `visitMutual`'s
+`nonrecursive` test `true`, so the bridge's step 6 refutes the recursive exit rather than
+walking it (`VisitExprRefines`, case `isFalse hnr`). A cold start therefore never *takes*
+the recursive exit inside the fragment, and there is no run for these theorems to consume
+there. Wiring them in means giving step 6 a recursive branch — `RunConclδ`'s `δ` transport
+across `recConstState` (which is exactly `erases_rec_block_of_run`'s conclusion, so it
+composes), the generator bookkeeping for the block's `mkFreshFVarId`/`getConstInfo` loop,
+and one further scope restriction, since the registration is keyed on
+`remove_unsafe_rec n` and not on `n`.
+
+**That list is incomplete, and slice δ-D8e found the missing item.** Removing
+`nonrecursive` lets the run *reach* the exit; it does not let the bridge *walk* it. Step 6
+has no outside to read the Γ-polymorphic bridge theorem from, and at the block's own reader
+the erasure IH's `BridgeInv` premise is *false*:
+`VisitExprRefines.bridgeInv_blockReader_refuted`. So the trade additionally needs the
+`Γ`-inside-the-motives generalisation, priced premise by premise in `ColdStart.lean`'s
+residue 1.
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/
@@ -498,10 +507,12 @@ parameter-side obligation rather than something the run can supply:
 
 * **context-uniformity** — `ErasesEnvDeltaData` unfolds a constant at an arbitrary `Δ`,
   while the bridge fires at the `Δ = []` the run actually uses. Lifting needs a weakening
-  lemma for `Erases` over a closed subject, which this development does not have (`Erases`
-  has `abstract`/`uninstantiate`/`thin_vlet`, all context-*shrinking*);
-* **applied form** (`NoBlock`) of the stored body — a statement about the run's output
-  that the output-shape induction does not prove (it proves `NoFix`/`LBClosed`);
+  lemma for `Erases` over a closed subject, and since slice δ-D7a/δ-D7b this development
+  *has* one: `ErasesStrengthen.erases_weakFV`/`erases_weak_any`, composed with the
+  strengthening half in `ErasesUniform.erases_uniform_closed`. What is left is the
+  commissioned `ErasableStrengthen`;
+* **applied form** (`NoBlock`) of the stored body — retired at slice δ-N: it is `ShapeC`'s
+  third conjunct, proved by `ColdStartInduction.visitExpr_shape_all`;
 * **domain agreement** — that `Esrc`'s domain is exactly what the walk registered, and
   that `Esrc`'s constants are not `Γ`-registered constructors or `casesOn` heads
   (`RegisteredClosureData.disj`).
@@ -544,7 +555,9 @@ theorem RegisteredClosureData.mono {env : VEnv} {Us : List Name} {Γ : ErasureCt
 
 `hEsrc` is the domain agreement at this one name (the body `Esrc` records for `n` is the
 body the run erased — the *prepared* one, which is the convention
-`RegisteredClosure`'s docstring fixes), `huni`/`hnb` are the two output-side residues. -/
+`RegisteredClosure`'s docstring fixes), and `huni`/`hnb` are the two output-side slots —
+neither a residue any more: `huni` is `ErasesUniform.erases_uniform_of_nil` (δ-D7b) and
+`hnb` is `ColdStartInduction.visitExpr_noBlock` (δ-N). -/
 theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
@@ -596,13 +609,14 @@ a reason that is not an oversight:
   free. `DeltaHyps.axiom_free` is what will rule out the axiom-emitted names when a
   capstone discharges this.
 * **context uniformity** (`huni`) — the bridge fires at the `Δ` of the call site, and
-  `RegisteredClosure` quantifies over all `Δ`. This is the same `huni` residue
-  `registeredClosureData_step_nonrec` carries, and it is a lean4lean-side `TrExprS`
-  weakening obligation, not an erasure one.
-* **applied form** (`hnb`, the `Data` version only) — `NoBlock` of the stored body is an
-  output-shape statement about `visitExpr`; the shape induction proves `NoFix`/`LBClosed`
-  and not this, and inside the bridge the erasure argument is abstract, so no motive can
-  conclude it. It is `ColdStartSubject.noBlock`'s job, widened to every reader context. -/
+  `RegisteredClosure` quantifies over all `Δ`. This is the same `huni` slot
+  `registeredClosureData_step_nonrec` carries. Slice δ-D7a corrected the blame: it is
+  *not* a lean4lean `TrExprS`-weakening obligation (`TrExprS.weakFV` is upstream and
+  proved). It is `Erasable`/`HasType` **strengthening**, and it is discharged by
+  `ErasesUniform.erases_uniform_closed` modulo the commissioned `ErasableStrengthen`.
+* **applied form** (`hnb`, the `Data` version only) — retired at slice δ-N. `NoBlock` of
+  the stored body *is* carried by the output-shape induction, as `ShapeC`'s third
+  conjunct: `ColdStartInduction.visitExpr_noBlock`, no hypotheses. -/
 
 /-- **The walk's δ record becomes the capstone's** (β + δ flavour). -/
 theorem registeredClosure_of_deltaMem {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
