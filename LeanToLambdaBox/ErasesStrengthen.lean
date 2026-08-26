@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Erases
+import LeanToLambdaBox.Closed
 
 /-!
 # Let-value thinning for `Erases` (visitExpr→Erases bridge support)
@@ -255,5 +256,486 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (Δ : VLCtx)
       (.lam name (.sort .zero) (.bvar 0) bi) (.lambda (nameToBinder name) (.bvar 0)) :=
     .lam (ty' := .sort .zero) (.sort rfl) (.bvar 0)
   H.strengthen_vlet ⟨rfl, trivial⟩
+
+/-! ## fvar weakening for `Erases`
+
+The dual move to the thinning above: instead of *dropping* an unused entry, *add*
+fvar entries. The bridge needs this whenever a sub-derivation was produced at the
+run's context and has to be replayed at a later, larger one (`visitExpr` never
+shrinks the local context, so every recursive call sits at an fvar-extension of
+its caller's).
+
+### Why the well-formedness premise is `VLCtx.FVWF`, not `VLCtx.WF`
+
+The obvious route — mirror `erases_shift` and swap `TrExprS.weakBV` for
+lean4lean's `TrExprS.weakFV` — **does not close**. `TrExprS.weakFV` demands
+`VLCtx.WF env Us.length Δ'`, i.e. full typing well-formedness, and the binder
+cases of the `Erases` induction descend to `(none, .vlam ty') :: Δ'`. Re-establishing
+`VLCtx.WF` of that cons requires `env.IsType Us.length Δ'.toCtx ty'` — a *typing*
+fact about the binder type. `Erases.lam` carries only `TrExprS env Us Δ ty ty'`, no
+`IsType`, so the induction hypothesis cannot be fed and the proof dies under the
+first `λ`.
+
+The fix is to notice that `VLCtx.WF` is far more than the weakening actually uses.
+Reading lean4lean's proofs: `VLCtx.FVLift'.find?` consumes `hΔ'` only as its tail
+(`hΔ'.1`) and as `hΔ'.fvars_nodup`, and `TrExprS.weakFV'` consumes it only to feed
+`find?` and to rebuild the extended-context well-formedness. All of that is
+available from `VLCtx.FVWF` — the fvar-only half of `VLCtx.WF`, same `.1` shape,
+same nodup consequence — and, crucially, `FVWF` extends **freely** under a
+`(none, d)` cons (`⟨hΔ', nofun⟩`), with no typing obligation at all.
+
+So the four declarations below are `FVWF`-only re-proofs of lean4lean's
+`VLCtx.WF.fvars_nodup` / `VLCtx.FVLift'.find?` / `VLCtx.FVLift.find?` /
+`TrExprS.weakFV'` / `TrExprS.weakFV` (`Lean4Lean/Verify/Typing/Lemmas.lean`),
+near-verbatim copies with the `WF` hypothesis weakened to `FVWF`. They live in
+`LeanToLambdaBox.VLCtx.*` / `LeanToLambdaBox.TrExprS.*`, so they do not clash with
+the lean4lean originals. Call sites holding a real `VLCtx.WF` convert with
+`VLCtx.WF.fvwf`.
+-/
+
+/-- The nodup half of `VLCtx.WF.fvars_nodup`, from the fvar-only `VLCtx.FVWF`.
+This is one of exactly two things lean4lean's `VLCtx.FVLift'.find?` asks of its
+well-formedness premise (the other is the tail, `hΔ'.1`), which is what lets the
+whole `weakFV` chain run on `FVWF`. Mirrors `Lean4Lean.VLCtx.WF.fvars_nodup`. -/
+theorem VLCtx.FVWF.fvars_nodup : ∀ {Δ : VLCtx}, Δ.FVWF → Δ.fvars.Nodup
+  | [], _ => .nil
+  | (none, _) :: Δ, ⟨hΔ, _⟩ => VLCtx.FVWF.fvars_nodup (Δ := Δ) hΔ
+  | (some (fv, _), _) :: Δ, ⟨hΔ, h⟩ => by
+    suffices fv ∉ VLCtx.fvars Δ from
+      (VLCtx.FVWF.fvars_nodup hΔ).cons (fun _ h (e : fv = _) => this (e ▸ h))
+    exact (h _ _ rfl).1
+
+/-- `VLCtx.find?` transports along an `FVLift'`, on the `FVWF`-only premise.
+Verbatim copy of lean4lean's `VLCtx.FVLift'.find?` with `(hΔ' : Δ'.WF env U)`
+replaced by `(hΔ' : Δ'.FVWF)`: the original proof touches `hΔ'` only through
+`hΔ'.1` and `hΔ'.fvars_nodup`, both of which `FVWF` supplies, so nothing else in
+the argument changes. Dropping the typing half is what makes the binder cases of
+`Erases.weakFV` re-establishable (see the section note). -/
+protected theorem VLCtx.FVLift'.find?_fvwf {Δ Δ' : VLCtx} {dk : Nat} {n : Lift} {k : Nat}
+    {v : Nat ⊕ FVarId} {e A : VExpr}
+    (W : VLCtx.FVLift' Δ Δ' dk n k) (hΔ' : Δ'.FVWF)
+    (H : VLCtx.find? Δ v = some (e, A)) :
+    VLCtx.find? Δ' v = some (e.lift' (n.consN k), A.lift' (n.consN k)) := by
+  induction W generalizing v e A with
+  | refl => simp [H]
+  | skip_fvar fv' _ W ih =>
+    let (fv', deps) := fv'; simp [VLCtx.find?]
+    cases v with simp [VLCtx.next]
+    | inl =>
+      refine ⟨_, _, ih hΔ'.1 H, ?_⟩
+      simp [← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp, Lift.comp_skipN]
+    | inr fv =>
+      cases eq : fv' == fv <;> simp
+      · refine ⟨_, _, ih hΔ'.1 H, ?_⟩
+        simp [← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp, Lift.comp_skipN]
+      · refine ((List.pairwise_cons.1 (VLCtx.FVWF.fvars_nodup hΔ')).1 fv' ?_ rfl).elim
+        exact W.fvars_sublist.subset ((beq_iff_eq ..).1 eq ▸ VLCtx.find?_eq_some.1 ⟨_, H⟩)
+  | cons_fvar fv' d _ W ih =>
+    let (fv', deps) := fv'; revert H; simp [VLCtx.find?]
+    obtain i | fv := v <;> simp [VLCtx.next] <;>
+      [skip; cases eq : fv' == fv <;> simp] <;>
+      [(rintro _ _ H rfl rfl; refine ⟨_, _, ih hΔ'.1 H, ?_⟩);
+       (rintro _ _ H rfl rfl; refine ⟨_, _, ih (v := .inr fv) hΔ'.1 H, ?_⟩);
+       rintro rfl rfl] <;>
+      open VLocalDecl in
+      cases d <;> simp [value, type, depth, lift', VExpr.lift,
+        ← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp]
+  | cons_bvar d _ ih =>
+    simp [VLCtx.find?] at H ⊢
+    obtain ⟨_|i⟩ | fv := v <;> simp [VLCtx.next] at H ⊢ <;>
+      [(obtain ⟨rfl, rfl⟩ := H);
+       (obtain ⟨e, A, H, rfl, rfl⟩ := H
+        refine ⟨_, _, ih (v := .inl i) hΔ'.1 H, ?_⟩);
+       (obtain ⟨e, A, H, rfl, rfl⟩ := H
+        refine ⟨_, _, ih (v := .inr fv) hΔ'.1 H, ?_⟩)] <;>
+      open VLocalDecl in
+      cases d <;> simp [value, type, depth, lift', VExpr.lift,
+        ← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp]
+
+/-- The `FVLift` (plain `Nat` shift) form of `VLCtx.FVLift'.find?_fvwf`. Copy of
+lean4lean's `VLCtx.FVLift.find?`, which is just the `FVLift'` lemma composed with
+`FVLift.toFVLift'`; recorded here so the `FVWF` variants form the same pair the
+originals do. -/
+protected theorem VLCtx.FVLift.find?_fvwf {Δ Δ' : VLCtx} {dk n k : Nat}
+    {v : Nat ⊕ FVarId} {e A : VExpr}
+    (W : VLCtx.FVLift Δ Δ' dk n k) (hΔ' : Δ'.FVWF)
+    (H : VLCtx.find? Δ v = some (e, A)) :
+    VLCtx.find? Δ' v = some (e.liftN n k, A.liftN n k) := by
+  simpa [VExpr.lift'_consN_skipN] using VLCtx.FVLift'.find?_fvwf W.toFVLift' hΔ' H
+
+/-- lean4lean's `TrExprS.weakFV'`, re-proved on the `FVWF`-only premise: the
+translation of a source `Expr` survives an fvar-extension of the `VLCtx`, with its
+`VExpr` witness lifted by `n.consN k`.
+
+The proof is lean4lean's verbatim, with two changes forced by the weaker premise:
+`find?` is discharged by `VLCtx.FVLift'.find?_fvwf`, and the `lam`/`forallE`/`letE`
+arms pass `⟨hΔ', nofun⟩` (an `FVWF` cons, which needs nothing about the binder
+type) where the original passes `⟨hΔ', nofun, h1⟩` (a `WF` cons, which needs the
+`IsType` witness `h1`). That second change is the whole point: `Erases.lam` has no
+`IsType` to offer. -/
+theorem TrExprS.weakFV'_fvwf {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Δ Δ' : VLCtx} {dk : Nat} {n : Lift} {k : Nat}
+    (W : VLCtx.FVLift' Δ Δ' dk n k) (hΔ' : Δ'.FVWF)
+    {e : Expr} {e' : VExpr} (H : TrExprS env Us Δ e e') :
+    TrExprS env Us Δ' e (e'.lift' (n.consN k)) := by
+  induction H generalizing Δ' dk k with
+  | bvar h1 => exact .bvar (VLCtx.FVLift'.find?_fvwf W hΔ' h1)
+  | fvar h1 => exact .fvar (VLCtx.FVLift'.find?_fvwf W hΔ' h1)
+  | sort h1 => exact .sort h1
+  | const h1 h2 h3 => exact .const h1 h2 h3
+  | app h1 h2 _ _ ih1 ih2 =>
+    exact .app (h1.weak' henv W.toCtx) (h2.weak' henv W.toCtx) (ih1 W hΔ') (ih2 W hΔ')
+  | lam h1 _ _ ih1 ih2 =>
+    have h1 := h1.weak' henv W.toCtx
+    exact .lam h1 (ih1 W hΔ') (ih2 (W.cons_bvar _) ⟨hΔ', nofun⟩)
+  | forallE h1 h2 _ _ ih1 ih2 =>
+    have h1 := h1.weak' henv W.toCtx
+    have h2 := h2.weak' henv W.toCtx.cons
+    exact .forallE h1 h2 (ih1 W hΔ') (ih2 (W.cons_bvar _) ⟨hΔ', nofun⟩)
+  | letE h1 _ _ _ ih1 ih2 ih3 =>
+    have h1 := h1.weak' henv W.toCtx
+    exact .letE h1 (ih1 W hΔ') (ih2 W hΔ') (ih3 (W.cons_bvar _) ⟨hΔ', nofun⟩)
+  | lit h1 _ ih => exact .lit h1 (ih W hΔ')
+  | mdata _ ih => exact .mdata (ih W hΔ')
+  | proj _ h2 ih => exact .proj (ih W hΔ') (h2.weak' W.toCtx)
+
+/-- The `FVLift` form of `TrExprS.weakFV'_fvwf` — lean4lean's `TrExprS.weakFV` on the
+`FVWF`-only premise. This is the exact shape the `box`/`lam`/`letE` cases of
+`erases_weakFV` need for their lean4lean side premises. -/
+theorem TrExprS.weakFV_fvwf {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Δ Δ' : VLCtx} {dk n k : Nat}
+    (W : VLCtx.FVLift Δ Δ' dk n k) (hΔ' : Δ'.FVWF)
+    {e : Expr} {e' : VExpr} (H : TrExprS env Us Δ e e') :
+    TrExprS env Us Δ' e (e'.liftN n k) := by
+  simpa [VExpr.lift'_consN_skipN] using TrExprS.weakFV'_fvwf henv W.toFVLift' hΔ' H
+
+/--
+**fvar weakening for `Erases`.** An erasure derivation replays verbatim at any
+fvar-extension of its `VLCtx`.
+
+Three things to note about the statement:
+
+* **Nothing moves on either side.** Unlike `erases_shift` (which lifts the source
+  by `liftLooseBVars'` and the target by `LBTerm.shift`), here the source `Expr`
+  and the target `LBTerm` are *untouched*: an `FVLift` only inserts fvar-tagged
+  entries and re-lifts the hidden `VExpr` witnesses, and neither language's
+  de Bruijn indices see fvar entries. That is why the `ctor`/`cases` cases — the
+  painful ones in `erases_shift`, where the `foldl Expr.app` spine had to be
+  pushed through the lift — are here a plain appeal to the IH.
+
+* **`hfv` and the `fixvar` leaf.** Every rule but one transports structurally.
+  `Erases.fixvar` carries `hfresh : x ∉ Δ.fvars`, and weakening *adds* fvars, so
+  freshness at `Δ` says nothing about `Δ'` — this is the one premise an
+  fvar-extension can genuinely destroy. `hfv` is exactly the missing fact,
+  demanded once for the whole derivation: no fixvar of `Γ` occurs in the target
+  context. At a top-level `Γ` (where `Γ.fixvars = fun _ => none`) it is discharged
+  by `simp`; inside a mutual block it is the run's own freshness discipline
+  (`visitMutual` mints the block's fixvars before any binder is opened — the
+  bridge invariant `BridgeInv.fixfresh`).
+
+* **`FVWF`, not `VLCtx.WF`.** lean4lean's `TrExprS.weakFV` wants full typing
+  well-formedness of `Δ'`, and that hypothesis cannot survive this induction:
+  the `lam`/`letE` cases descend to `(none, .vlam ty') :: Δ'`, whose `VLCtx.WF`
+  needs `env.IsType Us.length Δ'.toCtx ty'`, and `Erases.lam` carries only
+  `TrExprS env Us Δ ty ty'` — no `IsType` anywhere. `VLCtx.FVWF` is all that
+  lean4lean's `find?`/`weakFV` proofs actually consume (tail + `fvars` nodup) and
+  it conses **freely** under a `(none, _)` entry, so the induction goes through.
+  Callers holding a real `VLCtx.WF` convert with `VLCtx.WF.fvwf`.
+
+`hfv` itself transports under binders for free, since
+`VLCtx.fvars ((none, d) :: Δ') = VLCtx.fvars Δ'` definitionally.
+-/
+theorem erases_weakFV {env : VEnv} (henv : env.Ordered) {Us : List Name} {Γ : ErasureCtx}
+    {Δ Δ' : VLCtx} {dk n k : Nat}
+    (W : VLCtx.FVLift Δ Δ' dk n k) (hΔ' : Δ'.FVWF)
+    (hfv : ∀ (nm : Name) (x : FVarId), Γ.fixvars nm = some x → x ∉ Δ'.fvars)
+    {e : Expr} {t : LBTerm} (h : Erases env Us Γ Δ e t) :
+    Erases env Us Γ Δ' e t := by
+  induction h generalizing Δ' dk k with
+  | box htr her => exact .box (TrExprS.weakFV_fvwf henv W hΔ' htr) (her.weakN henv W.toCtx)
+  | lit hcl _ ih => exact .lit hcl (ih W hΔ' hfv)
+  | bvar i => exact .bvar i
+  | fvar x => exact .fvar x
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
+  | app _ _ ihf iha => exact .app (ihf W hΔ' hfv) (iha W hΔ' hfv)
+  | lam hty _ ihb =>
+      -- `(none, .vlam ty').liftN n k` is `.vlam (ty'.liftN n k)` on the nose, so the
+      -- weakened `hty` is exactly the binder type the IH's context mentions.
+      exact .lam (TrExprS.weakFV_fvwf henv W hΔ' hty) (ihb (W.cons_bvar _) ⟨hΔ', nofun⟩ hfv)
+  | letE hty hval _ _ ihv ihb =>
+      exact .letE (TrExprS.weakFV_fvwf henv W hΔ' hty) (TrExprS.weakFV_fvwf henv W hΔ' hval)
+        (ihv W hΔ' hfv) (ihb (W.cons_bvar _) ⟨hΔ', nofun⟩ hfv)
+  | ctor cn us iid cidx hc hlen _ ihargs =>
+      -- The source spine is not rewritten (nothing lifts), so this is the IH and nothing else.
+      exact .ctor cn us iid cidx hc hlen fun i hi => ihargs i hi W hΔ' hfv
+  | ctor_head cn us iid cidx hc => exact .ctor_head cn us iid cidx hc
+  | cases con us iid numParams pre hc hpre hnfs _ hlen hnlen harity _ ihd ihalts =>
+      exact .cases con us iid numParams pre hc hpre hnfs (ihd W hΔ' hfv) hlen hnlen harity
+        fun j hj => ihalts j hj W hΔ' hfv
+  | fixvar nm us x hfx hctor hcases _ =>
+      -- The one non-structural rule: weakening adds fvars, so the rule's own `hfresh` is
+      -- useless at `Δ'` and `hfv` supplies the replacement.
+      exact .fixvar nm us x hfx hctor hcases (hfv nm x hfx)
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      -- Only the (conclusion) context moves; the block and its `∀ Δf` bodies are untouched.
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
+
+/-! ### Non-vacuity (fvar weakening)
+
+Same discipline as above: every hypothesis of `erases_weakFV` is *constructed*, so
+the example also witnesses joint satisfiability of `FVLift` + `FVWF` + `hfv`. -/
+
+/-- Non-vacuity: a real `lam` derivation at the empty `VLCtx` (its binder type
+erasing via a genuine `TrExprS.sort`) transported to a one-fvar context
+`[(some (x, []), .vlam A)]`. The `FVLift` is `VLCtx.FVLift.from_nil` (the context
+has no bvar entries), the `FVWF` is the freeness of a single fvar over the empty
+context, and `hfv` is discharged because `Γ.withFixvars (fun _ => none)` registers
+no fixvar at all. -/
+example (env : VEnv) (henv : env.Ordered) (Us : List Name) (Γ : ErasureCtx)
+    (x : FVarId) (A : VExpr) (name : Name) (bi : BinderInfo) :
+    Erases env Us (Γ.withFixvars fun _ => none) [(some (x, []), .vlam A)]
+      (.lam name (.sort .zero) (.bvar 0) bi) (.lambda (nameToBinder name) (.bvar 0)) :=
+  have H : Erases env Us (Γ.withFixvars fun _ => none) []
+      (.lam name (.sort .zero) (.bvar 0) bi) (.lambda (nameToBinder name) (.bvar 0)) :=
+    .lam (ty' := .sort .zero) (.sort rfl) (.bvar 0)
+  have hΔ' : VLCtx.FVWF [(some (x, []), .vlam A)] := ⟨trivial, by rintro _ _ ⟨⟩; simp⟩
+  erases_weakFV henv (VLCtx.FVLift.from_nil rfl) hΔ' (by simp) H
+
+/-! ## Unrestricted weakening for closed, fvar-free terms
+
+`erases_weakFV` still asks two things of the target context: `Δ'.FVWF`, and — when
+one wants to start from the empty context — `Δ'.NoBV` (that is what
+`VLCtx.FVLift.from_nil` needs). Neither is available where the metatheory actually
+needs weakening: `Erases.fix`'s `hbodies` premise (`Erases.lean`) quantifies over
+`∀ Δf : VLCtx`, *unrestricted* — bvar entries, and fvar entries that shadow each
+other, included. So `erases_weakFV` alone cannot rebuild `hbodies`, which is the
+concrete obstruction to `EnvErasureRec.erases_fix_of_open`.
+
+What gets us there is the data the recursive-definition setting already carries:
+top-level bodies are **closed** and **fvar-free** sources erasing to **`LBClosed`**
+targets (`erases_fix_of_open`'s `heclosed`/`henofv`/`hsrcfv`). Under those two
+conditions weakening holds at *every* `Δ`, with no context hypothesis whatsoever:
+
+* a bvar-entry cons is already free — `erases_shift` takes no hypothesis on its
+  target context at all, and on a closed source and an `LBClosed` target both of
+  its lifts are the identity, so the conclusion lands back on the same `e`/`t`;
+* an fvar-entry cons needed `FVWF` for exactly one reason: `VLCtx.FVLift'.find?`
+  must rule out a *shadowing* fvar in its `.inr` branch, and nodup is what does
+  that. A source with no free variables never performs an `.inr` lookup, so that
+  branch is unreachable and the hypothesis is dead weight.
+
+Hence the `_nofvars` chain below: the same three lemmas as the `_fvwf` chain, but
+with the context hypothesis **dropped** rather than weakened, in exchange for
+carrying `Lean.Expr.FVarsIn (fun _ => False)` on the source through the induction.
+-/
+
+/-- `VLCtx.find?` transports along an `FVLift'` for **bvar** lookups, with no
+hypothesis on the target context at all.
+
+This is lean4lean's `VLCtx.FVLift'.find?` restricted to `v = .inl i`, which is a
+strictly easier statement: the `skip_fvar`/`cons_fvar` cases only ever needed
+`fvars` nodup in their `.inr` branch (to refute a shadowing fvar), and `.inl`
+lookups never reach it — `VLCtx.next` maps `.inl` to `.inl` past every fvar entry,
+and `cons_bvar` either stops at the binder or recurses on `.inl`. Dropping the
+hypothesis here is what makes the whole `_nofvars` chain context-free. -/
+protected theorem VLCtx.FVLift'.find?_inl {Δ Δ' : VLCtx} {dk : Nat} {n : Lift} {k : Nat}
+    {i : Nat} {e A : VExpr}
+    (W : VLCtx.FVLift' Δ Δ' dk n k) (H : VLCtx.find? Δ (.inl i) = some (e, A)) :
+    VLCtx.find? Δ' (.inl i) = some (e.lift' (n.consN k), A.lift' (n.consN k)) := by
+  induction W generalizing i e A with
+  | refl => simp [H]
+  | skip_fvar fv' _ _ ih =>
+    let (fv', deps) := fv'; simp [VLCtx.find?, VLCtx.next]
+    refine ⟨_, _, ih H, ?_⟩
+    simp [← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp, Lift.comp_skipN]
+  | cons_fvar fv' d _ _ ih =>
+    let (fv', deps) := fv'; revert H; simp [VLCtx.find?, VLCtx.next]
+    rintro _ _ H rfl rfl
+    refine ⟨_, _, ih H, ?_⟩
+    open VLocalDecl in
+    cases d <;> simp [depth, ← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp]
+  | cons_bvar d _ ih =>
+    simp [VLCtx.find?] at H ⊢
+    obtain _ | i := i <;> simp [VLCtx.next] at H ⊢ <;>
+      [(obtain ⟨rfl, rfl⟩ := H);
+       (obtain ⟨e, A, H, rfl, rfl⟩ := H
+        refine ⟨_, _, ih H, ?_⟩)] <;>
+      open VLocalDecl in
+      cases d <;> simp [value, type, depth, lift', VExpr.lift,
+        ← VExpr.lift'_consN_skipN, ← VExpr.lift'_comp]
+
+/-- lean4lean's `TrExprS.weakFV'` with the well-formedness premise on the target
+context **removed entirely**, paid for by an fvar-freeness premise on the source.
+
+Same proof as `TrExprS.weakFV'_fvwf`, with two arms changed: `bvar` goes through
+`VLCtx.FVLift'.find?_inl` (no hypothesis), and `fvar` is now *impossible* — a
+source with `FVarsIn (fun _ => False)` has no free variable to look up, which is
+precisely why the shadowing side condition disappeared. Every other arm splits
+`hfvf` structurally, exactly as `TrExprS.thin_vlet` above does with its own
+`FVarsIn` premise; `lit` re-establishes it for the unfolding via
+`FVarsIn.toConstructor` (which holds for *any* predicate). -/
+theorem TrExprS.weakFV'_nofvars {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Δ Δ' : VLCtx} {dk : Nat} {n : Lift} {k : Nat}
+    (W : VLCtx.FVLift' Δ Δ' dk n k)
+    {e : Expr} {e' : VExpr} (H : TrExprS env Us Δ e e')
+    (hfvf : FVarsIn (fun _ => False) e) :
+    TrExprS env Us Δ' e (e'.lift' (n.consN k)) := by
+  induction H generalizing Δ' dk k with
+  | bvar h1 => exact .bvar (VLCtx.FVLift'.find?_inl W h1)
+  | fvar _ => exact (hfvf : False).elim
+  | sort h1 => exact .sort h1
+  | const h1 h2 h3 => exact .const h1 h2 h3
+  | app h1 h2 _ _ ih1 ih2 =>
+    exact .app (h1.weak' henv W.toCtx) (h2.weak' henv W.toCtx) (ih1 W hfvf.1) (ih2 W hfvf.2)
+  | lam h1 _ _ ih1 ih2 =>
+    exact .lam (h1.weak' henv W.toCtx) (ih1 W hfvf.1) (ih2 (W.cons_bvar _) hfvf.2)
+  | forallE h1 h2 _ _ ih1 ih2 =>
+    exact .forallE (h1.weak' henv W.toCtx) (h2.weak' henv W.toCtx.cons)
+      (ih1 W hfvf.1) (ih2 (W.cons_bvar _) hfvf.2)
+  | letE h1 _ _ _ ih1 ih2 ih3 =>
+    exact .letE (h1.weak' henv W.toCtx) (ih1 W hfvf.1) (ih2 W hfvf.2.1)
+      (ih3 (W.cons_bvar _) hfvf.2.2)
+  | lit h1 _ ih => exact .lit h1 (ih W FVarsIn.toConstructor)
+  | mdata _ ih => exact .mdata (ih W hfvf)
+  | proj _ h2 ih => exact .proj (ih W hfvf) (h2.weak' W.toCtx)
+
+/-- The `FVLift` form of `TrExprS.weakFV'_nofvars` — the shape the `box`/`lam`/`letE`
+cases of `erases_weakFV_nofvars` consume. -/
+theorem TrExprS.weakFV_nofvars {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Δ Δ' : VLCtx} {dk n k : Nat}
+    (W : VLCtx.FVLift Δ Δ' dk n k)
+    {e : Expr} {e' : VExpr} (H : TrExprS env Us Δ e e')
+    (hfvf : FVarsIn (fun _ => False) e) :
+    TrExprS env Us Δ' e (e'.liftN n k) := by
+  simpa [VExpr.lift'_consN_skipN] using TrExprS.weakFV'_nofvars henv W.toFVLift' H hfvf
+
+/--
+**fvar weakening for an fvar-free source**, with no well-formedness premise on the
+target context.
+
+The `hΔ'` of `erases_weakFV` is traded for `hfvf`, and `hfv` (the fixvar-freshness
+side condition) for the stronger, simpler `hnfv : Γ.fixvars = fun _ => none`:
+
+* the lean4lean side premises now go through `TrExprS.weakFV_nofvars`, which needs
+  nothing about `Δ'` because an fvar-free source never performs an `.inr` lookup;
+* the `Erases.fixvar` leaf — the one rule `erases_weakFV` had to side-condition —
+  is here *refuted outright*: its `Γ.fixvars nm = some x` contradicts `hnfv`. That
+  is the same equation every forward simulation already carries as `hnfv`, and it
+  holds at every top-level `Γ`.
+
+Source and target are untouched, exactly as in `erases_weakFV`. `ctor`/`cases`
+split their `foldl Expr.app` spine's fvar-freeness with `fvarsIn_foldl_app`.
+-/
+theorem erases_weakFV_nofvars {env : VEnv} (henv : env.Ordered) {Us : List Name}
+    {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
+    {Δ Δ' : VLCtx} {dk n k : Nat}
+    (W : VLCtx.FVLift Δ Δ' dk n k)
+    {e : Expr} {t : LBTerm} (h : Erases env Us Γ Δ e t)
+    (hfvf : FVarsIn (fun _ => False) e) :
+    Erases env Us Γ Δ' e t := by
+  induction h generalizing Δ' dk k with
+  | box htr her =>
+      exact .box (TrExprS.weakFV_nofvars henv W htr hfvf) (her.weakN henv W.toCtx)
+  | lit hcl _ ih => exact .lit hcl (ih W FVarsIn.toConstructor)
+  | bvar i => exact .bvar i
+  | fvar x => exact .fvar x
+  | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
+  | app _ _ ihf iha => exact .app (ihf W hfvf.1) (iha W hfvf.2)
+  | lam hty _ ihb =>
+      exact .lam (TrExprS.weakFV_nofvars henv W hty hfvf.1) (ihb (W.cons_bvar _) hfvf.2)
+  | letE hty hval _ _ ihv ihb =>
+      exact .letE (TrExprS.weakFV_nofvars henv W hty hfvf.1)
+        (TrExprS.weakFV_nofvars henv W hval hfvf.2.1) (ihv W hfvf.2.1)
+        (ihb (W.cons_bvar _) hfvf.2.2)
+  | ctor cn us iid cidx hc hlen _ ihargs =>
+      have ⟨_, hall⟩ := fvarsIn_foldl_app hfvf
+      exact .ctor cn us iid cidx hc hlen fun i hi =>
+        ihargs i hi W (hall _ (List.getElem_mem hi))
+  | ctor_head cn us iid cidx hc => exact .ctor_head cn us iid cidx hc
+  | cases con us iid numParams pre hc hpre hnfs _ hlen hnlen harity _ ihd ihalts =>
+      have ⟨_, hall⟩ := fvarsIn_foldl_app hfvf
+      exact .cases con us iid numParams pre hc hpre hnfs (ihd W (hall _ (.head _)))
+        hlen hnlen harity
+        fun j hj => ihalts j hj W (hall _ (.tail _ (List.getElem_mem hj)))
+  | fixvar nm us x hfx hctor hcases _ =>
+      -- No side condition needed any more: at a fixvar-free `Γ` the leaf cannot occur.
+      simp [hnfv] at hfx
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
+
+/--
+**Weakening to an arbitrary `VLCtx`.** For a closed, fvar-free source erasing to an
+`LBClosed` target, an `Erases` derivation at the empty context holds at *every*
+context — no well-formedness, no `NoBV`, no shape restriction of any kind.
+
+This is the shape `Erases.fix`'s `hbodies` premise demands. That premise is
+`∀ Δf : VLCtx`, entirely unrestricted, so neither `erases_weakFV` (which wants
+`Δ'.FVWF`) nor `VLCtx.FVLift.from_nil` (which wants `Δ'.NoBV`) can supply it;
+this lemma is what unblocks rebuilding it, and hence
+`EnvErasureRec.erases_fix_of_open`.
+
+Why the three premises are exactly these, and where each is spent — the proof is an
+induction on `Δ`, one entry at a time:
+
+* a **bvar** entry is handled by `erases_shift`, which needs nothing about its
+  target context. It lifts source by `liftLooseBVars' 0 1` and target by
+  `LBTerm.shift 1 0`; `hcl` and `hlb` are precisely what make both of those the
+  *identity* (`Expr.liftLooseBVars_eq_self` off `Closed.looseBVarRange_zero`, and
+  `LBClosed.shift_eq`), so the conclusion lands back on the same `e` and `t`.
+  Without them the statement would not even typecheck as stated — the term would
+  drift under every cons.
+* an **fvar** entry is handled by `erases_weakFV_nofvars`, where `hfvf` removes
+  the context hypothesis outright: `VLCtx.FVLift'.find?`'s `.inr` branch (the only
+  consumer of `fvars` nodup, there to refute a *shadowing* fvar) is unreachable
+  for a source with no free variables. This is why an arbitrary `Δ` — which may
+  well re-bind fvars already present — is safe here and is not safe for
+  `erases_weakFV`.
+* `hnfv` kills the `Erases.fixvar` leaf, the one rule that is not context-uniform.
+-/
+theorem erases_weak_any {env : VEnv} (henv : env.Ordered) {Us : List Name} {Γ : ErasureCtx}
+    (hnfv : Γ.fixvars = fun _ => none)
+    {e : Expr} {t : LBTerm}
+    (hcl : Closed e 0) (hfvf : FVarsIn (fun _ => False) e) (hlb : LBClosed t 0)
+    (h : Erases env Us Γ [] e t) (Δ : VLCtx) :
+    Erases env Us Γ Δ e t := by
+  induction Δ with
+  | nil => exact h
+  | cons hd Δ₀ ih =>
+    obtain ⟨_ | fvd, d⟩ := hd
+    · -- A bvar entry: `erases_shift` needs no hypothesis, and closedness makes both
+      -- of its lifts the identity.
+      have hs := erases_shift henv (VLCtx.BVLift.skip d .refl) ih
+      rwa [Expr.liftLooseBVars_eq_self (Nat.le_of_eq hcl.looseBVarRange_zero),
+        LBClosed.shift_eq hlb (Nat.zero_le 0) 1] at hs
+    · -- An fvar entry, possibly shadowing: safe because the source is fvar-free.
+      exact erases_weakFV_nofvars henv hnfv (VLCtx.FVLift.skip_fvar fvd d .refl) ih hfvf
+
+/-! ### Non-vacuity (unrestricted weakening) -/
+
+/-- Non-vacuity: the same hand-built closed, fvar-free `lam` derivation as above,
+transported out of the empty context into one carrying **both** an fvar entry and a
+bvar entry — the shape neither `erases_weakFV` (no `FVWF`) nor
+`VLCtx.FVLift.from_nil` (no `NoBV`) can reach. All four premises are constructed. -/
+example (env : VEnv) (henv : env.Ordered) (Us : List Name) (Γ : ErasureCtx)
+    (x : FVarId) (A B : VExpr) (name : Name) (bi : BinderInfo) :
+    Erases env Us (Γ.withFixvars fun _ => none)
+      [(none, .vlam B), (some (x, []), .vlam A)]
+      (.lam name (.sort .zero) (.bvar 0) bi) (.lambda (nameToBinder name) (.bvar 0)) :=
+  have H : Erases env Us (Γ.withFixvars fun _ => none) []
+      (.lam name (.sort .zero) (.bvar 0) bi) (.lambda (nameToBinder name) (.bvar 0)) :=
+    .lam (ty' := .sort .zero) (.sort rfl) (.bvar 0)
+  have hcl : Closed (.lam name (.sort .zero) (.bvar 0) bi) 0 := ⟨trivial, Nat.zero_lt_one⟩
+  have hfvf : FVarsIn (fun _ => False) (.lam name (.sort .zero) (.bvar 0) bi) :=
+    ⟨rfl, trivial⟩
+  have hlb : LBClosed (.lambda (nameToBinder name) (.bvar 0)) 0 := Nat.zero_lt_one
+  erases_weak_any henv rfl hcl hfvf hlb H _
 
 end LeanToLambdaBox
