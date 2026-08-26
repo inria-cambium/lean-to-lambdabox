@@ -147,7 +147,8 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | premise | after D6 |
 |---|---|
 | `hoclosed` (each open body is `LBClosed`) | **from the run** (`visitExpr_noFix_closed`, per sibling) |
-| `hclose` (`defs[j].body` closes `obodies[j]`) | **from the run**, as `mkDef`'s binder fold |
+| `hclose` (`defs[j].body` closes `obodies[j]`) | **from the run**, and since δ-D8 in `closeFix` form outright (`run_rec_exit_siblings_close`): `mkDef`'s fold looks each sibling's *name* up in the reader's map where `closeFix` abstracts the `ids`, and `closeFix_eq_block_fold` discharges the difference from the block names being distinct |
+| `hfv` (the block map names the block's own ids) | **from the reader** (`blockMap_getElem?_inv`, δ-D8), for `fv` read off the map the run installed |
 | the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
 | `hilen`/`hnlen`/lengths | **from the run** |
 | `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design |
@@ -236,6 +237,142 @@ bridge instantiated at `Γ.withFixvars fv`
 (`VisitExprRefines.visitExpr_refines_erases_block`), and `erases_fix_of_open_nil` turns the
 per-sibling open erasures into the `Erases.fix` derivation at the *outer* `Γ`, at every
 context. -/
+
+/-- **The reader `visitMutual` installs while erasing a mutual block** — its
+`withReader (fun env => { env with fixvars := fixvarnames.zip ids |> ofList |> some })`,
+named so the block's two lookups (`mkDef`'s closing fold and the bridge's fixvar
+agreement) can be stated about the same object. -/
+def blockReader (fixnames : List Name) (ids : List FVarId) (ctx : ErasureContext) :
+    ErasureContext :=
+  { ctx with fixvars := some (Std.HashMap.ofList (fixnames.zip ids)) }
+
+@[simp] theorem blockReader_fixvars (fixnames : List Name) (ids : List FVarId)
+    (ctx : ErasureContext) :
+    (blockReader fixnames ids ctx).fixvars
+      = some (Std.HashMap.ofList (fixnames.zip ids)) := rfl
+@[simp] theorem blockReader_lctx (fixnames : List Name) (ids : List FVarId)
+    (ctx : ErasureContext) : (blockReader fixnames ids ctx).lctx = ctx.lctx := rfl
+@[simp] theorem blockReader_lparams (fixnames : List Name) (ids : List FVarId)
+    (ctx : ErasureContext) : (blockReader fixnames ids ctx).lparams = ctx.lparams := rfl
+@[simp] theorem blockReader_config (fixnames : List Name) (ids : List FVarId)
+    (ctx : ErasureContext) : (blockReader fixnames ids ctx).config = ctx.config := rfl
+
+/-- Distinct block names give a `HashMap.ofList`-admissible association list. -/
+theorem zip_pairwise_fst : ∀ {nms : List Name} {ids : List FVarId}, nms.Nodup →
+    (nms.zip ids).Pairwise (fun a b => (a.1 == b.1) = false)
+  | [], _, _ => by simp
+  | _ :: _, [], _ => by simp
+  | a :: l, b :: m, hnd => by
+      rw [List.zip_cons_cons]
+      refine List.Pairwise.cons ?_ (zip_pairwise_fst (List.nodup_cons.mp hnd).2)
+      intro p hp
+      have hmem : p.1 ∈ l := (List.of_mem_zip (a := p.1) (b := p.2) (by simpa using hp)).1
+      have : a ≠ p.1 := fun h => (List.nodup_cons.mp hnd).1 (h ▸ hmem)
+      simpa using this
+
+/-- **The block map at a sibling's own name** — the lookup `mkDef`'s fold performs. -/
+theorem blockMap_getElem! {nms : List Name} {ids : List FVarId}
+    (hnd : nms.Nodup) (hlen : nms.length = ids.length)
+    {k : Nat} (hk : k < nms.length) :
+    (Std.HashMap.ofList (nms.zip ids))[nms[k]]! = ids[k]'(hlen ▸ hk) := by
+  refine Std.HashMap.getElem!_ofList_of_mem (k := nms[k]) (by simp) (zip_pairwise_fst hnd) ?_
+  have hz : (nms.zip ids)[k]'(by simp [← hlen]; omega) = (nms[k], ids[k]'(hlen ▸ hk)) := by
+    simp
+  exact hz ▸ List.getElem_mem _
+
+/-- **…and the inverse**: a hit in the block map really is one of the block's own ids, at
+the matching index. This is what supplies `erases_rec_block_of_run`'s `hfv` when `fv` is
+read off the reader the run installed. -/
+theorem blockMap_getElem?_inv {nms : List Name} {ids : List FVarId}
+    (hnd : nms.Nodup) (hlen : nms.length = ids.length) {nm : Name} {x : FVarId}
+    (h : (Std.HashMap.ofList (nms.zip ids))[nm]? = some x) :
+    ∃ k, ∃ hk : k < nms.length, nms[k] = nm ∧ (ids[k]'(hlen ▸ hk)) = x := by
+  by_cases hmem : nm ∈ nms
+  · obtain ⟨k, hk, rfl⟩ := List.getElem_of_mem hmem
+    refine ⟨k, hk, rfl, ?_⟩
+    have hz : (nms.zip ids)[k]'(by simp [← hlen]; omega) = (nms[k], ids[k]'(hlen ▸ hk)) := by
+      simp
+    have hget : (Std.HashMap.ofList (nms.zip ids))[nms[k]]? = some (ids[k]'(hlen ▸ hk)) :=
+      Std.HashMap.getElem?_ofList_of_mem (by simp) (zip_pairwise_fst hnd)
+        (hz ▸ List.getElem_mem _)
+    rw [hget] at h
+    exact Option.some.inj h
+  · exfalso
+    rw [Std.HashMap.getElem?_ofList_of_contains_eq_false ?_] at h
+    · simp at h
+    · rw [List.map_fst_zip (by omega)]
+      simpa using hmem
+
+/-- **`mkDef`'s binder fold *is* `closeFix ids 0`.** The shipping loop abstracts the
+block's fvars by looking each sibling's name up in the reader's map; `closeFix` abstracts
+the `ids` directly. `FixMetatheory` has always said the two agree "modulo the `fixvars`
+lookup" — this is that modulo, discharged, and it needs exactly the block names' being
+distinct. -/
+theorem closeFix_eq_block_fold {nms : List Name} {ids : List FVarId}
+    (hnd : nms.Nodup) (hlen : nms.length = ids.length) (t : LBTerm) :
+    nms.reverse.zipIdx.foldl
+        (fun b p => toBvar ((Std.HashMap.ofList (nms.zip ids))[p.1]!) p.2 b) t
+      = closeFix ids 0 t := by
+  have hids : ids.reverse
+      = nms.reverse.map (fun nm => (Std.HashMap.ofList (nms.zip ids))[nm]!) := by
+    rw [List.map_reverse]
+    congr 1
+    refine List.ext_getElem (by simp [hlen]) (fun k h1 h2 => ?_)
+    rw [List.getElem_map]
+    exact (blockMap_getElem! hnd hlen (by simpa [hlen] using h1)).symm
+  rw [closeFix, closeFixFold_eq_foldl, hids, List.zipIdx_map, List.foldl_map]
+  rfl
+
+/-- **D6's decomposition, in `closeFix` form** — `run_rec_exit_siblings` with the reader
+pinned to the one `visitMutual` installs and `mkDef`'s fold already inverted. This is the
+shape `erases_rec_block_of_run` consumes: per sibling, the `prepare_erasure` and
+`visitExpr` runs at the block's own reader, the output's `NoFix`/`LBClosed`, and the
+`hclose` equation. -/
+theorem run_rec_exit_siblings_close {names : List Name}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {u : Unit} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hnd : (names.map remove_unsafe_rec).Nodup)
+    (hrun : (do
+        let ids ← names.mapM (fun _ => mkFreshFVarId)
+        withReader (blockReader (names.map remove_unsafe_rec) ids) (do
+          let defs ← names.mapM (fun m => do
+            let ci ← getConstInfo m
+            let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); visitExpr pe)
+            mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)
+          for p in (names.map remove_unsafe_rec).zipIdx do
+            modify (fun s => { s with
+              constants := s.constants.insert p.1 (toKername p.1),
+              gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: s.gdecls })
+          pure ()) : EraseM Unit) s ctx cctx ref w = .ok (u, s₁) w₁) :
+    ∃ (ids : List FVarId) (defs : List (@FixDef LBTerm)) (sd : ErasureState),
+      ids.length = names.length ∧ defs.length = names.length ∧
+      s₁ = recConstState (names.map remove_unsafe_rec) defs sd ∧
+      ∀ (j : Nat), j < names.length →
+        ∃ (ci : ConstantInfo) (pe : Expr) (t : LBTerm)
+          (sa sb sc : ErasureState) (wa wb wc : Void IO.RealWorld) (hd : j < defs.length),
+          prepare_erasure (val ci) sa
+              (g ci (blockReader (names.map remove_unsafe_rec) ids ctx))
+              cctx ref wa = .ok (pe, sb) wb ∧
+          visitExpr pe sb
+              (g ci (blockReader (names.map remove_unsafe_rec) ids ctx))
+              cctx ref wb = .ok (t, sc) wc ∧
+          NoFix t ∧ LBClosed t 0 ∧
+          (defs[j]'hd).body = closeFix ids 0 t := by
+  obtain ⟨ids, defs, sd, hil, hdl, hs, hpkg⟩ := run_rec_exit_siblings hrun
+  refine ⟨ids, defs, sd, hil, hdl, hs, fun j hj => ?_⟩
+  obtain ⟨d, ci, pe, t, sa, sb, sc, wa, wb, wc, hd, hpr, hvis, -, hbody⟩ := hpkg j hj
+  obtain ⟨hnf, hcl⟩ := visitExpr_noFix_closed hvis
+  have hdj : j < defs.length := by omega
+  obtain rfl : (defs[j]'hdj) = d := by
+    rw [List.getElem?_eq_getElem hdj] at hd; exact Option.some.inj hd
+  refine ⟨ci, pe, t, sa, sb, sc, wa, wb, wc, hdj, hpr, hvis, hnf, hcl, ?_⟩
+  rw [hbody]
+  show (List.map remove_unsafe_rec names).reverse.zipIdx.foldl
+      (fun b p => toBvar ((Std.HashMap.ofList
+        ((List.map remove_unsafe_rec names).zip ids))[p.1]!) p.2 b) t = _
+  exact closeFix_eq_block_fold hnd (by simp [hil]) t
 
 /-- **From the block's open erasures to `Erases.fix`.** The `hopen` slot is exactly what
 `visitExpr_refines_erases_block` produces for one sibling; everything else is the run's

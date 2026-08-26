@@ -1852,6 +1852,15 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.erases_fix_of_open_nil
 #print axioms LeanToLambdaBox.erases_fix_of_open
 
+-- The glue to the run: `mkDef`'s reader-lookup fold IS `closeFix ids 0`, once the block
+-- names are distinct — the "modulo the `fixvars` lookup" `FixMetatheory` had always left
+-- open. All four are sorryAx-FREE: pure list/HashMap reasoning.
+#print axioms LeanToLambdaBox.zip_pairwise_fst
+#print axioms LeanToLambdaBox.blockMap_getElem!
+#print axioms LeanToLambdaBox.blockMap_getElem?_inv
+#print axioms LeanToLambdaBox.closeFix_eq_block_fold
+#print axioms LeanToLambdaBox.run_rec_exit_siblings_close
+
 -- The demotion, and its guard on the self-referential fixture.
 #print axioms LeanToLambdaBox.erases_rec_block_of_run
 #print axioms LeanToLambdaBox.recEnvConsistent_of_block
