@@ -147,6 +147,7 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | premise | after D6 |
 |---|---|
 | `hoclosed` (each open body is `LBClosed`) | **from the run** (`visitExpr_noFix_closed`, per sibling) |
+| `hffv` (the stored block is fvar-free) | **derived**, and gone from `erases_rec_block_of_run`'s signature: a block-local erasure of an fvar-free source has only fixvars free in its target (`EnvErasureRec.erases_target_fvars`), `hfv` says those fixvars are the run's own `ids`, and `closeFix` abstracts exactly the `ids` (`FixUnfold.not_hasFVar_closeFix`). It was never an independent fact about the block — it is a consequence of `hopen` plus `hclose` |
 | `hclose` (`defs[j].body` closes `obodies[j]`) | **from the run**, and since δ-D8 in `closeFix` form outright (`run_rec_exit_siblings_close`): `mkDef`'s fold looks each sibling's *name* up in the reader's map where `closeFix` abstracts the `ids`, and `closeFix_eq_block_fold` discharges the difference from the block names being distinct |
 | `hfv` (the block map names the block's own ids) | **from the reader** (`blockMap_getElem?_inv`, δ-D8), for `fv` read off the map the run installed |
 | the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
@@ -378,7 +379,13 @@ theorem run_rec_exit_siblings_close {names : List Name}
 `visitExpr_refines_erases_block` produces for one sibling; everything else is the run's
 own output shape (`ColdStartRun.run_rec_exit_siblings{,_closed}`) or the `Γ`-side
 agreement. The conclusion is context-uniform, which is what the environment-level records
-need. -/
+need.
+
+Fvar-freeness of the stored block is **derived** here rather than assumed: it is not an
+independent fact about `defs` but a consequence of the block-local erasures plus the
+closing — `erases_target_fvars` says every free variable of an opened body is a fixvar of
+`Γ.withFixvars fv`, `hfv` identifies those with the run's own `ids`, and
+`not_hasFVar_closeFix` observes that `closeFix ids 0` abstracts precisely the `ids`. -/
 theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Name}
     {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
     {fv : Name → Option FVarId}
@@ -398,7 +405,6 @@ theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Nam
     -- the block, as the run built it
     (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
     (hfclosed : ∀ j : Nat, LBClosed (.fix defs j) 0)
-    (hffv : ∀ (x : FVarId) (j : Nat), ¬ hasFVar x (.fix defs j))
     (hoclosed : ∀ j (h : j < defs.length), LBClosed (obodies[j]'(hblen ▸ h)) 0)
     (hclose : ∀ j (h : j < defs.length),
         (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
@@ -419,6 +425,21 @@ theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Nam
     ∀ j (h : j < defs.length) (Δ : VLCtx),
       Erases env Us Γ Δ (srcs[j]'(hslen ▸ h)) (.fix defs j) := by
   intro j h Δ
+  -- Fvar-freeness of the stored block, derived. Each def body is `closeFix ids 0` of the
+  -- matching opened body (`hclose`); every free variable of that opened body is a fixvar
+  -- of the block-local `Γ` (`erases_target_fvars` applied to `hopen`), hence one of the
+  -- run's `ids` (`hfv`); and `closeFix ids 0` abstracts exactly those.
+  have hffv : ∀ (x : FVarId) (k : Nat), ¬ hasFVar x (.fix defs k) := by
+    intro x k hx
+    rw [hasFVar_fix, hasFVarDefs_iff] at hx
+    obtain ⟨d, hd, hxd⟩ := hx
+    obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hd
+    rw [hclose m hm] at hxd
+    refine not_hasFVar_closeFix (fun z hz => ?_) 0 x hxd
+    obtain ⟨nm, hnm⟩ := erases_target_fvars (hopen m hm) (hsrcfv m hm) hz
+    rw [ErasureCtx.withFixvars_fixvars] at hnm
+    obtain ⟨i, hi, -, rfl⟩ := hfv nm z hnm
+    exact List.getElem_mem _
   obtain ⟨n, ty, b, bi, hsj⟩ := hsrc j h
   rw [hsj]
   refine erases_fix_of_open_nil henv hnfv (nms := fixnames) (ids := ids) (srcs := srcs)
@@ -977,8 +998,8 @@ theorem gErasesRecBlockD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (x 
   intro Δ
   refine erases_rec_block_of_run henv (Γ := ΓfixRec) rfl (fv := gFvD8 x)
     (fixnames := [`f]) (ids := [x]) (srcs := [fixRecSrc]) (obodies := [gObodyD8 x])
-    (defs := fixRecDefs) rfl rfl rfl rfl (by simp) (fun j h => ?_) (fun nm y hy => ?_) (fun d hd => ?_)
-    (fun j => ?_) (fun y j => ?_) (fun j h => ?_) (fun j h => ?_) (fun j h => ?_)
+    (defs := fixRecDefs) rfl rfl rfl rfl (by simp) (fun j h => ?_) (fun nm y hy => ?_)
+    (fun d hd => ?_) (fun j => ?_) (fun j h => ?_) (fun j h => ?_) (fun j h => ?_)
     (fun j h => ?_) (fun j h => ?_) (fun j h => ?_) hnest 0 (by simp [fixRecDefs]) Δ
   · -- hreg
     obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
@@ -992,9 +1013,6 @@ theorem gErasesRecBlockD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (x 
   · -- the stored block is de Bruijn closed
     show LBClosed (LBTerm.fix fixRecDefs j) 0
     simp [fixRecDefs, LBClosedDefs]
-  · -- …and fvar-free
-    show ¬ hasFVar y (LBTerm.fix fixRecDefs j)
-    simp [fixRecDefs, hasFVarDefs]
   · -- the opened body is de Bruijn closed
     obtain rfl : j = 0 := by simp only [fixRecDefs, List.length_cons, List.length_nil] at h; omega
     show LBClosed (gObodyD8 x) 0

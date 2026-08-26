@@ -870,4 +870,123 @@ theorem fixUnfoldChain_selfLoop_step :
       LBTerm.shift, LBTerm.shiftDefs]
   exact h ▸ FixUnfoldChain.step (by simp [nvDefs]) (by simp [nvDefs])
 
+/-! ## Part 5 — the fvar kit: what closing removes, and what it leaves
+
+`Abstract.lean` says when `toBvar` is *inert* (`toBvar_eq_of_not_hasFVar` and its converse
+`not_hasFVar_of_toBvar_eq_self`, above). What the block-level closing needs is the
+complementary, quantitative statement: `toBvar y` deletes exactly the occurrences of `y`
+and manufactures none, so an `n`-way `closeFix` over `ids` deletes exactly the `ids` — and
+a term whose free variables are all in `ids` closes to a term with **no** free variable at
+all.
+
+This is what turns "the block's opened bodies mention only the run's fixvars" into "the
+stored `.fix` node is fvar-free", the hypothesis the `closeFix_substList_fixSubst` capstone
+above (and, downstream, `EnvErasureRec.erases_fix_of_closed`) asks for. Before this kit it
+had to be assumed by every caller. -/
+
+/-- **`toBvar` removes exactly one variable and creates none.** If `x` occurs in
+`toBvar y lvl t` then `x` is not `y` (that variable is precisely what the abstraction sent
+to a `.bvar`) and `x` already occurred in `t` (abstraction introduces no `fvar` node). The
+level is quantified inside the statement, as in `not_hasFVar_of_toBvar_eq_self`, so the
+binder cases can hand the incremented level to the induction hypothesis. -/
+theorem hasFVar_toBvar (x y : FVarId) :
+    ∀ (t : LBTerm) (lvl : Nat), hasFVar x (toBvar y lvl t) → x ≠ y ∧ hasFVar x t := by
+  intro t
+  induction t using LBTerm.recData with
+  | hfvar z =>
+      intro lvl h
+      rw [show toBvar y lvl (LBTerm.fvar z)
+            = (if z == y then LBTerm.bvar lvl else .fvar z) from rfl] at h
+      split at h
+      · exact absurd h (by simp)
+      · rename_i hzy
+        simp only [hasFVar_fvar] at h ⊢
+        exact ⟨fun hxy => hzy (fvarId_beq_iff_eq.mpr (h.trans hxy)), h⟩
+  | hlam nm body ih =>
+      intro lvl h
+      simp only [toBvar, hasFVar_lambda] at h
+      exact ih (lvl + 1) h
+  | hletIn nm val body ihv ihb =>
+      intro lvl h
+      simp only [toBvar, hasFVar_letIn] at h
+      simp only [hasFVar_letIn]
+      rcases h with h | h
+      · exact ⟨(ihv lvl h).1, .inl (ihv lvl h).2⟩
+      · exact ⟨(ihb (lvl + 1) h).1, .inr (ihb (lvl + 1) h).2⟩
+  | happ a b iha ihb =>
+      intro lvl h
+      simp only [toBvar, hasFVar_app] at h
+      simp only [hasFVar_app]
+      rcases h with h | h
+      · exact ⟨(iha lvl h).1, .inl (iha lvl h).2⟩
+      · exact ⟨(ihb lvl h).1, .inr (ihb lvl h).2⟩
+  | hconstruct iid k args ih =>
+      intro lvl h
+      simp only [toBvar, hasFVar_construct, toBvarArgs_eq_map, hasFVarArgs_iff] at h
+      obtain ⟨u, hu, hxu⟩ := h
+      obtain ⟨v, hv, rfl⟩ := List.mem_map.mp hu
+      obtain ⟨hne, hxv⟩ := ih v hv lvl hxu
+      refine ⟨hne, ?_⟩
+      simp only [hasFVar_construct, hasFVarArgs_iff]
+      exact ⟨v, hv, hxv⟩
+  | hcase info discr alts ihd iha =>
+      intro lvl h
+      simp only [toBvar, hasFVar_case, toBvarAlts_eq_map, hasFVarAlts_iff] at h
+      simp only [hasFVar_case, hasFVarAlts_iff]
+      rcases h with h | ⟨a, ha, hxa⟩
+      · exact ⟨(ihd lvl h).1, .inl (ihd lvl h).2⟩
+      · obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
+        obtain ⟨hne, hxb⟩ := iha b hb (lvl + b.1.length) hxa
+        exact ⟨hne, .inr ⟨b, hb, hxb⟩⟩
+  | hproj p e ih =>
+      intro lvl h
+      simp only [toBvar, hasFVar_proj] at h
+      exact ih lvl h
+  | hfix defs i ih =>
+      intro lvl h
+      simp only [toBvar, hasFVar_fix, toBvarDefs_eq_map, hasFVarDefs_iff] at h
+      obtain ⟨d, hd, hxd⟩ := h
+      obtain ⟨d', hd', rfl⟩ := List.mem_map.mp hd
+      obtain ⟨hne, hxd'⟩ := ih d' hd' (lvl + defs.length) hxd
+      refine ⟨hne, ?_⟩
+      simp only [hasFVar_fix, hasFVarDefs_iff]
+      exact ⟨d', hd', hxd'⟩
+  | _ => intro lvl h; simp [toBvar] at h
+
+/-- **The fold closes everything it is given.** If every free variable of `t` is scheduled
+for abstraction by `pairs`, then `closeFixFold pairs t` has no free variable left: each
+step deletes its own variable (`hasFVar_toBvar`) and adds none, so the remaining steps
+face a term whose free variables are exactly the still-scheduled ones. -/
+theorem not_hasFVar_closeFixFold :
+    ∀ (pairs : List (FVarId × Nat)) (t : LBTerm),
+      (∀ z, hasFVar z t → z ∈ pairs.map Prod.fst) →
+      ∀ x, ¬ hasFVar x (closeFixFold pairs t) := by
+  intro pairs
+  induction pairs with
+  | nil =>
+      intro t h x hx
+      rw [closeFixFold_nil] at hx
+      simpa using h x hx
+  | cons p rest ih =>
+      obtain ⟨y, lvl⟩ := p
+      intro t h x hx
+      rw [closeFixFold_cons] at hx
+      refine ih (toBvar y lvl t) (fun z hz => ?_) x hx
+      obtain ⟨hzy, hzt⟩ := hasFVar_toBvar z y t lvl hz
+      have hmem := h z hzt
+      simp only [List.map_cons, List.mem_cons] at hmem
+      exact hmem.resolve_left hzy
+
+/-- **The block-level form.** A term whose free variables all lie in `ids` closes to a
+term with none: `closeFix ids base` is `closeFixFold` over `ids.reverse.zipIdx base`, whose
+first projection is `ids.reverse`. This is what makes the stored `.fix` node fvar-free
+without assuming it — the block's opened bodies mention only the run's own fixvars, and
+`mkDef` abstracts exactly those. -/
+theorem not_hasFVar_closeFix {ids : List FVarId} {t : LBTerm}
+    (h : ∀ z, hasFVar z t → z ∈ ids) (base : Nat) (x : FVarId) :
+    ¬ hasFVar x (closeFix ids base t) := by
+  refine not_hasFVar_closeFixFold (ids.reverse.zipIdx base) t (fun z hz => ?_) x
+  rw [List.zipIdx_map_fst, List.mem_reverse]
+  exact h z hz
+
 end LeanToLambdaBox

@@ -228,6 +228,102 @@ theorem Erases.instFixvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
         (fun s d => LBClosed.subst_eq (hfclj j) (Nat.zero_le d) s)
         (fun y l => toBvar_eq_of_not_hasFVar y l _ (hffvj y j))
 
+/-! ### Where the target's free variables come from
+
+`Erases.instFixvars` reads the fixvar leaf *forwards* — a block-local `.fvar` becomes the
+block. The companion below reads it *backwards*, and is the only fact about `Erases` that
+counts fvars: a derivation whose **source** is fvar-free has a **target** whose free
+variables are all fixvars of `Γ`.
+
+Thirteen of the fourteen rules make this trivial. Eleven are structural or have fvar-free
+targets outright; `const_fix` and `fix` carry the inertness equality
+`htobv : ∀ x l, toBvar x l (.fix defs idx) = .fix defs idx`, which
+`not_hasFVar_of_toBvar_eq_self` (`FixUnfold`) converts into outright fvar-freeness of the
+block they emit. The fourteenth, `Erases.fvar`, is the one rule that would manufacture a
+target fvar out of nothing — and it is exactly the rule the source-side hypothesis kills,
+since `FVarsIn (fun _ => False) (.fvar y)` *is* `False`.
+
+Together with `not_hasFVar_closeFix` this is what makes the stored `.fix` node's
+fvar-freeness a theorem rather than a premise: the block's opened bodies erase sources that
+are closed, fvar-free `_unsafe_rec` bodies, so their targets mention only the run's own
+fixvars — and `mkDef` abstracts precisely those. -/
+
+/-- Re-wrapping an alternative as a lambda chain neither adds nor removes free variables
+(`mkLambdas` only conses `.lambda` nodes, and `hasFVar` is transparent through them). The
+`cases` arm below needs it because `Erases.cases`' induction hypothesis speaks about
+`mkLambdas (alts'[j]).1 (alts'[j]).2` while `hasFVarAlts` speaks about `(alts'[j]).2`. -/
+private theorem hasFVar_mkLambdas (x : FVarId) (ns : List BinderName) (b : LBTerm) :
+    hasFVar x (mkLambdas ns b) ↔ hasFVar x b := by
+  induction ns with
+  | nil => exact Iff.rfl
+  | cons n ns ih => rw [mkLambdas, hasFVar_lambda, ih]
+
+/-- **An fvar-free source erases to a target whose free variables are fixvars.** Every
+`.fvar` node the erasure puts in the target comes from the `Erases.fixvar` leaf, i.e. is
+one of the fixvars `Γ` currently installs; at a top-level `Γ` (where `fixvars = fun _ =>
+none`) the conclusion degenerates to outright fvar-freeness of the target. -/
+theorem erases_target_fvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx} :
+    ∀ {Δ : VLCtx} {e : Expr} {t : LBTerm}, Erases env Us Γ Δ e t →
+      FVarsIn (fun _ => False) e →
+      ∀ {x : FVarId}, hasFVar x t → ∃ nm, Γ.fixvars nm = some x := by
+  intro Δ e t h
+  induction h with
+  | box htr her => intro _ x hx; simp at hx
+  | lit hcl _ ih => intro _ x hx; exact ih FVarsIn.toConstructor hx
+  | bvar i => intro _ x hx; simp at hx
+  | fvar y =>
+      -- the one rule that could invent a target fvar; its source is `.fvar y`, whose
+      -- `FVarsIn (fun _ => False)` premise is `False` on the nose.
+      intro hsc
+      exact False.elim hsc
+  | const n us kn hkn hctor hcases => intro _ x hx; simp at hx
+  | app _ _ ihf iha =>
+      intro hsc x hx
+      simp only [hasFVar_app] at hx
+      rcases hx with hx | hx
+      · exact ihf hsc.1 hx
+      · exact iha hsc.2 hx
+  | lam hty _ ihb => intro hsc x hx; exact ihb hsc.2 hx
+  | letE hty hval _ _ ihv ihb =>
+      intro hsc x hx
+      simp only [hasFVar_letIn] at hx
+      rcases hx with hx | hx
+      · exact ihv hsc.2.1 hx
+      · exact ihb hsc.2.2 hx
+  | ctor_head cn us iid cidx hc => intro _ x hx; simp [hasFVarArgs] at hx
+  | @ctor _ cn us iid cidx args args' hc hlen _ ihargs =>
+      intro hsc x hx
+      obtain ⟨-, hall⟩ := fvarsIn_foldl_app hsc
+      simp only [hasFVar_construct, hasFVarArgs_iff] at hx
+      obtain ⟨u, hu, hxu⟩ := hx
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hu
+      have hi' : i < args.length := by omega
+      exact ihargs i hi' (hall _ (List.getElem_mem hi')) hxu
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
+      intro hsc x hx
+      obtain ⟨-, hall⟩ := fvarsIn_foldl_app hsc
+      simp only [hasFVar_case, hasFVarAlts_iff] at hx
+      rcases hx with hx | ⟨a, ha, hxa⟩
+      · exact ihd (hall _ (List.mem_cons_self ..)) hx
+      · obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem ha
+        have hj' : j < minors.length := by omega
+        refine ihalts j hj' (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj'))) ?_
+        rw [hasFVar_mkLambdas]
+        exact hxa
+  | fixvar nm us y hfx hctor hcases hfresh =>
+      -- the leaf the statement exists for: the target *is* `.fvar y`, and `Γ` names it.
+      intro _ x hx
+      simp only [hasFVar_fvar] at hx
+      exact ⟨nm, hx ▸ hfx⟩
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      intro _ x hx
+      exact absurd hx (not_hasFVar_of_toBvar_eq_self x _ 0 (htobv x 0))
+  | @fix Δc idx nm' tty tb tbi nms srcs d' hidx hnlen' hslen' hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      intro _ x hx
+      exact absurd hx (not_hasFVar_of_toBvar_eq_self x _ 0 (htobv x 0))
+
 /-! ## Part 2 — the `Erases.fix` reconciliation from closedness + bridge facts
 
 `erases_fix_of_closed` builds the `Erases.fix` derivation (`Erases.lean`) for a
