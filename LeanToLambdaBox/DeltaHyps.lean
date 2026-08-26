@@ -38,7 +38,7 @@ trust boundary, exactly as for `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`.
 `mkFreshFVarId` is deliberately **absent**: `BridgeHyps.fresh_run` already specs it, and the
 recursive exit's block ids are the only place the registration path mints one.
 
-## The four scope restrictions this bundle makes operational
+## The five scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
 violates one makes the bundle *unsatisfiable* — the right failure mode, but only because it
@@ -50,7 +50,7 @@ is written down:
    `ci.levelParams = Us`: realistically `Us = []` and every dependency monomorphic. A
    polymorphic dependency does not make any theorem *false*; it makes `DeltaHyps`
    uninhabited.
-2. **Non-recursive dependencies, on the fragment.** `Erasure.ErasureContext.fixvars` is
+2. **No block-local fixvar map, on the fragment.** `Erasure.ErasureContext.fixvars` is
    installed per block while `Γ.fixvars` is a single global map, so one `Γ` cannot be both
    "outside every block" (what a top-level subject needs) and "inside this block" (what a
    recursive dependency's body needs). `nofixvars` pins the first — but since slice δ-D8
@@ -67,6 +67,11 @@ is written down:
 4. **Fragment names are distinguished by their kernames.** `Erasure.toKername` is not
    injective, so without `kinj` the δ *record* below is false whenever two fragment names
    collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
+5. **No fragment constant is recursive.** `nonrecursive` — split out of `decl_run` by slice
+   δ-D8e, because it is a restriction on the *fragment* and not a fact about the fetch.
+   It forces `visitMutual`'s `nonrecursive` test `true`, and it is the single field the
+   cold-start capstones' `hnorec` is waiting on. What trading it additionally costs is
+   *not* another premise but a motive change, and that is recorded on the field itself.
 
 ## Two environments, deliberately: the fragment and the evaluation's
 
@@ -157,23 +162,56 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   `known = ⊥`. -/
   nofixvars : ∀ {n : Name}, known n → Γ.fixvars = fun _ => none
   /-- **The declaration fetch agrees with the fragment.** For a `known` name: the fetch is
-  generator-monotone, the block is a *single* declaration, it is universe-monomorphic at
-  the ambient `Us` (scope restriction 1), and — when it has a value — that value does not
-  mention the constant itself (so `visitMutual`'s `nonrecursive` test is forced `true`, and
-  the recursive exit is out of scope).
+  generator-monotone, the block is a *single* declaration, and it is universe-monomorphic
+  at the ambient `Us` (scope restriction 1).
 
   It used to carry a fourth conjunct, `(Esrc n).isSome`. Slice D4a made it dead: naming
   *some* body is never enough at the point of use, which needs *this* run's body, and
   `prep_esrc` states that identification directly. Dropping it weakens the bundle, so
   every consumer is unaffected.
 
+  It used to carry a fifth, `name_occurs n v = false` — the recursion exclusion. Slice
+  δ-D8e **split that out** into `nonrecursive` below, keyed on the runs the consumer actually
+  holds. Nothing about the *fetch* is recursive or not, and the two facts are traded
+  separately: `decl_run` is a statement about `getDeclInfo?`'s answer, `nonrecursive` is a scope
+  restriction on the fragment. Keeping them in one conjunction hid that, and hid which of
+  the two the cold-start `hnorec` premise is waiting on.
+
   Stated at the `CoreM` layer, which is the layer `ColdStartRun.run_visitMutual_decomp`
   hands the fetch back at. -/
   decl_run : ∀ {n : Name} {w w₁ : Void IO.RealWorld} {r : Option ConstantInfo},
     known n →
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
-    gw w ≤ gw w₁ ∧ ∃ ci, r = some ci ∧ ci.all = [n] ∧ ci.levelParams = Us ∧
-      (∀ v, ci.value? (allowOpaque := true) = some v → name_occurs n v = false)
+    gw w ≤ gw w₁ ∧ ∃ ci, r = some ci ∧ ci.all = [n] ∧ ci.levelParams = Us
+  /-- **No fragment constant is recursive** — scope restriction 5, split out of `decl_run`
+  by slice δ-D8e and stated on the two runs its consumer holds (the fetch, which ties the
+  value to the name, and the `value?` hit), in the keying style of `prep_esrc`.
+
+  This is the field — the *only* field — that forces `visitMutual`'s `nonrecursive` test
+  `true` on the fragment, and hence the one that makes the bridge's step 6 **refute** the
+  recursive exit (`VisitExprRefines`, case `isFalse hnr`) instead of walking it. It is
+  therefore what a cold start's `hnorec : Γ.recBodies = ⊥` is waiting on, and the reason
+  it is now a field of its own rather than a conjunct of `decl_run` is that the trade is a
+  one-field trade.
+
+  **What it is *not* waiting on, and the honest accounting** (slice δ-D8e). Dropping this
+  field does not by itself let step 6 walk the recursive exit, and the obstruction is
+  structural rather than another premise: the exit erases each sibling body under the
+  reader `visitMutual` installs, whose `fixvars` is the block's own map, and
+  `BridgeInv`'s `fixvars` field is an *iff* against `Γ.fixvars` — which this bundle pins
+  at `⊥` for every fragment name (`nofixvars`). So the invariant the erasure IH demands is
+  **false** at that reader for the motives' fixed `Γ`
+  (`VisitExprRefines.bridgeInv_blockReader_refuted`), and the inner runs are runs of the
+  induction's *abstract* fixpoint argument, about which nothing outside the motives may be
+  assumed. Walking the exit therefore needs the motives to quantify `Γ` — the
+  generalisation slice δ-D8a showed is unnecessary for the bridge theorem *as a statement*
+  (`visitExpr_refines_erases_block`) and which is still necessary *inside* the induction.
+  See the `ColdStart` ledger's `hnorec` row. -/
+  nonrecursive : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v : Expr}
+      {w w₁ : Void IO.RealWorld},
+    known n →
+    (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
+    r = some ci → ci.value? (allowOpaque := true) = some v → name_occurs n v = false
   /-- **The prepared dependency body is in the fragment.** Quantified over the
   `prepare_erasure` run that produces it, exactly as `ColdStartSubject.supported` is for the
   top-level subject: this is the *same* premise, generalised from "the subject" to "the
@@ -279,8 +317,9 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
 
 The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
-`prepared`, `prep_esrc` and `esrc_shape` all have `known n` or `(Esrc n).isSome` in their
-premises, and `axiom_free`'s conclusion is `none = none`. Since slice δ-D8 `nofixvars`
+`nonrecursive`, `prepared`, `prep_esrc` and `esrc_shape` all have `known n` or
+`(Esrc n).isSome`
+in their premises, and `axiom_free`'s conclusion is `none = none`. Since slice δ-D8 `nofixvars`
 joins them — it is conditioned on `known n` too, which is why this lemma no longer takes
 an `hnfv` argument and why the bundle is inhabitable at a *block-local* `Γ`. The
 *bookkeeping* half is **not** free and is passed in:
@@ -319,6 +358,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   kinj := fun h => h.elim
   nofixvars := fun h => h.elim
   decl_run := fun h => h.elim
+  nonrecursive := fun h => h.elim
   prepared := fun h => h.elim
   prep_esrc := fun h => h.elim
   axiom_free := fun _ => rfl
@@ -539,6 +579,30 @@ theorem gNofixvars_blocklocal (x : FVarId) :
       (gΓδ.withFixvars (fun m => if m = `f then some x else none)).fixvars
         = fun _ => none :=
   fun h => h.elim
+
+/-- **The second scope restriction the recursive exit would cost, on real data**
+(slice δ-D8e).
+
+`visitMutual`'s recursive exit registers under `names.map remove_unsafe_rec`, not under
+`names`: the loop is `for (n, i) in fixvarnames.zipIdx do … constants.insert n (toKername n)`
+with `fixvarnames := names.map remove_unsafe_rec` (`Erasure.lean`). Motive 6's conclusion
+is `(s'.constants.get? n).isSome` at the name the *caller* asked for, and for an
+`._unsafe_rec` name those two are different names — so the conclusion is **false** on the
+run, not merely unproved.
+
+The instance below is the real one: `f._unsafe_rec` is exactly the shape
+`Compiler.LCNF.getDeclInfo?` hands back when it prefers the original recursive definition
+over the elaborated one (`Erasure.visitMutual`'s own comment, "possibly these are
+._unsafe_rec"). So trading `DeltaHyps.nonrecursive` costs a further fragment restriction —
+`remove_unsafe_rec n = n` for every `known n` — and that is a restriction on which
+*declarations* may be reached, not a new trust item. -/
+theorem rec_exit_registers_stripped_name (defs : List (@FixDef LBTerm)) :
+    remove_unsafe_rec (`f ++ `_unsafe_rec) = `f ∧
+      ((recConstState [remove_unsafe_rec (`f ++ `_unsafe_rec)] defs {}).constants.get?
+        (`f ++ `_unsafe_rec)) = none := by
+  refine ⟨by decide, ?_⟩
+  simp [recConstState,
+    show ¬ remove_unsafe_rec (`f ++ `_unsafe_rec) = `f ++ `_unsafe_rec by decide]
 
 /-- **The fragment's constant is `Supported`** — the derivation that was unreachable at
 `known = ⊥` (`Supported.const` needs `known n`, and `Γ.fixvars = ⊥` kills the other

@@ -1857,7 +1857,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       _ _ cctx ref _ hdi
     subst sa
     have hdiC := ((run_liftCoreM_ok _ _ cctx ref _).mp hdi).1
-    obtain ⟨hled, ci, hci, hall, hlp, hvalue⟩ := (Hδ cctx ref).decl_run hkn hdiC
+    obtain ⟨hled, ci, hci, hall, hlp⟩ := (Hδ cctx ref).decl_run hkn hdiC
     have hdg : di.get! = ci := by rw [hci]; rfl
     rw [hdg] at hrun
     -- (2) getEnv, for the `@[inline]` attribute lookup.
@@ -1893,7 +1893,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       clear henv2
       have hkey : ∀ v : Expr, ci.value? (allowOpaque := true) = some v →
           ci.value! (allowOpaque := true) = v ∧ name_occurs n v = false :=
-        fun v hv => ⟨constantInfo_value!_of_value? hv, hvalue v hv⟩
+        fun v hv => ⟨constantInfo_value!_of_value? hv,
+          (Hδ cctx ref).nonrecursive hkn hdiC hci hv⟩
       cases hval : ci.value? (allowOpaque := true) <;>
         cases hext : isExtern env2 n <;>
           cases hcfg : ctx.config.extern <;>
@@ -1913,8 +1914,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
              exact ⟨hrc.trans (RunConclδ.addAxiom n _), hle, addAxiomState_get? n _⟩)
           | (split at hrun
              case isFalse hnr =>
-               -- (6c) the recursive exit is out of the fragment: `decl_run` says the
-               -- value does not mention `n`, which forces `nonrecursive` true.
+               -- (6c) the recursive exit is out of the fragment: `DeltaHyps.nonrecursive` says
+               -- the value does not mention `n`, which forces `nonrecursive` true. That
+               -- field is the *only* thing refuting this branch, and it is not the only
+               -- thing blocking it — see `bridgeInv_blockReader_refuted` below for the
+               -- obstruction that survives its removal.
                exact absurd (by
                  simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
              case isTrue =>
@@ -2800,6 +2804,50 @@ theorem supported_const_fixOpen_not_ambient :
   rcases h.const_inv' with ⟨hk, -, -⟩ | ⟨_, _, _, hc, _⟩
   · rcases hk with h' | h' <;> simp [ΓfixRec] at h'
   · simp [ΓfixRec] at hc
+
+/-- (i''') **…and the same instantiation is *not* available inside the induction**
+(slice δ-D8e) — the negative guard for `visitExpr_refines_erases_block`, and the exact
+obstruction the cold-start `hnorec` premise is waiting on.
+
+`visitExpr_refines_erases_block` reads the bridge theorem at a second `Γ`. That works
+because the theorem binds `Γ` as a plain implicit, so it is Γ-polymorphic **as a
+statement**. The motives of `visitExpr_refines_erases_core` are not: they fix one `Γ`, and
+step 6's recursive exit erases each sibling body by calling the induction's *abstract*
+fixpoint argument, about which only the motives may be assumed. So the erasure IH is
+usable there only if its own premise, `BridgeInv env Us known Γ (gw w) ctx' s Δ`, holds at
+the reader the exit installs.
+
+It does not, and this is why: `BridgeInv.fixvars` is an **iff** between the reader's map
+and `Γ.fixvars`, and `DeltaHyps.nofixvars` pins `Γ.fixvars = ⊥` for every fragment name —
+which step 6 has in scope (`hkn : known n`). A reader whose map has any hit at all
+therefore refutes the invariant outright. The block's map has exactly one hit per sibling,
+by construction.
+
+The consequence, stated plainly: removing `DeltaHyps.nonrecursive` lets the run *reach* the
+recursive exit but does not let the bridge *walk* it. Walking it needs the motives to
+quantify `Γ` (and the four trust bundles with it), which is a change to all eighteen
+motives and every IH application site — not another premise. -/
+theorem bridgeInv_blockReader_refuted {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext} {s : ErasureState}
+    {Δ : VLCtx} {fvmap : Std.HashMap Name FVarId} {nm : Name} {x : FVarId}
+    (hnfv : Γ.fixvars = fun _ => none)
+    (hfvm : ctx.fixvars = some fvmap) (hhit : fvmap[nm]? = some x) :
+    ¬ BridgeInv env Us known Γ gen ctx s Δ := by
+  intro h
+  have hΓ := (h.fixvars nm x).mp (by rw [hfvm]; exact hhit)
+  rw [hnfv] at hΓ
+  simp at hΓ
+
+/-- The instance: the reader `visitMutual`'s recursive exit installs for a one-name block
+is `{ ctx with fixvars := some (HashMap.ofList (fixvarnames.zip ids)) }`, and at a single
+sibling that map is `{n ↦ x}`. So the invariant is refuted at the very configuration the
+recursive branch would have to run its IH in. -/
+theorem bridgeInv_rec_exit_reader_refuted {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext} {s : ErasureState}
+    {Δ : VLCtx} (n : Name) (x : FVarId) (hnfv : Γ.fixvars = fun _ => none) :
+    ¬ BridgeInv env Us known Γ gen
+        { ctx with fixvars := some (Std.HashMap.ofList ([n].zip [x])) } s Δ :=
+  bridgeInv_blockReader_refuted (nm := n) (x := x) hnfv rfl (by simp)
 
 /-- (ii) The non-run premises of `visitExpr_refines_erases` are jointly
 instantiable: a concrete one-fvar context (with `TrLCtx` *constructed*, not
