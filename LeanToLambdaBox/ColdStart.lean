@@ -94,12 +94,12 @@ Four classes, and nothing falls outside them:
 | `hUs : Us = []` | S | universe monomorphism of the whole dependency cone. At the *entry point* it is also a fact — `Erasure.run` installs `lparams := []` and `BridgeInv.lparams` pins `ctx.lparams = Us` — but `DeltaHyps.decl_run` demands it of every dependency too, so a polymorphic callee makes the bundle uninhabited (`DeltaHyps`, scope restriction 1) |
 | `hcsimp : cfg.csimp = false` | S | csimp replacement is not kernel-semantics-preserving (`PrepareHyps`' own analysis), so it can never sit inside a correctness statement. It is also what makes R2 fire (`ColdStartRun.run_prepare_erasure_state`: with csimp off, `prepare_erasure` leaves the state at `{}`). RAISE-not-fix: the shipping *default* is `csimp := true` |
 | `hnfv : Γ.fixvars = ⊥` | S | the subject is outside every mutual block. Also `DeltaHyps.nofixvars` (scope restriction 2) |
-| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems; what is missing here is the walk fact behind `RegisteredClosureRec` — residue 1 |
+| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems, and since δ-D8 the walk fact behind `RegisteredClosureRec` is a theorem too (`ColdStartDelta.recEnvConsistent_of_block`). What still keeps this row here is *upstream* of both: `DeltaHyps.decl_run` forces `visitMutual`'s `nonrecursive` test `true` for every fragment name, so the bridge's step 6 refutes the recursive exit rather than walking it and a cold start never takes it. See residue 1 |
 | `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
-| `Hδ : DeltaHyps` | H + S + R | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). The `uniform` field is **gone** (δ-D7b) — context-uniformity is now a theorem |
+| `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). The `uniform` field is **gone** (δ-D7b) — context-uniformity is now a theorem — and `nofixvars` is **conditioned on the fragment** (δ-D8), which is what makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
 | `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
@@ -124,14 +124,42 @@ below, three ways.
    named. Only **one** is still a residue, and only one is a capstone premise of class R:
    `hstr : ErasableStrengthen env Us`, inside entry 2.
 
-1. `EnvErasureRec.RegisteredClosureRec` — the δ witness for a *recursive* block. **Not a
-   capstone premise**: `hnorec` (S) stands in for it, so it costs scope, not trust. Slice D6
-   walks the recursive exit's `List.mapM` and supplies most of `erases_fix_of_open`'s
-   premise list from the run; what is left is `hnd` (freshness, `BridgeHyps.fresh_run`'s
-   business), `hreg` (a run-keyed `Γ.recBodies` agreement, irreducible at a *parameter*
-   `Γ`) and `hopen` at the block-local `Γ.withFixvars fv` — the `Γ`-inside-the-motives
-   generalisation (design §W3.2/D8). `ColdStartDelta`'s recursion section is the
-   premise-by-premise ledger.
+1. ~~`EnvErasureRec.RegisteredClosureRec`~~ — the δ witness for a *recursive* block.
+   **DEMOTED, slice δ-D8**, and never a capstone premise: `hnorec` (S) stood in for it, so
+   it always cost scope rather than trust.
+
+   Slice D6 walked the recursive exit's `List.mapM` and supplied most of
+   `erases_fix_of_open`'s premise list from the run. What was left was `hopen` at the
+   block-local `Γ.withFixvars fv` — filed as "the `Γ`-inside-the-motives generalisation",
+   design §W3.2/D8 — and `hreg`. The first turned out **not to need any motive change**:
+   `visitExpr_refines_erases` binds `Γ` as a plain implicit and `VisitExprRefines` declares
+   no `variable`, so it is Γ-polymorphic *as a statement*, and of its premises exactly one
+   breaks at a block-local `Γ`: `DeltaHyps.nofixvars`, which asserted `Γ.fixvars = ⊥`
+   unconditionally and is now conditioned on the fragment — the only thing its two
+   consumption sites ever had in scope. Hence
+   `VisitExprRefines.visitExpr_refines_erases_block`,
+   `ColdStartDelta.erases_rec_block_of_run` and
+   `ColdStartDelta.recEnvConsistent_of_block`: the record's `erase` field is now *derived*.
+
+   What survives is not an `Erases` certificate but a **registration agreement** — "the `Γ`
+   you supply names *this* block, under the map the run installed" (`hreg`/`hfv`/`hcov`) —
+   irreducible at a parameter `Γ`, which is fixed before the run builds `defs`, and of the
+   same class as `BridgeInv.knames`; plus `hnd` (freshness, `BridgeHyps.fresh_run`'s
+   business) and the standing `hnest` residue of `Erases.instFixvars`. The price is a named
+   scope restriction: **a block's bodies call only its own siblings, registered
+   constructors and registered `casesOn`s** — the block's inner runs are taken at
+   `known = ⊥`, so an external call is out of scope.
+
+   **`hnorec` does not trade for this yet, and the reason is not in the recursion
+   machinery.** `DeltaHyps.decl_run` demands `name_occurs n v = false` of every fragment
+   name, which forces `visitMutual`'s `nonrecursive` test `true`; the bridge's step 6
+   therefore *refutes* the recursive exit rather than walking it, so a cold start never
+   takes it inside the fragment and there is no run for the theorems above to consume
+   there. Wiring them in means giving step 6 a recursive branch: `RunConclδ`'s `δ`
+   transport across `recConstState` — which is exactly `erases_rec_block_of_run`'s
+   conclusion, so it composes — the block loop's generator bookkeeping, and one further
+   scope restriction, since the registration is keyed on `remove_unsafe_rec n` and not on
+   `n`. `ColdStartDelta`'s recursion section carries the premise-by-premise ledger.
 
    Slice `rec` repaired the theorem this entry is about. `erases_fix_of_open`'s `hopen`
    quantified over *every* `Δf`, and in that form it is **unsatisfiable for every
@@ -140,7 +168,9 @@ below, three ways.
    guard, which was the tell: the file's own fixture carries exactly the missing side
    condition and so could never feed it. `hopen` is now conditioned on a fresh `Δf`,
    `Erases.fix`'s unrestricted `hbodies` is rebuilt through `[]` with `erases_weak_any`,
-   and `gErases_fix_of_open` is the guard it never had.
+   and `gErases_fix_of_open` is the guard it never had. Slice δ-D8 finished the job: the
+   proof instantiates `hopen` at `Δf := []` and nowhere else, so `erases_fix_of_open_nil`
+   states it there — a strictly weaker premise, and the only one a *run* can supply.
 2. `DeltaHyps.uniform` — context-uniformity (`∀ Δ`) of a constant body's erasure. The
    bridge fires at the `Δ` of the call site, and `RegisteredClosure*.erase` needs every
    `Δ`.

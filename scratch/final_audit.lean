@@ -1772,3 +1772,92 @@ open LeanToLambdaBox
 -- Stability, once more, with the residue discharged.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- WAVE δ-D8 — the bridge goes inside the block, and `RegisteredClosureRec` is demoted
+--
+-- THE EXPERIMENT AND ITS RESULT. `visitExpr_refines_erases` binds `Γ` as a plain implicit
+-- and `VisitExprRefines.lean` contains no `variable` command at all, so the theorem is
+-- Γ-polymorphic AS A STATEMENT and every application picks its own `Γ`. Instantiating it
+-- at the block-local `Γ' := Γ.withFixvars fv` — the reader `visitMutual` installs while
+-- erasing a mutual block — therefore needs NO motive change. Of its premises, EXACTLY ONE
+-- breaks, as the design predicted:
+--
+--   BridgeHyps / DataBridgeHyps / CasesBridgeHyps  read only `Γ.ctors`, `Γ.casesOns`,
+--     `Γ.ctorArities`, `Γ.casesDiscrPos`, `Γ.ctorFields` — every one `rfl` at
+--     `withFixvars`. The three transports are field-by-field, zero obligations.
+--   BridgeInv  rebuilt by `BridgeInv.withFixvars`: six fields are literally `Γ`'s or never
+--     mentioned `Γ`; the two fixvar fields become the reader-vs-`fv` agreement (which the
+--     `withReader` establishes by construction) and the block freshness (`fresh_run`
+--     against `BridgeInv.reserved`). `known` is unconstrained — the invariant has not
+--     mentioned it since D4a retired `known_dom`, which is precisely what lets the block's
+--     inner runs be taken at `known = ⊥`.
+--   Supported  transports and GROWS: `Supported.const`'s `known n ∨ Γ.fixvars n ≠ none`
+--     gains the whole block as its second disjunct.
+--   TrExprS witness, env.Ordered  never mentioned `Γ`.
+--   DeltaHyps  THE ONE BREAK. `nofixvars` asserted `Γ.fixvars = ⊥` unconditionally, which
+--     is FALSE at a block-local `Γ` (`gNofixvars_blocklocal_refuted`). It is now
+--     conditioned on the fragment, `∀ {n}, known n → …`, which is all its two consumption
+--     sites (both under `hkn : known n`) ever had in scope. `of_bot` loses its `hnfv`
+--     argument — the tell that the field did nothing at `known = ⊥`.
+--
+-- WHAT THAT BUYS. `RegisteredClosureRec` stops being a certificate:
+-- `erases_rec_block_of_run` derives its `erase` field from D6's per-sibling runs plus the
+-- instantiated bridge plus `erases_fix_of_open_nil`, and `recEnvConsistent_of_block`
+-- derives `RecEnvConsistent` outright. What survives is a REGISTRATION AGREEMENT —
+-- `hreg`/`hfv`/`hcov`, "the `Γ` you supply names this block, under the map the run
+-- installed" — irreducible at a parameter `Γ` and of `BridgeInv.knames` class, plus the
+-- standing `hnest` residue. Scope cost, named: a block's bodies call only its own
+-- siblings, registered constructors and registered `casesOn`s.
+--
+-- ALSO: `erases_fix_of_open_nil`. Slice `rec` conditioned `hopen` on a fresh `Δf`, but the
+-- proof instantiates it at `Δf := []` and NOWHERE else, so the `∀ Δf` is not load-bearing.
+-- The `[]`-only form is the one a run can supply; `erases_fix_of_open` is now its
+-- corollary, signature verbatim.
+--
+-- THE CLAIM THAT FAILED, and it is not in the Γ-instantiation. The design expected the
+-- capstones' `hnorec : Γ.recBodies = ⊥` to trade for the run-keyed agreement. It cannot,
+-- yet, and the obstruction is upstream of everything above: `DeltaHyps.decl_run` demands
+-- `name_occurs n v = false` of every fragment name, which forces `visitMutual`'s
+-- `nonrecursive` test `true`, so the bridge's step 6 REFUTES the recursive exit instead of
+-- walking it. A cold start never takes that exit inside the fragment, so there is no run
+-- for these theorems to consume there. Wiring them in means giving step 6 a recursive
+-- branch — `RunConclδ`'s `δ` transport across `recConstState` (which IS
+-- `erases_rec_block_of_run`'s conclusion, so it composes), the block loop's generator
+-- bookkeeping, and one more scope restriction, since the registration is keyed on
+-- `remove_unsafe_rec n` and not on `n`.
+--
+-- AXIOM MOVEMENT: none at the capstones, verbatim. The transports are pure record
+-- surgery, and two of them (`DataBridgeHyps`, `CasesBridgeHyps`) come out sorryAx-FREE
+-- along with `supported_const_fixOpen_not_ambient` and the two `nofixvars` guards; the
+-- other two mention `TrExprS`, and the composition mentions `Erases`, so both inherit the
+-- same lean4lean `TrProj` boundary those types have carried from the start.
+-- ============================================================================
+
+-- The instantiation: the bundle transports, the invariant, and the packaged bridge.
+#print axioms LeanToLambdaBox.BridgeHyps.withFixvars
+#print axioms LeanToLambdaBox.DataBridgeHyps.withFixvars
+#print axioms LeanToLambdaBox.CasesBridgeHyps.withFixvars
+#print axioms LeanToLambdaBox.BridgeInv.withFixvars
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+#print axioms LeanToLambdaBox.supported_const_fixOpen_not_ambient
+
+-- The one break, and the two guards that make it load-bearing.
+#print axioms LeanToLambdaBox.DeltaHyps.of_bot
+#print axioms LeanToLambdaBox.gNofixvars_blocklocal_refuted
+#print axioms LeanToLambdaBox.gNofixvars_blocklocal
+#print axioms LeanToLambdaBox.gDeltaScope
+
+-- The `[]`-only recursion theorem.
+#print axioms LeanToLambdaBox.erases_fix_of_open_nil
+#print axioms LeanToLambdaBox.erases_fix_of_open
+
+-- The demotion, and its guard on the self-referential fixture.
+#print axioms LeanToLambdaBox.erases_rec_block_of_run
+#print axioms LeanToLambdaBox.recEnvConsistent_of_block
+#print axioms LeanToLambdaBox.gErasesRecBlockD8
+#print axioms LeanToLambdaBox.gRecEnvConsistentD8
+
+-- Stability: the two cold-start capstones, verbatim unchanged.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
