@@ -1,5 +1,6 @@
 import LeanToLambdaBox.ColdStartRun
 import LeanToLambdaBox.EnvErasureRec
+import LeanToLambdaBox.ErasesUniform
 
 /-!
 # The δ half of the cold-start registry invariant (slice S3)
@@ -38,12 +39,14 @@ back — plus the bridge (`erases_nonrec_const_body`) and the output-shape corol
 | the stored entry is fix-free and closed | **proved** (`visitExpr_noFix_closed`) |
 | the stored entry is *there* (recursive exit) | **proved** (`recConstState_envLookup`) |
 | the recursive entry erases its source body | **scoped premise** (`RegisteredClosureRec`) — see the recursion section |
-| context-uniformity (`∀ Δ`) of a constant body's erasure | **named premise** (`ErasesUniform`) — the residue `RegisteredClosure`'s own docstring already folds in |
+| context-uniformity (`∀ Δ`) of a constant body's erasure | **proved** (`ErasesUniform.erases_uniform_closed`), modulo the one commissioned `ErasableStrengthen` |
 | `Esrc`-domain ↔ walk agreement | **named premise** — `Esrc` and `Γ` are parameters |
 
-The `∀ Δ` residue is not an oversight of this slice: `Erases` has `abstract` /
-`uninstantiate` / `thin_vlet` transports, but no *weakening* over a closed subject, and
-adding one is a lean4lean-side obligation (`TrExprS` weakening), not an erasure one.
+The `∀ Δ` line used to read "no *weakening* over a closed subject, and adding one is a
+lean4lean-side `TrExprS`-weakening obligation". That was wrong on both counts: the
+weakening exists upstream and the erasure-side transports are now proved here
+(`ErasesStrengthen.erases_weakFV`/`erases_weak_any`). What is genuinely missing is
+`Erasable`/`HasType` *strengthening*, which is `ErasesUniform.ErasableStrengthen`.
 -/
 
 namespace LeanToLambdaBox
@@ -150,7 +153,7 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design |
 | `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that should replace `RegisteredClosureRec` |
 | `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value |
-| `hopen`'s `∀ Δf` | the same context-uniformity residue `DeltaHyps.uniform` carries |
+| `hopen`'s `∀ Δf` | **repaired** (slice `rec`): unrestricted it was unsatisfiable for every self-referential block; now conditioned on a fresh `Δf`, with `Erases.fix`'s `hbodies` rebuilt through `[]` |
 | `hlink`, `hnest` | scoped premises, `hnest` unreachable in the intended use (see its docstring) |
 
 So the *demotion* of `RegisteredClosureRec` to a `Γ.recBodies` agreement is unblocked but
@@ -536,13 +539,15 @@ applied form — which is what makes the capstones' instantiation free. -/
 flavour). Compared with `registeredClosure_of_deltaMem` the existence premise `hreg` and
 the key-distinctness premise `hkeys` are **gone** — `SEnv.walked`'s defining condition
 supplies the first and *is* a lookup, so the second is not needed. What survives is the
-context-uniformity residue `huni`, which is `DeltaHyps.uniform`. -/
+context-uniformity premise `huni`, which the capstones now discharge with
+`ErasesUniform.erases_uniform_closed`. -/
 theorem registeredClosure_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {Esrc : SEnv} {s : ErasureState} (h : DeltaMem env Us Γ Esrc s)
     (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (hclenv : ClosedEnv s.gdecls)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
-      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls → LBClosed t 0 →
       VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t) :
     RegisteredClosure env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
@@ -553,7 +558,7 @@ theorem registeredClosure_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ :
     obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
     obtain rfl := Kername.eq_of_beq hbeq
     obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase (SEnv.walked_le hb) hmem
-    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem hΔwf hΔnb her⟩
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem (hclenv hlk) hΔwf hΔnb her⟩
 
 /-- **The walk's δ record becomes the capstone's, at the walk-restricted `Esrc`** (data
 flavour): the same conversion, plus the applied-form conjunct the data simulation
@@ -562,8 +567,9 @@ theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
     {Γ : ErasureCtx} {Esrc : SEnv} {s : ErasureState} (h : DeltaMem env Us Γ Esrc s)
     (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
       Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (hclenv : ClosedEnv s.gdecls)
     (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
-      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls →
+      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls → LBClosed t 0 →
       VLCtx.WF env Us.length Δ → Δ.NoBV →
       Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
     (hnb : NoBlockEnv s.gdecls) :
@@ -575,7 +581,7 @@ theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
     obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
     obtain rfl := Kername.eq_of_beq hbeq
     obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase (SEnv.walked_le hb) hmem
-    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem hΔwf hΔnb her, hnb hmem⟩
+    exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem (hclenv hlk) hΔwf hΔnb her, hnb hmem⟩
 
 /-- **`SEnvConsistent` restricts.** The source-side δ trust item is a `∀` over `Esrc`'s
 domain, so cutting the domain down keeps it — which is what lets the capstone state its

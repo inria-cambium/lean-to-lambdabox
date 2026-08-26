@@ -1511,14 +1511,18 @@ open LeanToLambdaBox
 --   * key distinctness (`hkeys`/`hkinj`) — **ELIMINATED**. Keyed on `envLookup` rather than
 --     on membership, the conversion never turns a membership into a lookup. This is one
 --     premise better than the design predicted (it expected `hkinj` to be paid here).
---   * context-uniformity (`huni`) — **SURVIVES**, as the existing `DeltaHyps.uniform`
---     field, so it is not a new capstone premise. Now restricted to bodies the walk really
---     stored (the membership premise), which is strictly weaker.
---   * applied form (`hnb`) — **SURVIVES**, as the new `ColdStartSubject.noBlockEnv`. The
---     shape induction's `Q` cannot carry it: `visitExpr_noFix_closed` proves `NoFix`/
---     `LBClosed` and not `NoBlock`, and inside the bridge the erasure argument is abstract.
---     Stating it about the run's final ENVIRONMENT (not about a dependency's own run) is
---     forced: at the capstone a `gdecls` entry does not come with the run that produced it.
+--   * context-uniformity (`huni`) — **DISCHARGED at slice δ-D7b**. `DeltaHyps.uniform` is
+--     deleted; the capstones call `ErasesUniform.erases_uniform_closed`. The context it
+--     starts from comes with its own well-formedness and `NoBV` (δ-D7b(i)), both free at
+--     the production site (`BridgeInv.vlctx_wf`/`BridgeInv.noBV`) and recoverable nowhere
+--     else. What is left is ONE named VExpr-level premise, `ErasableStrengthen`.
+--   * applied form (`hnb`) — **RETIRED at slice δ-N**, and the claim recorded here was
+--     wrong. `NoBlock` is `True` on `.box` (boxing is invisible to it) and `False` on
+--     exactly one node, `.construct _ _ (_ :: _)`; the eraser's single `.construct`
+--     construction site is nullary by explicit design. So the shape induction DOES carry
+--     it, as `ShapeC`'s third conjunct (`visitExpr_shape_all`), and at the environment
+--     level `NoBlockEnv` is a `RunClosed` predicate (`runClosed_noBlockEnv`).
+--     `ColdStartSubject.noBlock`/`.noBlockEnv` are both deleted; the record has one field.
 --
 -- LEDGER: no new axiom, no `sorry`. `SEnv.walked`/`NoBlockEnv` are plain definitions over
 -- `GlobalDeclarations`; `envδ` is built with lean4lean's own `VEnv.addConst`/`addDefEq` and
@@ -1668,3 +1672,103 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
 #print axioms LeanToLambdaBox.prepare_sound_of_prepareHyps
 #print axioms LeanToLambdaBox.visitExpr_regInvShape
+
+-- ============================================================================
+-- WAVE δ-{D7a, N, rec, D7b(i)} — the three residues, revisited
+--
+-- 1. RESIDUE 3 (`ColdStartSubject.noBlock`/`.noBlockEnv`) — RETIRED, not discharged:
+--    it was never a residue. See the corrected note above. `ShapeC` gains a third
+--    output conjunct; `RunClosed.nrc`/`.rc` gain the matching slot; the two run-exit
+--    lemmas are abstract in `Nf`/`Cl` and needed no change at all.
+--
+-- 2. RESIDUE 2 (`DeltaHyps.uniform`) — the weakening half is now a theorem with NO
+--    residue (`erases_weakFV`, `erases_weak_any`). The ledger blamed the wrong side:
+--    `TrExprS.weakFV` has been proved upstream all along; what is missing is
+--    `Erasable`/`HasType` STRENGTHENING, which is the commissioned obligation.
+--    Correction to the design: lean4lean's `weakFV` wants `VLCtx.WF` of the target
+--    context, and the `lam`/`letE` cases cannot re-establish it (`Erases.lam` carries no
+--    `IsType` for its binder type). `VLCtx.FVWF` is all the proof consumes and conses
+--    freely under a bvar entry — hence the `_fvwf` transcriptions. For the unrestricted
+--    `∀ Δf` that `Erases.fix` demands, even `FVWF` is unavailable; there the
+--    fvar-FREENESS of the source removes the hypothesis outright (no `.inr` lookup ever
+--    happens), hence the `_nofvars` transcriptions and `erases_weak_any`.
+--
+-- 3. `erases_fix_of_open` — its `hopen` premise was UNSATISFIABLE for every
+--    self-referential block, and unguarded. `Erases.fixvar` is the only rule with source
+--    `.const` and target `.fvar`, and its `hfresh` is anti-monotone in `Δ`. Repaired by
+--    conditioning `hopen` on a fresh `Δf` and rebuilding `Erases.fix`'s unrestricted
+--    `hbodies` through `[]` with `erases_weak_any`. `gErases_fix_of_open` is the guard
+--    it never had.
+--
+-- AXIOM MOVEMENT: none at the capstones. The new NoBlock lemmas are sorryAx-FREE (they
+-- touch no lean4lean witness). The `Erases`-transport lemmas inherit `sorryAx` through
+-- lean4lean's `TrProj.weak'`, which is the boundary the capstones already measure, and
+-- the fragment excludes `.proj` anyway.
+-- ============================================================================
+
+-- Residue 3, retired.
+#print axioms LeanToLambdaBox.noBlock_toBvar
+#print axioms LeanToLambdaBox.noBlock_foldl_zipIdx_map
+#print axioms LeanToLambdaBox.rec_block_noBlock
+#print axioms LeanToLambdaBox.visitExpr_shape_all
+#print axioms LeanToLambdaBox.visitExpr_noBlock
+#print axioms LeanToLambdaBox.runClosed_noBlockEnv
+#print axioms LeanToLambdaBox.visitExpr_noBlockEnv
+
+-- Residue 2, weakening half.
+#print axioms LeanToLambdaBox.VLCtx.FVWF.fvars_nodup
+#print axioms LeanToLambdaBox.TrExprS.weakFV_fvwf
+#print axioms LeanToLambdaBox.erases_weakFV
+#print axioms LeanToLambdaBox.TrExprS.weakFV_nofvars
+#print axioms LeanToLambdaBox.erases_weak_any
+
+-- The repaired recursion theorem and its new guard.
+#print axioms LeanToLambdaBox.erases_fix_of_open
+#print axioms LeanToLambdaBox.gErases_fix_of_open
+
+-- The δ record's context data.
+#print axioms LeanToLambdaBox.BridgeInv.vlctx_wf
+#print axioms LeanToLambdaBox.BridgeInv.noBV
+
+-- Stability: the two cold-start capstones, unchanged.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- WAVE δ-D7b — context-uniformity, discharged
+--
+-- `DeltaHyps.uniform` is GONE. The two-sided transport it asserted is now
+-- `ErasesUniform.erases_uniform_closed` = strengthen-to-`[]` then `erases_weak_any`.
+--
+-- What survives is exactly ONE named obligation, `ErasableStrengthen`: `HasType.weakN_inv`
+-- for the shipping `VEnv.HasType`. Two upstream facts established while proving this, both
+-- worth recording because they contradict the design pass:
+--   * lean4lean does NOT prove `HasType.weakN_inv` for the stratified theories — those
+--     statements sit inside comment blocks whose supporting `IsDefEq.weakN_inv` has `sorry`
+--     arms;
+--   * for the shipping `VEnv.HasType` the corresponding `IsDefEqU.weakN_iff`
+--     (`Theory/Typing/UniqueTyping.lean`) is itself a `sorry`.
+-- So discharging it from what upstream has today would import a gap, not close one.
+--
+-- The `box` arm DID close, and without a second obligation, via lean4lean's
+-- `TrExprS.unique` — which is `sorry`-free but gated on `TrExprS.IsUnique e`
+-- (projection-free). `NoProj` is that gate, and `DeltaHyps.esrc_shape` is where the
+-- fragment pays it; the supported fragment excludes `.proj` anyway.
+--
+-- AXIOM MOVEMENT: none at the capstones. Everything mentioning `Erases` carries `sorryAx`
+-- already — `TrProj` is a `sorry`-valued DEFINITION upstream and `Erases.box`/`lam`/`letE`
+-- mention `TrExprS`, so `#print axioms LeanToLambdaBox.Erases` has carried it from the
+-- start.
+-- ============================================================================
+
+#print axioms LeanToLambdaBox.ErasableStrengthen
+#print axioms LeanToLambdaBox.erasableStrengthen_liftN_zero
+#print axioms LeanToLambdaBox.NoProj.toIsUnique
+#print axioms LeanToLambdaBox.Erases.strengthen_fvlift
+#print axioms LeanToLambdaBox.erases_strengthen_closed
+#print axioms LeanToLambdaBox.erases_uniform_closed
+#print axioms LeanToLambdaBox.erases_uniform_of_nil
+
+-- Stability, once more, with the residue discharged.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

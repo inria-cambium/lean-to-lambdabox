@@ -60,9 +60,8 @@ capstones. What changed here, precisely:
   (`hkinj`) premise the design expected to pay here; see `SEnv.walked`. The price is that
   the source-evaluation premise is stated at the restricted environment — the honest place
   for "the program only calls what the walk reached".
-* One residue survives at this slice: context-uniformity (`DeltaHyps.uniform`). Applied
-  form — the second residue as of D5 — is **gone** (slice δ-N): see the residue list
-  below.
+* Both residues this slice used to name are **gone**: applied form at δ-N, and
+  context-uniformity at δ-D7a/δ-D7b. See the residue list below for what replaced them.
 
 `SEnvConsistent` is **not** derived and should not be: it says the prepared body is defeq
 to the kernel's value for the constant, which is a `PrepareHyps`-class fact about the
@@ -85,7 +84,8 @@ Four classes, and nothing falls outside them:
   `BridgeHyps` has carried since the bridge landed.
 * **S — scope restriction.** Narrows the class of programs the statement speaks about. A
   violation makes the *premise* unsatisfiable; it never makes the theorem false.
-* **R — residue.** Believed, named, not proved. Three of them, listed after the table.
+* **R — residue.** Believed, named, not proved. **One** of it, listed after the table —
+  down from three at the previous slice.
 
 | premise | class | note |
 |---|---|---|
@@ -99,7 +99,7 @@ Four classes, and nothing falls outside them:
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
-| `Hδ : DeltaHyps` | H + S + R | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free` are S (the fragment's own closure conditions); `uniform` is residue 2 |
+| `Hδ : DeltaHyps` | H + S + R | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). The `uniform` field is **gone** (δ-D7b) — context-uniformity is now a theorem |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
 | `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
@@ -107,6 +107,7 @@ Four classes, and nothing falls outside them:
 | `hrel : IotaRelevant` (ι) | S | excludes `Erases` derivations that box a proper prefix of an ι redex; the shipping `visitCases` emits none |
 | `hiacoh : IotaArityCoherent` (ι) | C | `ΓFOι_iotaArityCoherent` |
 | `hcc` (ctor/`casesOn` disjointness) | C | `ΓFOι_cc` |
+| `hstr : ErasableStrengthen env Us` | **R** | the only one left. A three-line `VExpr`-level statement — `HasType.weakN_inv` for the shipping `VEnv.HasType`. See residue 1 below |
 
 **Derived from the run, and therefore absent from the list above** — the `ErasureState`,
 the environment `E`, `ClosedEnv E`, `LBClosed t 0`, the bridge invariant, the three
@@ -116,19 +117,74 @@ too: it is the theorem `ColdStartRun.prepare_sound_of_prepareHyps`, so that bund
 to three fields. `ColdStartInduction.RegShapeHyps` is **not used at all** — it is refuted
 below, three ways.
 
-**The three residues, and who owes them.**
+**The residues: one, and who owes it.**
 
-1. `EnvErasureRec.RegisteredClosureRec` — the δ witness for a *recursive* block. Slice D6
+0. **How to read this list.** The repo keeps a refuted or retired item next to its record
+   rather than deleting it, so the three entries below are the three the previous slice
+   named. Only **one** is still a residue, and only one is a capstone premise of class R:
+   `hstr : ErasableStrengthen env Us`, inside entry 2.
+
+1. `EnvErasureRec.RegisteredClosureRec` — the δ witness for a *recursive* block. **Not a
+   capstone premise**: `hnorec` (S) stands in for it, so it costs scope, not trust. Slice D6
    walks the recursive exit's `List.mapM` and supplies most of `erases_fix_of_open`'s
    premise list from the run; what is left is `hnd` (freshness, `BridgeHyps.fresh_run`'s
    business), `hreg` (a run-keyed `Γ.recBodies` agreement, irreducible at a *parameter*
    `Γ`) and `hopen` at the block-local `Γ.withFixvars fv` — the `Γ`-inside-the-motives
    generalisation (design §W3.2/D8). `ColdStartDelta`'s recursion section is the
-   premise-by-premise ledger. This is what `hnorec` above stands in for.
+   premise-by-premise ledger.
+
+   Slice `rec` repaired the theorem this entry is about. `erases_fix_of_open`'s `hopen`
+   quantified over *every* `Δf`, and in that form it is **unsatisfiable for every
+   self-referential block** — `Erases.fixvar` is the only rule taking a `.const` source to
+   an `.fvar` target, and its `hfresh` is anti-monotone in `Δ`. It had no non-vacuity
+   guard, which was the tell: the file's own fixture carries exactly the missing side
+   condition and so could never feed it. `hopen` is now conditioned on a fresh `Δf`,
+   `Erases.fix`'s unrestricted `hbodies` is rebuilt through `[]` with `erases_weak_any`,
+   and `gErases_fix_of_open` is the guard it never had.
 2. `DeltaHyps.uniform` — context-uniformity (`∀ Δ`) of a constant body's erasure. The
-   bridge fires at the `Δ` of the call site; `Erases` has `abstract`/`uninstantiate`/
-   `thin_vlet`, all context-*shrinking*, and the missing direction is fvar-extension,
-   which is a lean4lean-side `TrExprS`-weakening obligation, not an erasure one.
+   bridge fires at the `Δ` of the call site, and `RegisteredClosure*.erase` needs every
+   `Δ`.
+
+   **The blame was misplaced** (slice δ-D7a). This row used to say the gap was "a
+   lean4lean-side `TrExprS`-weakening obligation"; `TrExprS.weakFV`
+   (`Verify/Typing/Lemmas.lean:596`) has been proved upstream all along. The
+   **weakening** half is now a theorem of this development with no residue at all:
+   `ErasesStrengthen.erases_weakFV` (along a `VLCtx.FVLift`) and
+   `ErasesStrengthen.erases_weak_any` (out of `[]` into *every* `VLCtx`, for a closed,
+   fvar-free source and a closed target — the shape `Erases.fix`'s unrestricted `∀ Δf`
+   demands). Two corrections fell out of proving them, both recorded at the lemmas:
+   lean4lean's `weakFV` asks for `VLCtx.WF` of the target context, which the `lam`/`letE`
+   cases cannot re-establish (`Erases.lam` carries no `IsType` for its binder type) and
+   which is more than the proof consumes — `VLCtx.FVWF` suffices and conses freely; and
+   at an unrestricted `Δ` even `FVWF` is unavailable, where fvar-*freeness* of the source
+   removes the hypothesis outright, since no `.inr` lookup ever happens.
+
+   What is left is the **other** direction, `Δ → []`, and it is not about `Erases` or
+   about `TrExprS` either: it is `Erasable`/`HasType` **strengthening**, the inverse of
+   `weakN`. lean4lean has `HasType.weakN_inv` for the *stratified* theories only; the
+   shipping `VEnv.HasType` used by `Verify/Typing` has no such lemma. That is the whole
+   of residue 2, stated at the `VExpr` level — which makes it a contribution to lean4lean
+   rather than a debt of this development. The `Δ` the record starts from now travels
+   with its own well-formedness and `NoBV` (slice δ-D7b(i), `DeltaMem`), so nothing else
+   stands between the premise and its discharge.
+
+   **Discharged** (slice δ-D7b). `ErasesUniform.erases_strengthen_closed` does the
+   `Δ → []` direction and `erases_uniform_closed` composes the two, so the field is
+   deleted from `DeltaHyps` and the capstones call the theorem. What is left is the
+   premise `hstr : ErasableStrengthen env Us`, a three-line statement at the `VExpr`
+   level and the only R-class row in the table above. Two things the bundle owes it are
+   S-class and now written down: `DeltaHyps.esrc_shape` (a fragment body is
+   projection-free and translates at `[]` — `NoProj` is what makes lean4lean's
+   `TrExprS.unique`, which is `sorry`-free, applicable, and the supported fragment
+   excludes `.proj` anyway), and the context data `DeltaMem` now carries (δ-D7b(i)).
+
+   Honest note on the upstream side, established while proving this: lean4lean does
+   **not** have `HasType.weakN_inv` even for the stratified theories — those statements
+   sit inside comment blocks whose supporting `IsDefEq.weakN_inv` has `sorry` arms — and
+   for the shipping `VEnv.HasType` the corresponding `IsDefEqU.weakN_iff`
+   (`Theory/Typing/UniqueTyping.lean`) is itself a `sorry`. So discharging `hstr` from
+   what upstream has today would import a gap rather than close one. Naming it keeps the
+   gap where a reader can see it.
 3. ~~`ColdStartSubject.noBlock` / `noBlockEnv`~~ — **RETIRED, slice δ-N.** The stated
    obstruction ("not carryable by the shape induction") was a misdiagnosis, and the
    refutation is one line of the definition: `NoBlock` (`ErasesCorrectData.lean`) is
@@ -321,6 +377,8 @@ theorem shipping_erase_correct_firstorderι_coldstart
     -- Γ-side conditions
     (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
+    -- the sole surviving residue: one commissioned VExpr-level obligation (slice δ-D7b)
+    (hstr : ErasableStrengthen env Us)
     -- registration bundle
     (Hr : RegBridgeHyps Γ)
     -- the source-side δ trust item (see the ledger: it cannot come from the walk)
@@ -383,12 +441,19 @@ theorem shipping_erase_correct_firstorderι_coldstart
   -- …converted, at the walk-restricted source environment, into the record the data
   -- simulation consumes. Existence and key distinctness are *by construction* of
   -- `SEnv.walked`; `hdisj` is the fragment's own δ-closure clause; the two residues are
-  -- `DeltaHyps.uniform` and the subject bundle's `noBlockEnv`.
+  -- context-uniformity (now the theorem `erases_uniform_closed`, modulo `hstr`) and
+  -- applied form (now the theorem `visitExpr_noBlockEnv`).
   have hdelta : ErasesEnvDeltaData env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ _ _ her => (Hδ cctx ref).uniform hb her)
+        hshape.closed
+        (fun hb _ hlb hwf hnobv her =>
+          -- Context-uniformity, DISCHARGED (δ-D7b): strengthen to `[]` through the one
+          -- named obligation, then re-widen to *every* context with `erases_weak_any`.
+          erases_uniform_closed henv hnfv hstr (VLCtx.FVLift.from_nil hnobv) hwf
+            ((Hδ cctx ref).esrc_shape hb).1
+            ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, hclv, huniq⟩ :=
     shipping_erase_correct_firstorderι henv (Us := [])
@@ -416,6 +481,8 @@ theorem shipping_erase_correct_firstorder_coldstart
     {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
     (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
+    -- the sole surviving residue: one commissioned VExpr-level obligation (slice δ-D7b)
+    (hstr : ErasableStrengthen env Us)
     (Hr : RegBridgeHyps Γ)
     (hcon : SEnvConsistent env Us Esrc)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
@@ -459,7 +526,13 @@ theorem shipping_erase_correct_firstorder_coldstart
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
         (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
-        (fun hb _ _ _ her => (Hδ cctx ref).uniform hb her)
+        hshape.closed
+        (fun hb _ hlb hwf hnobv her =>
+          -- Context-uniformity, DISCHARGED (δ-D7b): strengthen to `[]` through the one
+          -- named obligation, then re-widen to *every* context with `erases_weak_any`.
+          erases_uniform_closed henv hnfv hstr (VLCtx.FVLift.from_nil hnobv) hwf
+            ((Hδ cctx ref).esrc_shape hb).1
+            ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
   obtain ⟨t', heval, htrv, herv, hnbv, huniq⟩ :=
     shipping_erase_correct_firstorder henv (Us := [])
@@ -507,6 +580,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (hstr : ErasableStrengthen envFO [])
     (S : ColdStartSubject envFO [] (fun _ => False) ΓFOι e cfg cctx ref w)
     (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
@@ -519,7 +593,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr (by intro Δ n us body cve h; exact absurd h (by simp))
+    (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
     hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ S
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
@@ -534,6 +608,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (hstr : ErasableStrengthen envFO [])
     (S : ColdStartSubject envFO [] (fun _ => False) ΓFOι e cfg cctx ref w)
     (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
@@ -546,7 +621,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOι]) Hr (by intro Δ n us body cve h; exact absurd h (by simp))
+    (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
     ΓFOι_cc H HD C Hδ S (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
@@ -697,7 +772,15 @@ theorem gErasesEnvDeltaDataδ :
   erasesEnvDeltaData_of_registeredClosureData
     (registeredClosureData_of_deltaMem_walked (s := sδ) gDeltaMemδ
       (fun hb => by obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb; exact ⟨by simp [ΓFOd], rfl⟩)
-      (fun hb hm _ _ _ => by
+      (by
+        intro kn body hl
+        obtain ⟨k, hmem, -⟩ := envLookup_mem hl
+        simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hmem
+        rcases hmem with h | h
+        · obtain rfl : body = tδ := (by simpa using h : k = toKername `g ∧ body = tδ).2
+          simp [tδ, LBClosedArgs]
+        · exact absurd h (by simp))
+      (fun hb hm _ _ _ _ => by
         obtain ⟨rfl, rfl⟩ := Esrcδ_eq hb
         obtain rfl : _ = tδ := by
           simp only [sδ, Eδ, EFOd, List.mem_cons, List.not_mem_nil, or_false] at hm
@@ -810,6 +893,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       DeltaHyps envδ [] knownδ ΓFOd Esrcδ gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (hstr : ErasableStrengthen envδ [])
     (S : ColdStartSubject envδ [] knownδ ΓFOd e cfg cctx ref w)
     (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
@@ -823,7 +907,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       Erases envδ [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envδ [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envδ_wf rfl hcsimp rfl rfl
-    (by simp [ΓFOd]) Hr envδ_senvConsistent
+    (by simp [ΓFOd]) hstr Hr envδ_senvConsistent
     (by
       intro cn iid cidx hc
       by_cases h : cn = `c

@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Bridge
+import LeanToLambdaBox.ErasesUniform
 import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.SourceEval
 import Lean4Lean.Verify.NameGenerator
@@ -77,18 +78,19 @@ restricted environment, which `prep_esrc` cannot satisfy: it fixes `Esrc` at the
 the walk prepares a body, before there is a final state to restrict against. No theorem
 relates the two; a caller that wants them equal simply passes one environment twice.
 
-## The record, and the one residue that is not a scope statement
+## The record, and where the context-uniformity residue went
 
 `DeltaMem` and `RunConclδ` (below) are not hypotheses at all: they are what the bridge
 *proves* about a run, and they live here because the bridge's motives mention them.
 
-`uniform` is the `∀ Δ` context-uniformity residue that
-`ColdStartDelta.registeredClosureData_step_nonrec` already carries as `huni`: the bridge
-fires at the `Δ = []` the run uses, while a δ-unfolding happens at an arbitrary `Δ`.
-`Erases` has `abstract`/`uninstantiate`/`thin_vlet`, all context-*shrinking*; the missing
-direction is fvar-extension of `Δ`, which is a lean4lean-side `TrExprS` weakening
-obligation, not an erasure one. It is a premise here for exactly as long as that lemma is
-missing.
+There used to be a `uniform` field here — the `∀ Δ` context-uniformity residue. It is
+gone (slice δ-D7b). The weakening half is a theorem outright
+(`ErasesStrengthen.erases_weakFV`/`erases_weak_any`); the strengthening half is
+`ErasesUniform.erases_strengthen_closed`, modulo ONE named `VExpr`-level obligation
+(`ErasableStrengthen`) that is a premise of the *capstones* rather than a field here,
+because it speaks about `env` alone. What this bundle owes it is the S-class `esrc_shape`
+field: the fragment's bodies are projection-free and translate at the empty context, which
+prepared top-level constant bodies are.
 -/
 
 namespace LeanToLambdaBox
@@ -159,7 +161,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   subject and every constant it calls", and it should be read in one breath with that one
   rather than as a second, independent restriction. The `Supported` half is a genuine
   fragment restriction (no `.proj`, no η-contracted minors, no machine `Nat`); the `∀ Δ` on
-  the translatability is there only because `TrExprS` weakening is missing — see `uniform`.
+  the translatability is there only because `TrExprS` weakening is missing — see `closed`.
 
   Note for the consumer: `Esrc n = some pe` is a *premise*, at the run's own output `pe`.
   That is the canonical instantiation's defining equation (`Esrc` **is** the collection of
@@ -236,24 +238,29 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   prep_run : ∀ {e pe : Expr} {s s' : ErasureState} {ctx : ErasureContext}
       {w w' : Void IO.RealWorld},
     prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s
-  /-- **Context-uniformity of a constant body's erasure** — the `huni` residue
-  `ColdStartDelta.registeredClosureData_step_nonrec` already carries. Discharged outright
-  once `Erases`/`TrExprS` gain fvar-extension weakening; a premise until then.
+  /-- **A fragment body is projection-free and translates at the empty context** — scope
+  restriction 6, and an S-class fact about a *prepared top-level constant body*, which
+  every one of them is. Closedness and fvar-freeness are not separate demands: both follow
+  from the `TrExprS` witness (`TrExprS.closed`/`TrExprS.fvarsIn`). `NoProj` is what pins
+  that witness to a *unique* `VExpr`: lean4lean's `TrProj` is `sorry` upstream, so the
+  `proj` arm of `TrExprS` uniqueness is unavailable — and the supported fragment excludes
+  `.proj` anyway.
 
-  Stated between *two* arbitrary contexts rather than out of `Δ = []` (slice D5). The
-  `[]`-shaped form is what a caller holding the run needs, because `visitMutual` erases a
-  top-level constant body at the empty context; but the record the walk hands the capstone
-  (`DeltaMem`) carries `∃ Δ` — the `Δ` of the *call site*, since `withReader` keeps the
-  ambient `lctx` — and `RegisteredClosure*.erase` demands `∀ Δ`. Nothing weaker than the
-  two-sided form bridges those, and the one-sided form is its instance at `Δ := []`. -/
-  uniform : ∀ {n : Name} {pe : Expr} {t : LBTerm} {Δ Δ' : VLCtx},
-    Esrc n = some pe → Erases env Us Γ Δ pe t → Erases env Us Γ Δ' pe t
+  This field replaces the old `uniform` residue (slice δ-D7b). Context-uniformity is now a
+  theorem (`ErasesUniform.erases_strengthen_closed` composed with
+  `ErasesStrengthen.erases_weak_any`) rather than a premise; what those need of the source
+  they transport is exactly this, and it is a property of the term, not of the erasure.
+  The single named `VExpr`-level obligation that remains — `ErasableStrengthen` — is a
+  premise of the *capstones*, not a field here, because it speaks about `env` alone and is
+  commissioned upstream. -/
+  esrc_shape : ∀ {n : Name} {pe : Expr}, Esrc n = some pe →
+    NoProj pe ∧ ∃ ve, TrExprS env Us [] pe ve
 
 /-- **What the bundle costs at the empty fragment** — the honest accounting for every
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
 
 The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
-`prepared`, `prep_esrc` and `uniform` all have `known n` or `(Esrc n).isSome` in their
+`prepared`, `prep_esrc` and `closed` all have `known n` or `(Esrc n).isSome` in their
 premises, and `axiom_free`'s conclusion is `none = none`. The *bookkeeping* half is
 **not** free and is passed in: `log_run`/`env_run`/`inst_run`/`ci_run`/`prep_run` are
 generator-monotonicity (and, for `prep_run`, state-transparency) statements about real
@@ -299,7 +306,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   inst_run := hinst
   ci_run := hci
   prep_run := hprep
-  uniform := by intro n pe t Δ Δ' h; simp at h
+  esrc_shape := by intro n pe h; simp at h
 
 /-! ## The δ record along the walk
 

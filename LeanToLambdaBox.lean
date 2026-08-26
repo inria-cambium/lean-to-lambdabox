@@ -54,6 +54,10 @@ import LeanToLambdaBox.ErasesCorrectData
 import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.ErasesAbstract
 import LeanToLambdaBox.ErasesStrengthen
+-- Context-uniformity of erasure (slice δ-D7b): strengthening to the empty context,
+-- modulo the one commissioned VExpr-level obligation `ErasableStrengthen`, composed with
+-- `ErasesStrengthen`'s weakening — the two-sided transport `DeltaHyps.uniform` asked for.
+import LeanToLambdaBox.ErasesUniform
 import LeanToLambdaBox.ErasureRun
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).
