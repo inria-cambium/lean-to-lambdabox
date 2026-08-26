@@ -1826,6 +1826,9 @@ open LeanToLambdaBox
 -- `erases_rec_block_of_run`'s conclusion, so it composes), the block loop's generator
 -- bookkeeping, and one more scope restriction, since the registration is keyed on
 -- `remove_unsafe_rec n` and not on `n`.
+--     [δ-D8e: this diagnosis is CORRECT ABOUT THE GATE and INCOMPLETE ABOUT THE REST.
+--      The wiring list above omits a structural item that no premise supplies. See the
+--      δ-D8e section at the end of this file.]
 --
 -- AXIOM MOVEMENT: none at the capstones, verbatim. The transports are pure record
 -- surgery, and two of them (`DataBridgeHyps`, `CasesBridgeHyps`) come out sorryAx-FREE
@@ -1868,5 +1871,112 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gRecEnvConsistentD8
 
 -- Stability: the two cold-start capstones, verbatim unchanged.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE δ-D8e — the recursion trade, priced; and one premise that stops being one
+--
+-- The slice set out to walk the recursive exit and retire `hnorec` from both cold-start
+-- capstones. It lands two of the four steps and PRICES the other two, because the price
+-- turned out to be a motive change rather than a premise.
+--
+-- (1) THE `decl_run` RELAXATION — landed. The clause `name_occurs n v = false` was the
+--     fifth conjunct of a spec about `Compiler.LCNF.getDeclInfo?`, and it is not about
+--     the fetch at all. It is now `DeltaHyps.nonrecursive`, its own field, keyed on the
+--     two runs its consumer holds (the fetch, which ties the value to the name, and the
+--     `value?` hit) in `prep_esrc`'s style. `decl_run` is left with what the fetch
+--     answers; `nonrecursive` is scope restriction 5, listed with the other four. The
+--     trade is now a one-field trade. `of_bot` absorbs the new field for free — it is
+--     keyed on `known n`.
+--
+-- (2) `hffv` — landed, and NOT where D8 filed it. D8 asked for a fourth `ShapeC`
+--     conjunct, `FVarsIn (fun _ => False)` on `visitExpr`'s outputs. That is FALSE:
+--     inside a block `visitConst` returns `.fvar x` for a sibling, and the repo's own
+--     fixture has `gObodyD8 x = λa. x #0`. Fvar-freeness is a property of the STORED
+--     body, after `mkDef` closes — and it is not an independent property even there. It
+--     is a consequence of the block-local erasure plus the closing:
+--       `erases_target_fvars`   an fvar-free SOURCE erases to a target whose free
+--                               variables are all fixvars of `Γ` (the `Erases.fvar` rule
+--                               is the only one that could invent one, and the source-side
+--                               hypothesis kills it; `const_fix`/`fix` are killed by their
+--                               own `htobv`),
+--       `not_hasFVar_closeFix`  a term whose fvars lie in `ids` closes to one with none,
+--                               on top of `hasFVar_toBvar` — `toBvar y` deletes exactly
+--                               `y` and manufactures nothing.
+--     So `erases_rec_block_of_run` DROPS `hffv` from its signature and derives it. Net:
+--     one fewer premise on the δ-D8b theorem, and the shape induction is untouched.
+--
+-- (3) STEP 6's RECURSIVE BRANCH — NOT landed, and the reason is structural, which is the
+--     correction to δ-D8's ledger entry. Removing `nonrecursive` lets the run REACH the
+--     recursive exit; it does not let the bridge WALK it.
+--
+--     Inside `visitExpr_refines_erases_core` the exit's per-sibling erasures are runs of
+--     the induction's ABSTRACT fixpoint argument, so the only thing available about them
+--     is the motives — and the motives fix one `Γ`. The exit erases each sibling under
+--     the reader carrying the block's fixvar map, while `BridgeInv.fixvars` is an IFF
+--     against `Γ.fixvars`, which `DeltaHyps.nofixvars` pins at `⊥` for a fragment name —
+--     and step 6 has `hkn : known n` in scope. So the erasure IH's own premise is FALSE
+--     at the configuration the branch would have to run it in:
+--       `bridgeInv_blockReader_refuted`        (any reader map with a hit),
+--       `bridgeInv_rec_exit_reader_refuted`    (the block reader itself, one sibling).
+--     δ-D8a's finding stands and is about the THEOREM: `visitExpr_refines_erases` is
+--     Γ-polymorphic as a statement, which is what `visitExpr_refines_erases_block` reads
+--     it at a second `Γ` from. Step 6 has no outside to read it from.
+--
+--     PRICED, in order: quantify `(known, Γ, Esrc)` and the four trust bundles inside all
+--     eighteen motives (~40 IH sites, ~30 bundle uses); a block-loop decomposition that
+--     CHAINS states and worlds, since `run_rec_exit_siblings` is `gw`-free by design and
+--     hands its per-sibling runs back at unrelated states — exactly what a `BridgeInv`
+--     cannot be rebuilt from; the transport of the OUTER δ record across the block's
+--     inner runs; the block-local `Supported`/`TrExprS`/`Esrc` premises for the sibling
+--     bodies, which the `known = ⊥` bundle cannot supply because every scope field of it
+--     is keyed on `known n`; and the `remove_unsafe_rec` restriction, which is real:
+--       `rec_exit_registers_stripped_name` — the exit registers under
+--       `names.map remove_unsafe_rec`, so at `f._unsafe_rec` motive 6's
+--       `(s'.constants.get? n).isSome` is FALSE on the run, not merely unproved.
+--
+-- (4) THE CAPSTONE TRADE — NOT landed, and deliberately. Taking `hcov` (a membership
+--     agreement) in place of `hnorec` would LOOK like a widening and would not be one: the
+--     only exit that cons a `.constantDecl ⟨some (.fix …)⟩` is the recursive one, and the
+--     non-recursive exit provably cannot (`nonrec_exit_stores_no_fix`: it stores a
+--     `visitExpr` output, and those are `NoFix`). With no producer, the membership premise
+--     is uninhabited for every `n` with `Γ.recBodies n ≠ none`, so the traded capstone
+--     would speak about exactly the same programs while hiding the restriction inside a
+--     premise instead of naming it in the ledger. It waits for (3).
+--
+-- AXIOM MOVEMENT: none at the capstones, verbatim, again — same eight, third slice
+-- running. The three pure-`LBTerm` fvar lemmas are sorryAx-FREE (`propext`, `Quot.sound`),
+-- and so are `rec_exit_registers_stripped_name` and `nonrec_exit_stores_no_fix`. The two
+-- `BridgeInv` refutations are NOT, and not for their own sakes: `BridgeInv.mlc` carries an
+-- `MLCtx.WF`, hence `TrExprS`, hence the lean4lean `TrProj` boundary — the same one
+-- `erases_target_fvars` inherits through `Erases`. Nothing new is trusted either way; a
+-- refutation that inherits a boundary is still a refutation.
+-- ============================================================================
+
+-- (1) The split: `decl_run` without the recursion clause, `nonrecursive` beside it.
+#print axioms LeanToLambdaBox.DeltaHyps.of_bot
+
+-- (2) The fvar kit. sorryAx-FREE: pure `LBTerm` reasoning.
+#print axioms LeanToLambdaBox.hasFVar_toBvar
+#print axioms LeanToLambdaBox.not_hasFVar_closeFixFold
+#print axioms LeanToLambdaBox.not_hasFVar_closeFix
+-- …and the one `Erases`-level fact that counts fvars.
+#print axioms LeanToLambdaBox.erases_target_fvars
+-- …cashed in: `hffv` is gone from this signature.
+#check @LeanToLambdaBox.erases_rec_block_of_run
+#print axioms LeanToLambdaBox.erases_rec_block_of_run
+#print axioms LeanToLambdaBox.gErasesRecBlockD8
+
+-- (3) The wall, as theorems. The two `BridgeInv` ones inherit `TrProj` through
+-- `BridgeInv.mlc`; the registration one is sorryAx-FREE.
+#print axioms LeanToLambdaBox.bridgeInv_blockReader_refuted
+#print axioms LeanToLambdaBox.bridgeInv_rec_exit_reader_refuted
+#print axioms LeanToLambdaBox.rec_exit_registers_stripped_name
+
+-- (4) Why the capstone half cannot go first.
+#print axioms LeanToLambdaBox.nonrec_exit_stores_no_fix
+
+-- Stability: the two cold-start capstones, verbatim unchanged, for the third slice running.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
