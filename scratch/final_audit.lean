@@ -6,9 +6,11 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown four times since:
-to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a and to 707
-at slice Γ-W3.6b, with every earlier entry's output byte-identical at each step.)
+reported the same 648 entries it did at `fee3ada`. It has grown five times since:
+to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
+slice Γ-W3.6b and to 729 at slices proj-P0/P1/P4, with every earlier entry's output
+byte-identical at each step. The projection round's twenty-two new entries are **all
+`sorryAx`-free**, and the crown four did not move.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -2930,3 +2932,120 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+
+-- ============================================================================
+-- Projection round, slices P0 / P1 / P4 (2026-08-27).
+--
+-- P3 settled that `TrProj` is inhabited. These three slices build the model on top of
+-- it: a `Γ` column, an `Erases` rule, and the upstream interface. THE ROUND ADDS NO
+-- AXIOM AND NO `sorryAx`. Every declaration below measures either `[propext]` or the
+-- three standard axioms, and the crown four did not move — `visitExpr_refines_erases`
+-- and `_core` keep their seven, `rec_exit_refines_erases` its six.
+--
+-- (a) P0 — THE COLUMN, AND THE DE-OPACIFICATION.
+--
+--     `ErasureCtx.projs` is the one datum `visitProj` reads that no other field
+--     supplies: `Expr.proj S i e` names only the STRUCTURE TYPE, while `ctorArities` is
+--     keyed on the constructor and `casesOns` is populated only when the walk saw a
+--     `casesOn` — which a projection-only structure never produces.
+--
+--     `NoFix` and `NoBlock` stopped being `True` at `.proj`. The stated reason for the
+--     opaque clause covered `.construct` only; `.proj` was unreachable because `Erases`
+--     had no rule. It has one now, and `NoFix (.proj p t) = True` would hide a `.fix`
+--     under a projection from the very exclusion the data simulation runs on. The
+--     forced conclusion-position repairs numbered FOUR, not the ~20 the design
+--     predicted, because the `.proj` arms of the `LBClosed` inductions were already
+--     recursive; one of the four is in `ColdStartInduction.lean`, which is the round's
+--     only edit outside its own lane.
+--
+--     The env records are `ErasesEnvCases`' transposes, and `ProjFieldsCoherent` is
+--     `CtorFieldsCoherent`'s twin keyed on `projs` — a twin rather than a widened
+--     hypothesis, so the original's six call sites stay byte-identical. All discharged
+--     from registration and guarded at `AC`, which is literally the `is_struct` shape.
+#print axioms LeanToLambdaBox.ErasesEnvProjs.nonProp
+#print axioms LeanToLambdaBox.erasesEnvProjs_of_registeredProjs
+#print axioms LeanToLambdaBox.projFieldsCoherent_of_registered
+#print axioms LeanToLambdaBox.gΓproj_registeredProjs
+#print axioms LeanToLambdaBox.gΓproj_erasesEnvProjs
+#print axioms LeanToLambdaBox.gΓproj_nonProp
+#print axioms LeanToLambdaBox.gΓproj_projFieldsCoherent
+--
+-- (b) P1 — THE RULE. `Erases.proj` reads `visitProj` back off `Γ`, carries ONE
+--     sub-derivation, and — deliberately — NO `TrExprS` premise. `box`/`lam`/`letE`
+--     carry one because they record a `VExpr` witness that must transport; this rule's
+--     target carries none. Adding one would cost an equational-uniqueness obligation
+--     that is FALSE at `.proj`: `TrProj` pins `params`/`fieldTys` only up to defeq,
+--     which is why `TrProj.uniq` claims `IsDefEqU`.
+--
+--     Eleven structural arms, all one-liners. The twelfth — `Erases.strengthen_fvlift`
+--     — is VACUOUS, its scope predicate being `NoProj`, and that is exactly the wall
+--     slice P2 exists to move; the arm records the reason rather than hiding it.
+--
+--     Guards at both polarities on `Γproj` (one parameter, one field, so `2 = 1 + 1`
+--     decomposes non-degenerately): positive at a variable and at a saturated
+--     constructor spine, negative as `Erases.proj_none` — at `Γ.projs = ⊥` the only
+--     erasure of a projection is `box`.
+#print axioms LeanToLambdaBox.Erases.proj_inv
+#print axioms LeanToLambdaBox.Erases.proj_none
+#print axioms LeanToLambdaBox.erases_proj_fvar
+#print axioms LeanToLambdaBox.erases_proj_ctor
+#print axioms LeanToLambdaBox.foldl_app_const_ne_proj
+#print axioms LeanToLambdaBox.foldl_app_cons_ne_proj
+#print axioms LeanToLambdaBox.substFVarList_proj
+--
+-- (c) P4 — THE INTERFACE, AND WHY IT IS NOT `of_trEnv`.
+--
+--     `TrEnv.proj_defeq` is still `sorry` at `7a5e96d`, and — this is the finding, and
+--     it SURVIVED the motive re-pin, which fixed `TrProj.uniq` and nothing here — it is
+--     also missing a hypothesis. Its `hp : TrProj …` carries its own existentially
+--     bound constructor name; its `hd` supplies a different, universally quantified one
+--     for the spine the discriminant is defeq to; nothing ties them. Since
+--     `Pattern.Matches` on `SimplePattern.iota recName _ ctorName' _` matches the major
+--     premise against `ctorName'`, the reduction cannot fire without the agreement, and
+--     recovering it from `TrEnv` + `HasType` is a canonicity argument rather than a
+--     rewrite. So the statement is plausibly UNPROVABLE as written. Escalated as a
+--     STATEMENT correction, not a proof request.
+--
+--     `TrProjCtor` is `TrProj` with that name exposed, and the two conversions below
+--     show the exposure is a reparenthesisation, not a strengthening. `ProjDefeqSpec`
+--     states the reduction over it; `ProjShape` is the `rfl`-checkable certificate whose
+--     `ival.ctors = [ctor]` conjunct supplies the agreement locally.
+--
+--     `ProjDefeqSpec.of_trEnv` is DELIBERATELY ABSENT. It is one line and
+--     `TrProjCtor.toTrProj` is the piece it needs, but calling `TrEnv.proj_defeq` today
+--     injects the upstream PROJ-TODO `sorryAx`, and this round adds none. The interface
+--     stays a NAMED PREMISE — the `PatsIotaSpec` idiom — so the injection point, when it
+--     comes, is one declaration.
+#print axioms Lean4Lean.TrProjCtor.toTrProj
+#print axioms Lean4Lean.TrProj.exists_ctorName
+#print axioms Lean4Lean.TrExprS.proj_inv
+#print axioms Lean4Lean.TrExprS.proj_inv'
+#print axioms LeanToLambdaBox.ProjShape.ctorAgreement
+#print axioms LeanToLambdaBox.trProjCtorP_bvar0
+#print axioms LeanToLambdaBox.trProjCtorQ_bvar
+#print axioms LeanToLambdaBox.trProjCtor_refuted
+--
+-- (d) WHAT DID NOT LAND, AND WHY — two rules the slicing said were free and are not.
+--
+--     `Supported.proj` (planned P1) is NOT independent of P8. Step 1 of
+--     `visitExpr_refines_erases_core` analyses `hsupp` by a complete `cases`, so a new
+--     alternative of `Supported` is a new arm there, and only MOTIVE 10 can discharge
+--     it — and motive 10 concludes `True`. Giving it content needs a `ProjBridgeHyps`
+--     bundle and a new premise on the bridge theorem.
+--
+--     `SEvalDataι.proj` (planned P1) is NOT independent of P6+P7, for the same
+--     structural reason at a different relation: THREE complete inductions run over
+--     `SEvalDataι` (`SEvalDataι_defeq`, `erases_correct_dataι`,
+--     `SEvalDataι_partial_cases_lam_elim`), so a new constructor is three new arms, two
+--     of which need `ProjConsistent` threaded through twelve call sites and the full
+--     simulation case.
+--
+--     Both are structural facts about complete case analyses, not proof difficulty, and
+--     both mean the round has fewer independent slices than nine. What IS independent
+--     and did land is the whole model layer: the column, the rule, the predicates, the
+--     env records and the upstream interface.
+--
+--     `ProjConsistent` is defined (`SourceEvalData.lean`) as the premise those slices
+--     will take. It is a `Prop` HYPOTHESIS, never an axiom, and — like `IotaConsistent`
+--     — it stays one even once derivable, because that is what keeps `safety`/`kenv`
+--     out of the `VEnv`-level statements.
