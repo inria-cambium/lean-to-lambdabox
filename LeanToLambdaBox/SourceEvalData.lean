@@ -252,6 +252,31 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
   | lit {l : Literal} {r : Expr} :
       SEvalDataι Γ ia E l.toConstructor r → SEvalDataι Γ ia E (.lit l) r
 
+/-- **The δ rule is universe-blind** — slice Γ-U's guard, and the reason a universe
+relaxation of the *bundles* would be a change of model rather than a change of scope.
+
+Every δ rule in this development — `SEval.delta`, `SEvalβδ.delta`, `SEvalβζδ.delta`,
+`SEvalβζδι.delta`, `SEvalData.delta` and `SEvalDataι.delta` above — reads
+`E n = some body → … E body r → … E (.const n us) r`: the level arguments `us` are
+bound and then **discarded**, and the redex unfolds to the *uninstantiated* `body`.
+The kernel's δ step is `body.instantiateLevelParams ci.levelParams us`, so the two
+agree exactly when the instantiation is the identity, i.e. when `n` is universe-
+monomorphic (`ci.levelParams = []`, so `us = []` and `instantiateLevelParams` is `id`).
+
+This theorem is the machine-checked form of "discarded": **one** body evaluation
+serves **every** level instantiation of the same constant. It is not a defect of the
+model at the fragment this development ships — `DeltaHyps.decl_run` pins every
+dependency at `ci.levelParams = Us` and the capstones run at `Us = []`, so the
+identity is the only instantiation reachable — but it is what a Γ-U slice has to
+repair *before* relaxing that pin, and it is why relaxing the pin alone would move
+the fragment's vacuity from a named bundle field into an unnamed one
+(`SEnvConsistent`; see `SEnvConsistent.levels_collapse`). -/
+theorem SEvalDataι.delta_level_blind {Γ : ErasureCtx} {ia : IotaArities} {E : SEnv}
+    {n : Name} {us us' : List Level} {body r : Expr}
+    (hunf : E n = some body) (h : SEvalDataι Γ ia E body r) :
+    SEvalDataι Γ ia E (.const n us) r ∧ SEvalDataι Γ ia E (.const n us') r :=
+  ⟨.delta hunf h, .delta hunf h⟩
+
 /-- **`IotaConsistent`** — the source-level ι (`casesOn`/recursor) reduction respects
 lean4lean definitional equality: a `casesOn` spine's translation is defeq to the
 translation of its ι-reduct (the selected branch applied to the constructor fields).

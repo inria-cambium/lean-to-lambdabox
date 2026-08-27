@@ -50,18 +50,77 @@ some `bve`) and the constant is definitionally equal to its unfolding
 (`cve ≡ bve`).
 
 This is exactly the δ fact a well-formed `VEnv` provides for every definition (it
-registers `def n := body` as the `extra` defeq `.const n us ≡ ⟦body⟧`); we take it
-as a hypothesis rather than reconstructing it from the kernel translation, since
-`SEnv` is an *opaque* unfolding map with no a-priori link to `env.defeqs`.
+registers `def n := body` as an `extra` defeq); we take it as a hypothesis rather
+than reconstructing it from the kernel translation, since `SEnv` is an *opaque*
+unfolding map with no a-priori link to `env.defeqs`.
 
 `U` is the universe-parameter count and `Γ` the typing context at which the defeq
 is required (the context is universally quantified so the predicate can be applied
-under binders). -/
+under binders).
+
+**⚠️ The `us` binder is discarded, and that is the development's universe
+monomorphism** (slice Γ-U; provenance corrected here, 2026-08-27). The docstring
+used to say the `VEnv` registers `.const n us ≡ ⟦body⟧`. It does not: the rule is
+`VEnv.IsDefEq.extra` (`Lean4Lean/Theory/Typing/Basic.lean`), whose conclusion is
+
+    Γ ⊢ df.lhs.instL ls ≡ df.rhs.instL ls : df.type.instL ls
+
+i.e. **both sides are instantiated** at the call site's levels. So the fact a real
+`VEnv` supplies is `.const n us ≡ ⟦body⟧.instL us`, and `SEnvConsistent` above —
+which quantifies `us` and then never mentions it — is that fact only when
+`instL us` is the identity, i.e. when `n` is universe-monomorphic. For a genuinely
+polymorphic `n` the predicate is *stronger* than the kernel fact and collapses the
+constant's instantiations to one another; `SEnvConsistent.levels_collapse` below
+states that collapse as a theorem.
+
+Consequence for scope, and it is the point of recording this: universe monomorphism
+is pinned in **two** independent places, not one. `DeltaHyps.decl_run`'s
+`ci.levelParams = Us` (scope restriction 1) makes the *bundle* uninhabited for a
+polymorphic dependency — a named, documented failure. This predicate makes the
+*simulation's premise* false for one — an unnamed one, until now. Relaxing the
+former without repairing the latter (and `SEvalDataι.delta`'s level-blindness, and
+`Erases`' lack of an `instL` transport) would not widen the fragment; it would only
+move where the vacuity lives. See `DeltaHyps`' Γ-U analysis for the full accounting. -/
 def SEnvConsistent (env : VEnv) (Us : List Name) (Esrc : SEnv) : Prop :=
   ∀ {Δ : VLCtx} {n : Name} {us : List Level} {body : Expr} {cve : VExpr},
     Esrc n = some body →
     TrExprS env Us Δ (.const n us) cve →
     ∃ bve, TrExprS env Us Δ body bve ∧ env.IsDefEqU Us.length Δ.toCtx cve bve
+
+/-- **`SEnvConsistent` collapses a fragment constant's universe instantiations** —
+slice Γ-U's guard on the simulation side, and the companion of
+`SEvalDataι.delta_level_blind` on the evaluation side.
+
+Because the predicate quantifies `us` and its conclusion never mentions it, any two
+level instantiations of the same `Esrc` constant are forced definitionally equal to
+one another (both are defeq to the *one* translation of the uninstantiated body,
+which `TrExprS.uniq` pins up to defeq). For a monomorphic constant this is vacuous —
+`us = []` is the only instantiation — which is exactly the scope
+`DeltaHyps.decl_run` already pins. For a polymorphic one it is a genuine extra
+demand, and one a well-formed `VEnv` does **not** discharge: `VEnv.IsDefEq.extra`
+instantiates both sides of the defining equation, so it relates `.const n us` to
+`⟦body⟧.instL us`, never two different `instL`s to each other.
+
+So this is the theorem behind the claim in `SEnvConsistent`'s docstring: a Γ-U slice
+that relaxed `DeltaHyps.decl_run` and `BlockHyps.block_lparams` alone would leave the
+capstones with a premise that is false at exactly the constants the relaxation was
+meant to admit. The repair is to restate the conclusion at
+`body.instantiateLevelParams (levelParams of n) us` — which forces the δ *rule* to
+unfold there too, since subject reduction hands `htrb` straight to the IH. -/
+theorem SEnvConsistent.levels_collapse {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Esrc : SEnv} (h : SEnvConsistent env Us Esrc)
+    {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {n : Name} {us us' : List Level} {body : Expr} {cve cve' : VExpr}
+    (hb : Esrc n = some body)
+    (htr : TrExprS env Us Δ (.const n us) cve)
+    (htr' : TrExprS env Us Δ (.const n us') cve') :
+    env.IsDefEqU Us.length Δ.toCtx cve cve' := by
+  obtain ⟨bve, htrb, hd⟩ := h hb htr
+  obtain ⟨bve', htrb', hd'⟩ := h hb htr'
+  have huniq : env.IsDefEqU Us.length Δ.toCtx bve bve' :=
+    TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htrb'
+  exact VEnv.IsDefEqU.trans henv hΔ.toCtx hd
+    (VEnv.IsDefEqU.trans henv hΔ.toCtx huniq (VEnv.IsDefEqU.symm hd'))
 
 /-- The head of a translated application spine itself translates. -/
 theorem TrExprS_spine_head {env : VEnv} {Us : List Name} {Δ : VLCtx} :
