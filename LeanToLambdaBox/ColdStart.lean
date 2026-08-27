@@ -107,7 +107,7 @@ Four classes, and nothing falls outside them:
 | `hrel : IotaRelevant` (ι) | S | excludes `Erases` derivations that box a proper prefix of an ι redex; the shipping `visitCases` emits none |
 | `hiacoh : IotaArityCoherent` (ι) | C | `ΓFOι_iotaArityCoherent` |
 | `hcc` (ctor/`casesOn` disjointness) | C | `ΓFOι_cc` |
-| `hstr : ErasableStrengthen env Us` | **R** | the only one left. A three-line `VExpr`-level statement — `HasType.weakN_inv` for the shipping `VEnv.HasType`. See residue 1 below |
+| `hstr : ErasableStrengthen env Us` | **R** | the only one left. A three-line `VExpr`-level statement — `HasType.weakN_inv` for the shipping `VEnv.HasType`. Commissioned upstream as C1 and **NOT discharged** by the trproj round; a written analysis came back instead, and it argues the route is blocked. See residue 2 below |
 
 **Derived from the run, and therefore absent from the list above** — the `ErasureState`,
 the environment `E`, `ClosedEnv E`, `LBClosed t 0`, the bridge invariant, the three
@@ -248,6 +248,34 @@ below, three ways.
    (`Theory/Typing/UniqueTyping.lean`) is itself a `sorry`. So discharging `hstr` from
    what upstream has today would import a gap rather than close one. Naming it keeps the
    gap where a reader can see it.
+
+   **Asked for upstream, and answered — in the negative (2026-08-27, pin `fee3ada`).**
+   This was commission item C1. It did not close, and the round delivered the sanctioned
+   alternative: a written analysis of *where* it breaks, which is a better result than a
+   reshaped `sorry`. The line `UniqueTyping.lean:174` is byte-identical to the ι head —
+   no new statement, no renamed gap, no freshly-sorried `HasType.weakN_inv` exported for
+   us to consume. The analysis:
+
+   * strengthening inducts on the `IsDefEq` derivation and every structural case goes
+     through, `defeqDF` included (`IsDefEqU` discards the type);
+   * `trans` is the irreducible obstruction — the middle term of a conversion chain is an
+     arbitrary `VExpr`, not a lift, so neither IH applies;
+   * eliminating `trans`-intermediates is what confluence buys, and the confluence route
+     is blocked **two independent ways**: a module import cycle (`ChurchRosser.lean`
+     *imports* `UniqueTyping.lean`, so `weakN_iff` sits structurally upstream of all
+     reduction machinery), and a same-measure logical cycle (`weakN_iff` is called
+     non-reflexively at the same size from the confluence development itself, with no
+     evident well-founded measure — `Prop`-impredicativity and `imax` defeat level
+     measures);
+   * and the sharpest finding, which we had not predicted: closing the `church_rosser`
+     `pat` `IOTA-TODO` would be **necessary but not sufficient**. Landing ι-confluence
+     does not unblock C1.
+
+   So `hstr` **stays a named premise**, and this row stays class R. That is the standing
+   recommendation from both sides now, not an assumption of ours. The complementary
+   observation is that its cost stopped growing: the `Δ → []` half is a theorem here, and
+   since `TrProj` got a real definition (pin `fee3ada`) nothing else in this ledger
+   inherits anything from the projection cluster.
 3. ~~`ColdStartSubject.noBlock` / `noBlockEnv`~~ — **RETIRED, slice δ-N.** The stated
    obstruction ("not carryable by the shape induction") was a misdiagnosis, and the
    refutation is one line of the definition: `NoBlock` (`ErasesCorrectData.lean`) is
@@ -269,6 +297,60 @@ Nothing in this ledger is an axiom of ours. The measured axiom sets of both caps
 `shipping_erase_correct_firstorder`'s **verbatim** — the three standard Lean axioms plus
 `sorryAx` and the four `Lean.Expr`/`PersistentHashMap` modelling axioms, all inherited
 through lean4lean.
+
+## THE INHERITED BOUNDARY — what `sorryAx` means here (re-measured 2026-08-27, `fee3ada`)
+
+The pin moved from the ι head `1a1ebe8` to `fee3ada`, head of the fork's `trproj` branch,
+where **`TrProj` stops being a `sorry`**. That single change is worth stating precisely,
+because for a year the honest answer to "what does the `sorryAx` in these capstones stand
+for?" was partly wrong.
+
+**What it never was.** `TrProj` used to be a `sorry`-valued *definition*, so `sorryAx`
+entered through the **type** of `TrExprS` — every statement mentioning `Erases` or
+`TrExprS` carried it whether or not its proof touched a projection. `#print axioms
+Lean4Lean.TrProj` now reads `[propext]`, and with that channel closed **111 declarations
+in `scratch/final_audit.lean` lost `sorryAx` outright**, entries carrying it going 230 →
+91. Chief among them: `visitExpr_refines_erases` — the claim that the shipping eraser
+refines this development's `Erases` relation — is now **sorryAx-free**, as are
+`BridgeInv` and all its transports, `DeltaHyps`, `DeltaMem`, `RunConclδ`,
+`ColdStartSubject`, `RecEnvConsistent`, the whole δ registration chain, and every
+`Erases` transport and inversion lemma. The *refinement* half of this development inherits
+nothing but modelling axioms.
+
+**What it actually is, and what the capstones still pay.** Their set is verbatim
+unchanged, and the `sorryAx` in it is **unique typing**, not projections:
+
+* `Lean4Lean.TrExprS.uniq` → `Lean4Lean.TrProj.uniq`, still `PROJ-TODO`. 69 call sites of
+  `.uniq` downstream — 31 in `ErasesCorrectData.lean`, then `ErasesCorrect.lean` (11),
+  `ErasesCorrectIota.lean` (7), `ErasesUniform.lean` (4), `FirstOrder.lean` (2),
+  `ErasesStrengthen.lean` (2), `SubjectReductionFull.lean` (1). The densest single line of
+  inherited debt we carry.
+* `Lean4Lean.VEnv.IsDefEq.uniqU`, sorried through `IsDefEqU.weakN_iff` (= C1, see residue
+  2) and through the ι fork's `pat` cases. It reaches us via `TrProj.defeqDFC`,
+  `TrExpr.app`/`TrExpr.proj` and `TrExprS.instL`.
+* `Lean4Lean.VEnv.HasType.app_inv` (`Theory/Typing/Strong.lean`) — the ι spine
+  construction.
+* `Lean4Lean.Aligned.addInduct` — the ι fork's environment-alignment `IOTA-TODO`.
+
+**The remaining upstream projection items — the PROJ-TODO trio.** Three, and only one has
+downstream reach:
+
+| item | upstream site | reaches us? |
+|---|---|---|
+| `TrProj.uniq` | `Verify/Typing/Lemmas.lean` | **YES**, through `TrExprS.uniq` (above). Blocked on the `Injectivity.lean` cluster, never in scope for the trproj round |
+| `TrProj.weak'_inv` | `Verify/Typing/Lemmas.lean` | **no** — nothing here calls `TrExprS.weakFV'_inv`/`weakFV_inv`. `ErasesUniform.lean` deliberately routed around it, and that decision pays off twice: it dodged the A0 churn *and* this gap. Blocked on C1 |
+| `TrEnv.proj_defeq` | `Verify/Environment/Lemmas.lean` | **not yet** — a real statement with a deferred proof (A2). A new interface, deliberately not consumed. Building on it is a design call for the next slice, not something to do because it type-checks |
+
+**And what the merge cost.** `trproj` is a merge of upstream `master`, so this pin also
+absorbs master's level-normalization rewrite, the K-target flag fix and
+`lazyDeltaProjReduction` — about 5,200 lines of change nobody here commissioned. Two
+axioms enter the audited surface with it: `Std.TreeMap.all_eq_all_toList`, a genuinely new
+`axiom` in lean4lean's `Verify/Axioms.lean` (standing in for a `Std` lemma Lean does not
+prove yet, leanprover/lean4#12798), and `Lean.Level.isExplicitSubsumedAux_eq`, declared
+upstream already but unreached until now. Both land on the **executable kernel-checker**
+cluster only — `TypeChecker.kernel_isErasable_sound`, `ResidualHyps.toBridgeHyps`,
+`shipping_visitExpr_correct'` — and neither touches the capstones or the ι `_of_shape`
+cluster. The commissioned commits themselves add no `axiom`.
 -/
 
 namespace LeanToLambdaBox

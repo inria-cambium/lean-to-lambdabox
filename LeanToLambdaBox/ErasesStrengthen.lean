@@ -397,7 +397,7 @@ theorem TrExprS.weakFV'_fvwf {env : VEnv} (henv : env.Ordered) {Us : List Name}
     exact .letE h1 (ih1 W hΔ') (ih2 W hΔ') (ih3 (W.cons_bvar _) ⟨hΔ', nofun⟩)
   | lit h1 _ ih => exact .lit h1 (ih W hΔ')
   | mdata _ ih => exact .mdata (ih W hΔ')
-  | proj _ h2 ih => exact .proj (ih W hΔ') (h2.weak' W.toCtx)
+  | proj _ h2 ih => exact .proj (ih W hΔ') (h2.weak' henv W.toCtx)
 
 /-- The `FVLift` form of `TrExprS.weakFV'_fvwf` — lean4lean's `TrExprS.weakFV` on the
 `FVWF`-only premise. This is the exact shape the `box`/`lam`/`letE` cases of
@@ -601,7 +601,7 @@ theorem TrExprS.weakFV'_nofvars {env : VEnv} (henv : env.Ordered) {Us : List Nam
       (ih3 (W.cons_bvar _) hfvf.2.2)
   | lit h1 _ ih => exact .lit h1 (ih W FVarsIn.toConstructor)
   | mdata _ ih => exact .mdata (ih W hfvf)
-  | proj _ h2 ih => exact .proj (ih W hfvf) (h2.weak' W.toCtx)
+  | proj _ h2 ih => exact .proj (ih W hfvf) (h2.weak' henv W.toCtx)
 
 /-- The `FVLift` form of `TrExprS.weakFV'_nofvars` — the shape the `box`/`lam`/`letE`
 cases of `erases_weakFV_nofvars` consume. -/

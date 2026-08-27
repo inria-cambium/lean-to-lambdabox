@@ -3047,22 +3047,36 @@ an axiom, and the pure helpers (`run_array_forIn_ok'`, `visitCases_match_default
 `slice_toArray_toList_drop`, `list_split_cases`, `subarray_next?_facts`,
 `rco_toArray_*`, `IsLamTelescope.instantiate1'`) are at most the four standard
 axioms):
-* `visitExpr_refines_erases` / `visitExpr_refines_erases_core`:
-  `[propext, sorryAx, Classical.choice, Quot.sound, Expr.instantiate1_eq,
+* `visitExpr_refines_erases` / `visitExpr_refines_erases_core` /
+  `visitExpr_refines_erases_block`:
+  `[propext, Classical.choice, Quot.sound, Expr.instantiate1_eq,
     PersistentArray.toList'_push, PersistentHashMap.WF.find?_eq,
     PersistentHashMap.WF.toList'_insert]`
 * pure helpers (`VLCtx.find?_bvar_none_of_noBV`, `Supported.getAppFn`,
   `supported_foldl_app_inv`, `getAppArgs_spine`, `run_fvar_to_name`):
   `[propext, Classical.choice, Quot.sound]` or less;
-* `spine_arg_facts`, `BridgeInv.mono`: `[propext, sorryAx, Classical.choice,
-  Quot.sound]`; `BridgeInv.mkLocalDecl`/`mkLetDecl` additionally carry the
-  three `PersistentArray`/`PersistentHashMap` modeling axioms.
-The `sorryAx` is inherited from lean4lean (`TrProj` is a sorried definition,
-so it enters through the very *type* of `TrExprS`-adjacent statements — see
-the header of Erases.lean); `Expr.instantiate1_eq` and the
-`PersistentArray`/`PersistentHashMap` axioms are lean4lean's modeling axioms
-for the untrusted-representation surface (entering via Bridge.lean's `find?`
-lemmas and the `instantiate1 → instantiate1'` transport). No `sorry` of our
-own, no new axioms, no `native_decide`. -/
+* `spine_arg_facts`, `BridgeInv`, `BridgeInv.mono`, `BridgeInv.mono_state`,
+  `BridgeInv.withFixvars`: `[propext, Classical.choice, Quot.sound]`;
+  `BridgeInv.mkLocalDecl`/`mkLetDecl` additionally carry the three
+  `PersistentArray`/`PersistentHashMap` modeling axioms.
+
+**No `sorryAx`, as of the `fee3ada` re-pin (2026-08-27) — and this is the
+headline result of that re-pin.** Every entry above used to carry it. The
+reason was never a gap in *this* proof: `TrProj` was a `sorry`-valued
+definition upstream, so `sorryAx` entered through the very *type* of every
+`TrExprS`-adjacent statement, proof or no proof. lean4lean's `trproj` round
+gave `TrProj` a real definition (`#print axioms Lean4Lean.TrProj` is
+`[propext]`), and the whole bridge came out clean with it — along with 110
+other declarations in `scratch/final_audit.lean`. So the claim that the
+shipping eraser refines `Erases` now rests on no lean4lean `sorry` at all.
+
+What remains are lean4lean's *modeling* axioms for the untrusted-representation
+surface — `Expr.instantiate1_eq` and the `PersistentArray`/`PersistentHashMap`
+ones, entering via Bridge.lean's `find?` lemmas and the
+`instantiate1 → instantiate1'` transport. The capstones downstream still report
+`sorryAx`, but they get it from the *forward-simulation* half (unique typing:
+`TrExprS.uniq` → `TrProj.uniq`, and `IsDefEq.uniqU`), not from here — see
+`ColdStart.lean`'s inherited-boundary section. No `sorry` of our own, no new
+axioms, no `native_decide`. -/
 
 end LeanToLambdaBox

@@ -165,8 +165,11 @@ lean4lean-declared *modeling* axioms for native `Expr`/`Level`/`PersistentHashMa
 on. These are all lean4lean's, not introduced here — the price of routing through the
 *verified executable* checker rather than the pure `HasType` judgment. In particular
 no new `axiom`/`sorry`/`native_decide` is added by this file: `sorryAx` is inherited
-from lean4lean's own unproven `Verify` lemmas (projections/`TrProj`), whose trust this
-development sits atop.
+from lean4lean's own unproven `Verify` lemmas, whose trust this development sits atop.
+[Provenance corrected at the `fee3ada` re-pin, 2026-08-27: this used to name
+"projections/`TrProj`" as the source. `TrProj` has a real definition upstream now; the
+live source is the unique-typing cluster (`TrExprS.uniq` → `TrProj.uniq`, and
+`IsDefEq.uniqU`). See `ColdStart.lean`'s inherited-boundary section for the measurement.]
 -/
 
 end LeanToLambdaBox

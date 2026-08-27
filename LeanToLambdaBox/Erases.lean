@@ -21,10 +21,17 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
 
 ## Scope (documented, deliberate)
 
-* **Projection-free.** `.proj`/`LBTerm.proj` are excluded *because lean4lean's
-  projection translation `TrProj` and `inferProj.WF` are `sorry`* — see memory
-  `lean4lean-sorry-boundary`. Including them would make every downstream result
-  rest on lean4lean sorries.
+* **Projection-free.** `.proj`/`LBTerm.proj` are excluded. The original reason was
+  that lean4lean's projection translation `TrProj` was a `sorry`, so including them
+  would have made every downstream result rest on lean4lean sorries. **That reason
+  expired at the `fee3ada` re-pin (2026-08-27):** `TrProj` now has a real definition —
+  an ι-pattern membership in `env.pats` plus a `HasType` conjunct — and measures
+  `[propext]`. A projection rule for `Erases` is therefore *writable*, which is the
+  unlock the typeclass-method layer (6–10 `tProj` per VerifyBench program) has been
+  waiting on. What still blocks it is downstream and ours: `Supported` has no `.proj`
+  rule (`Bridge.lean`), and `TrProj.uniq` — the lemma an inversion would want — is one
+  of the two remaining upstream `PROJ-TODO`s. Adding the rule is a design call, not a
+  mechanical follow-on; until it is made, the fragment stays as documented here.
 * **Constructors / `casesOn` / structural recursion ARE modelled** (aligning the
   relation with what `visitExpr` emits), via dedicated `ctor`/`cases`/`fix` rules
   producing `.construct`/`.case`/`.fix`. In real `Expr` these heads are applied
@@ -43,17 +50,33 @@ fixvar | const_fix | fix`.
 
 ## Trust boundary: inherited `sorryAx`
 
-lean4lean's reusable `TrExprS` structural lemmas (`weakBV`, `inst`, `instN`, …) are
-monolithic inductions over *all* `Expr` constructors; their `proj` case calls
-lean4lean's sorried `TrProj`. So those lemmas carry `sorryAx`, and every result
-here that uses them (`erases_shift`, `erases_subst`, …) inherits `sorryAx` — *even
-on projection-free terms*. This is intentional and in scope: lean4lean's job is to
-prove the Lean kernel correct; ours is to prove the transpilation pipeline correct
-**assuming** that. lean4lean's results — including its still-open projection
-metatheory — are used as-is as assumed building blocks. The `sorryAx` reported by
-`#print axioms` is exactly the trust boundary "modulo the Lean kernel's correctness
-as formalized by lean4lean"; we do not try to eliminate it. See memory
-`lean4lean-sorry-boundary`.
+**Rewritten at the `fee3ada` re-pin, 2026-08-27.** This section used to say that
+lean4lean's reusable `TrExprS` structural lemmas (`weakBV`, `inst`, `instN`, …) carry
+`sorryAx` because they are monolithic inductions whose `proj` case calls a sorried
+`TrProj`, and that every result here inherits it *even on projection-free terms*. Both
+halves are now out of date:
+
+* `TrProj` has a real definition, so it no longer taints the **type** of `TrExprS` —
+  which was the actual mechanism, and a stronger one than "the structural lemmas call
+  it": it meant merely *mentioning* `Erases` cost a `sorryAx`, proof or no proof.
+* The structural lemmas themselves came back clean: `TrExprS.weakFV'`, `.weakBV`,
+  `.mono`, `.instN`, `.weakFV`, `.inst` all measure
+  `[propext, Classical.choice, Quot.sound]`. So `erases_shift`, `erases_subst`,
+  `Erases.abstract`, `Erases.thin_vlet` and the rest of the transport family are
+  **sorryAx-free**, and so is `visitExpr_refines_erases`.
+
+What is still inherited, and where: the **unique-typing** cluster —
+`Lean4Lean.TrExprS.uniq` (whose `proj` arm calls `TrProj.uniq`, still `PROJ-TODO`) and
+`Lean4Lean.VEnv.IsDefEq.uniqU` (sorried through `IsDefEqU.weakN_iff` and the ι fork's
+`pat` cases) — plus `VEnv.HasType.app_inv` and `Aligned.addInduct` on the ι side. That is
+what the forward-simulation results (`erases_correct*`, the `SEval*` family) and hence the
+capstones report. The posture is unchanged and intentional: lean4lean's job is to prove
+the Lean kernel correct, ours to prove the transpilation pipeline correct **assuming**
+that, and the `sorryAx` reported by `#print axioms` is exactly the boundary "modulo the
+Lean kernel's correctness as formalized by lean4lean". What changed is that the boundary
+is now much narrower, and located where the proofs actually use it rather than smeared
+over every statement. Full measurement in `ColdStart.lean`'s inherited-boundary section
+and in `scratch/final_audit.lean`'s header. See also memory `lean4lean-sorry-boundary`.
 -/
 
 namespace LeanToLambdaBox

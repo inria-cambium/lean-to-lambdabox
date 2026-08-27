@@ -140,9 +140,12 @@ same reason (`.const`-vs-arity defeq injectivity is not exposed by the pinned le
 Note the scope, and do not over-read it: this covers the `Expr.lit` node itself. A
 *source-level numeral* `(5 : Nat)` elaborates to `@OfNat.ofNat Nat (lit 5) (instOfNatNat
 (lit 5))`, whose `OfNat.ofNat` body erases to an `LBTerm.proj` — and `Erases` is
-projection-free by design (lean4lean's `TrProj` is a `sorry`), so the numeral does not
-δ-unfold in the model. Raw literals — what `csimp`, matcher expansion and `Nat`-internals
-produce — are what this covers. -/
+projection-free by design, so the numeral does not δ-unfold in the model. Raw literals —
+what `csimp`, matcher expansion and `Nat`-internals produce — are what this covers.
+[Justification corrected at the `fee3ada` re-pin, 2026-08-27: the parenthetical used to
+read "(lean4lean's `TrProj` is a `sorry`)", giving the upstream gap as the reason. That
+gap is closed; `Erases`'s projection-freeness is now purely our own scope decision
+(`Supported` has no `.proj` rule). The scope claim itself is unchanged.] -/
 
 /-- `Nat : Sort 1` at `envNatT`. -/
 theorem envNatT_NatTypeSort1 :

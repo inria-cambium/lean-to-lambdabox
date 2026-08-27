@@ -33,15 +33,29 @@ that the answer is "nothing".
 
 ## Trust boundary: inherited `sorryAx`
 
-Everything here that touches lean4lean's translation goes through `TrExprS.weakFV_fvwf`
-(`ErasesStrengthen.lean`), whose `proj` arm calls lean4lean's `TrProj.weak'`. In the pinned
-lean4lean, `TrProj` is itself a `sorry`-valued *definition*
-(`Lean4Lean/Verify/Typing/Expr.lean`, `def TrProj ... := sorry`) and `TrProj.weak'_inv`
-/ `TrProj.uniq` are `sorry`-proved theorems. So these lemmas carry `sorryAx` through
-lean4lean, **even though every source term in scope here is projection-free**. That costs
-nothing new — the capstones already measure `sorryAx` through lean4lean and the supported
-fragment excludes `.proj` — but it has to be said out loud rather than discovered from an
-`#print axioms`.
+**Rewritten at the `fee3ada` re-pin, 2026-08-27.** This section used to say that
+everything here carries `sorryAx` because `TrProj` is a `sorry`-valued *definition*
+upstream, so that merely mentioning `TrExprS` was enough to inherit it. That is no longer
+true, and the difference is visible in `#print axioms`:
+
+* `TrProj` now has a real definition (`Lean4Lean/Verify/Typing/Expr.lean`: an ι-pattern
+  membership in `env.pats` plus a `HasType` conjunct) and measures `[propext]`. The
+  definitional taint is gone.
+* `TrProj.weak'` came back **proved**, so `TrExprS.weakFV_fvwf` — the lemma every
+  transport here routes through — is **sorryAx-free**, and so are
+  `Erases.strengthen_fvlift` and `erases_uniform_of_nil`. The only cost A0 imposed
+  downstream was an `Ordered env` premise, which `ErasesStrengthen.lean` supplies at its
+  two `proj` arms.
+* What still carries `sorryAx` in this file is `erases_strengthen_closed` and
+  `erases_uniform_closed`, and they earn it honestly: they are genuine consumers of
+  `TrExprS.uniq`, which bottoms out in `TrProj.uniq` — still `PROJ-TODO` — and in
+  `IsDefEq.uniqU`.
+
+So the old caveat "**even though every source term in scope here is projection-free**" no
+longer applies to the transport lemmas at all; for the strengthening lemmas the source
+being projection-free is exactly what `NoProj` cashes in, via lean4lean's `sorry`-free
+`TrExprS.unique`. Nothing new is trusted either way, but the boundary is narrower and
+worth stating rather than discovering from an `#print axioms`.
 
 ## Shape of the strengthening argument, and why it is not lean4lean's `weakFV_inv`
 
@@ -115,13 +129,43 @@ disjunct is a five-line derivation: `VExpr.WF.weakN_iff` recovers `∃ A₀, Has
 from `IsDefEqU U Γ₁ (A₀.liftN n k) A'` with `IsArity A'` one has to produce an arity at `Γ₀`,
 and `A'` need not be a lift — that needs a `forallE` inversion through a lift, which is
 exactly the church-rosser-flavoured fact the commented-out block is waiting on. So the
-honest description is: **one obligation, whose hard half is `IsArityUpTo`**, expected to be
-a short discharge after a re-pin that lands `weakN_inv`.
+honest description is: **one obligation, whose hard half is `IsArityUpTo`**.
+
+**Asked for, and answered in the negative — this premise STAYS (2026-08-27, pin
+`fee3ada`).** The paragraph above used to end "expected to be a short discharge after a
+re-pin that lands `weakN_inv`". That expectation is now retired: the forward direction of
+`IsDefEqU.weakN_iff` was commissioned upstream as item C1 of the trproj round and **did
+not close**. `UniqueTyping.lean:174` is byte-identical to the previous pin — the gap was
+not reshaped, renamed, or re-exported as a fresh sorried `HasType.weakN_inv` for us to
+consume. What came back instead is the sanctioned alternative, a written analysis of where
+the proof breaks, and it argues the route is blocked rather than merely unfinished:
+
+* the induction on `IsDefEq` carries every structural case, `defeqDF` included (`IsDefEqU`
+  discards the type), and stalls on **`trans`** — the middle term of a conversion chain is
+  an arbitrary `VExpr`, not a lift, so neither IH applies;
+* eliminating `trans`-intermediates is exactly what confluence buys, and the confluence
+  route is blocked **two independent ways**. (a) A **module import cycle**:
+  `ChurchRosser.lean` *imports* `UniqueTyping.lean`, so `weakN_iff` sits structurally
+  upstream of all reduction and normal-form machinery — it cannot call what would prove it.
+  (b) A **same-measure logical cycle**: `weakN_iff` is itself a prerequisite of the
+  confluence development, called non-reflexively at the same size, with no evident
+  well-founded measure to fuse the two (`Prop`-impredicativity and `imax` defeat level
+  measures).
+* And a finding sharper than our own framing: closing the `church_rosser` `pat`
+  `IOTA-TODO` is **necessary but not sufficient**. We had flagged the `pat` case as a
+  possible prerequisite; landing ι-confluence would still leave C1 blocked.
+
+So this premise is not waiting on a re-pin. Discharging it needs new metatheory upstream,
+and until that exists, naming it here — visible, guarded, never an axiom — is the correct
+posture, and it is now the recommendation from both sides rather than a choice of ours.
+The trproj round *did* land `TrProj` as a real definition, which is why the rest of this
+file's `Erases` transport lemmas are sorryAx-free; it left this one obligation exactly
+where it was.
 
 This is the established idiom for a named obligation in this development — same shape and
 same guard discipline as `PatsIotaSpec` (`IotaPattern.lean`), which likewise names an
-upstream fact, is carried as an explicit premise of its capstone, and was retired by a
-re-pin rather than by an axiom.
+upstream fact and is carried as an explicit premise of its capstone. `PatsIotaSpec` was
+retired by a re-pin rather than by an axiom; this one, on present evidence, will not be.
 -/
 def ErasableStrengthen (env : VEnv) (Us : List Name) : Prop :=
   ∀ {Γ₀ Γ₁ : List VExpr} {ve : VExpr} {n k : Nat},

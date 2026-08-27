@@ -53,8 +53,11 @@ an axiom of ours:
   provably stuck (see its docstring). Discharged for free in the first-order world by
   `FirstOrderValue`'s `info` field.
 
-plus lean4lean's own pre-existing `sorry` frontier (`TrProj`; and at the ι-fork pin
-`forallE_inv'`/`sort_inv'`/`addInduct_WF`), which the whole development already inherits.
+plus lean4lean's own pre-existing `sorry` frontier, which the whole development already
+inherits. [Updated at the `fee3ada` re-pin, 2026-08-27: this used to lead with `TrProj`.
+That item is retired — `TrProj` has a real definition upstream. The frontier this file
+actually inherits is the ι one (`forallE_inv'`/`sort_inv'`/`addInduct_WF`, the `IsDefEq`
+`pat` cases) together with unique typing (`TrExprS.uniq` → `TrProj.uniq`, `IsDefEq.uniqU`).]
 
 There is **no** "sole exception" left on non-vacuity: `envι_iota_fires`
 (`IotaDischarge.lean`) shows the ι machinery fires and yields real content on a

@@ -301,9 +301,13 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   restriction 6, and an S-class fact about a *prepared top-level constant body*, which
   every one of them is. Closedness and fvar-freeness are not separate demands: both follow
   from the `TrExprS` witness (`TrExprS.closed`/`TrExprS.fvarsIn`). `NoProj` is what pins
-  that witness to a *unique* `VExpr`: lean4lean's `TrProj` is `sorry` upstream, so the
-  `proj` arm of `TrExprS` uniqueness is unavailable — and the supported fragment excludes
-  `.proj` anyway.
+  that witness to a *unique* `VExpr`: the `proj` arm of `TrExprS` uniqueness is
+  unavailable — and the supported fragment excludes `.proj` anyway. [Provenance corrected
+  at the `fee3ada` re-pin, 2026-08-27: this used to read "lean4lean's `TrProj` is `sorry`
+  upstream". `TrProj` now has a real definition; what is still `sorry` is `TrProj.uniq`
+  specifically, one of the two remaining `PROJ-TODO`s. The field is unaffected — it is
+  `TrExprS.unique`, gated on `IsUnique`, that this pays for, and that route was always
+  `sorry`-free.]
 
   This field replaces the old `uniform` residue (slice δ-D7b). Context-uniformity is now a
   theorem (`ErasesUniform.erases_strengthen_closed` composed with

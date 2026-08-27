@@ -27,8 +27,17 @@ lifts that restriction *without forking lean4lean* — every ingredient is publi
   returning `.ok true` at a translated ambient `MLCtx` entails `Erasable`.
 
 No new `axiom`/`sorry`: the trust inherited is exactly lean4lean's (its `Verify`
-`sorryAx` on `TrProj`, and its `Expr`/`Level`/`PersistentHashMap`/`PersistentArray`
-modeling axioms surfaced through the executable checker).
+`sorryAx`, and its `Expr`/`Level`/`PersistentHashMap`/`PersistentArray` modeling axioms
+surfaced through the executable checker).
+
+Provenance note, corrected at the `fee3ada` re-pin (2026-08-27): the `sorryAx` here was
+attributed to `TrProj`, which is no longer accurate — `TrProj` has a real definition
+upstream and measures `[propext]`. `M.WF.run'` went sorryAx-FREE at that pin; what
+`kernel_isErasable_sound` still carries is the unique-typing cluster. Note also that this
+is the ONE cluster the re-pin made *dirtier*: `kernel_isErasable_sound` picked up
+`Std.TreeMap.all_eq_all_toList` and `Lean.Level.isExplicitSubsumedAux_eq`, both from the
+`master` merge that rides along on the `trproj` branch, both in the level-normalization
+path the executable checker walks. See `ColdStart.lean`'s inherited-boundary section.
 -/
 
 namespace Lean4Lean.TypeChecker

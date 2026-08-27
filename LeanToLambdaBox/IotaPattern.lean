@@ -70,10 +70,11 @@ theorem drop_eq_range_pmap {α} (l : List α) (np nf : Nat) (hk : l.length = np 
   · intro n h1 h2
     simp
 
-/-- Snoc for `VExpr.mkApps` (`= List.foldl .app`). -/
-theorem VExpr.mkApps_concat (f : VExpr) (l : List VExpr) (a : VExpr) :
-    VExpr.mkApps f (l ++ [a]) = .app (VExpr.mkApps f l) a := by
-  simp [VExpr.mkApps, List.foldl_append]
+-- Snoc for `VExpr.mkApps` (`= List.foldl .app`) used to live here. The `trproj`
+-- re-pin brought upstream its own `Lean4Lean.VExpr.mkApps_concat` (`Verify/Typing/
+-- Lemmas.lean`, same statement with implicit arguments), part of the `mkApps`/
+-- `fieldSelector` kit the `TrProj.*` structural proofs needed. The duplicate is
+-- deleted; the use site below resolves to upstream's.
 
 /-! ## `varN_pathOf` orientation
 
@@ -445,9 +446,13 @@ so the proof is the eta-expansion.
 This closes the one upstream item the ι capstone was carrying. It does **not** remove
 the structure from the capstone signatures: those stay stated over an ambient `VEnv`
 with `PatsIotaSpec` as an explicit premise, and a `TrEnv`-holding caller discharges it
-here. Its axiom set is `pats_iota'`'s, i.e. `sorryAx` via the `TrProj` placeholder
-carried in `TrExprS` (the rule template's translation) — the development's pre-existing
-lean4lean boundary, no new gap. -/
+here. Its axiom set is `pats_iota'`'s, which since the `fee3ada` re-pin (2026-08-27) is
+**sorryAx-free**: it is lean4lean's three `PersistentHashMap` `ConstMap` modelling axioms
+and nothing else. [This used to read "`sorryAx` via the `TrProj` placeholder carried in
+`TrExprS`". `TrProj` has a real definition now, so mentioning `TrExprS` costs nothing, and
+`TrEnv.pats_iota'` measures clean. It never picked up `Aligned.addInduct` — it routes
+through `TrEnv'.constMap_wf`, not `map_wf` — so with the placeholder gone there was
+nothing left.] -/
 theorem PatsIotaSpec.of_trEnv {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {venv : VEnv} (H : TrEnv safety kenv venv) : PatsIotaSpec safety kenv venv :=
   ⟨fun hrec hrule hsafe => TrEnv.pats_iota' H hrec hrule hsafe⟩

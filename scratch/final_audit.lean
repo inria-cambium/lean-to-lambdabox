@@ -2,7 +2,8 @@ import LeanToLambdaBox
 /-! Final axiom audit for the dev/verify verification stack (2026-07-07;
 re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork,
 re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork's
-`iota` branch).
+`iota` branch — and re-pinned again 2026-08-27 to `fee3ada`, head of the fork's
+`trproj` branch, which is where `TrProj` stops being a `sorry`).
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -44,6 +45,100 @@ audited axiom set below moves. Two review-side facts worth recording:
   `VInductDecl.WF`'s inductive lemma remain), so the inherited boundary is the same.
 
 New entry: `PatsIotaSpec.of_trEnv`, the discharge of `PatsIotaSpec` from a `TrEnv`.
+
+## The 2026-08-27 re-pin to the TrProj delivery (`fee3ada`)
+
+**This is the largest single movement the audit has ever recorded, and it is almost
+entirely SHRINKAGE.** The commissioned round (A0–A3) gave `TrProj` a real definition —
+an ι-pattern membership in `env.pats` plus a `HasType` conjunct — where the ι pin had a
+`sorry`-valued `def`. Measured here, not quoted: `#print axioms Lean4Lean.TrProj` is now
+`[propext]`.
+
+That one fact is the whole story of the shrinkage. `sorryAx` used to enter this
+development through the **type** of `TrExprS`, so *every* statement that so much as
+mentioned `Erases`, `TrExprS`, `BridgeInv` or `DeltaHyps` carried it whether or not its
+proof did anything projection-shaped. With the definition in place that channel is
+closed, and what is left is only what the PROOFS actually use.
+
+Measured old → new over this file's 584 entries:
+
+* **139 entries (111 distinct declarations) LOST `sorryAx`**, gaining nothing.
+* **3 entries (3 distinct declarations) GAINED two axioms** — see below.
+* Entries carrying `sorryAx` at all: **230 → 91** (48 distinct declarations).
+* Everything else is byte-identical, including the four crown theorems.
+
+### The headline: the bridge is now sorryAx-free
+
+`visitExpr_refines_erases` — the theorem that the shipping eraser refines `Erases` — and
+its `_core` and `_block` forms now print
+
+    [propext, Classical.choice, Quot.sound, Lean.Expr.instantiate1_eq,
+     Lean.PersistentArray.toList'_push, Lean.PersistentHashMap.WF.find?_eq,
+     Lean.PersistentHashMap.WF.toList'_insert]
+
+with **no `sorryAx`**. So do `BridgeInv` and all its transports, `DeltaHyps`, `DeltaMem`,
+`RunConclδ`, `ColdStartSubject`, `RecEnvConsistent`, every `Erases` transport lemma
+(`abstract`, `uninstantiate{,N}`, `thin_vlet`, `strengthen_vlet`, `shift`, `subst`,
+`weakFV`, `weak_any`, `fix_of_open{,_nil}`, `fix_of_closed`), the whole `registeredClosure`
+/`erasesEnvDelta` δ family, `erases_rec_block_of_run`, `recEnvConsistent_of_block`, every
+`g*` guard in that chain, and `PatsIotaSpec.of_trEnv` and `TrExprS.mkApps_inv` on the ι
+side. The *refinement* half of the development no longer inherits anything from lean4lean
+beyond the `Expr`/`PersistentHashMap` modelling axioms.
+
+### What still carries `sorryAx`, and this is the provenance correction
+
+The residue is now confined to the **forward-simulation** half — `erases_correct*`,
+`eraseCore_correct`, the `SEval*` evaluation lemmas, the ι spine construction, and hence
+the four capstones. Measured upstream at `fee3ada`, the live sources are:
+
+1. **`Lean4Lean.TrExprS.uniq` → `Lean4Lean.TrProj.uniq`** — one of the two remaining
+   `PROJ-TODO(soundness)` items. 69 downstream call sites of `.uniq`, 31 of them in
+   `ErasesCorrectData.lean` alone, then `ErasesCorrect.lean` (11),
+   `ErasesCorrectIota.lean` (7), `ErasesUniform.lean` (4), `FirstOrder.lean` (2),
+   `ErasesStrengthen.lean` (2), `SubjectReductionFull.lean` (1). This is the densest
+   single line of inherited debt in the development.
+2. **`Lean4Lean.VEnv.IsDefEq.uniqU`** — the unique-typing development, `sorry`-carrying
+   both through `IsDefEqU.weakN_iff` (which is exactly commission item C1, NOT discharged
+   this round) and through the ι fork's `pat` cases. It reaches us through
+   `TrProj.defeqDFC`, `TrExpr.app`/`TrExpr.proj`, and `TrExprS.instL` — note that
+   `TrProj.instL` itself came back PROVED and clean (`[propext, Quot.sound]`); it is the
+   `TrExpr` smart constructors around it that are dirty.
+3. **`Lean4Lean.VEnv.HasType.app_inv`** (`Theory/Typing/Strong.lean`) — the ι spine
+   construction, reaching `iotaConsistent_of_shape` and `iota_defeq_spine`.
+4. **`Lean4Lean.Aligned.addInduct`** — the ι fork's environment-alignment `IOTA-TODO`.
+
+**The two remaining `PROJ-TODO`s that do NOT reach us:** `TrProj.weak'_inv` (nothing here
+calls `TrExprS.weakFV'_inv`/`weakFV_inv` — the `ErasesUniform` design deliberately routed
+around it) and `TrEnv.proj_defeq` (a new interface, not yet consumed; see step 4 of the
+consumability note in `ColdStart.lean`).
+
+**Retired as sources, and every annotation in this file that named them is corrected in
+place below:** `TrProj` the definition, `TrProj.weak'`, `TrProj.weakN`, `TrProj.mono`,
+`TrProj.instL`, `TrProj.wf` — all proved upstream — and with them
+`TrExprS.weakFV'`, `.weakBV`, `.mono`, `.instN`, `.weakFV`, `.inst`, `.weak_nil`,
+`.mkApps_inv`, and `TrEnv.pats_iota'`, all now sorryAx-free.
+
+### The growth, and it did NOT come from the commissioned work
+
+`trproj` is a **merge of upstream `master`**, so this pin also absorbs master's
+level-normalization rewrite, the K-target flag fix and `lazyDeltaProjReduction`. Two
+axioms enter the audited surface with it:
+
+* `Std.TreeMap.all_eq_all_toList` — a genuinely NEW `axiom` in lean4lean's
+  `Verify/Axioms.lean` (added there together with `any_eq_any_toList`, which nothing here
+  reaches), standing in for a `Std` lemma Lean does not yet prove
+  (leanprover/lean4#12798).
+* `Lean.Level.isExplicitSubsumedAux_eq` — declared upstream already at the `1a1ebe8` pin,
+  and recorded above as "not reached from anything audited here". It is reached now, via
+  master's `Verify/LevelStd.lean`.
+
+Both arrive on the same path, the **executable kernel-checker cluster** — the same place
+`Lean.Level.normalize_eq` already lived — and they touch exactly three entries:
+`Lean4Lean.TypeChecker.kernel_isErasable_sound`, `ResidualHyps.toBridgeHyps`, and
+`shipping_visitExpr_correct'`. They do NOT enter through the ι `_of_shape` cluster;
+`iotaConsistent_of_shape` is byte-identical across the re-pin.
+
+No axiom of ours was added. No `sorry` of ours exists.
 -/
 
 open LeanToLambdaBox
@@ -108,7 +203,10 @@ open LeanToLambdaBox
 #print axioms Erases.ctor_spine_inv
 #print axioms erases_correct_data
 -- WS-F2 (theory): ζ transport + ζ-including data simulation, and the ι subject
--- reduction. Expected: 4 standard + lean4lean `sorryAx` (inherited TrProj cluster).
+-- reduction. Expected: 4 standard + lean4lean `sorryAx`. [2026-08-27: the source is
+-- the UNIQUE-TYPING cluster, not the projection one — `TrExprS.uniq`/`TrProj.uniq` and
+-- `IsDefEq.uniqU`. These lemmas are genuine `.uniq` consumers, so unlike the transport
+-- lemmas above they did NOT go clean at the `fee3ada` re-pin.]
 -- `IotaConsistent` is a HYPOTHESIS of `SEvalDataι_defeq` (never an axiom), so it adds
 -- nothing to the axiom set. (Still no `erases_correct_dataι`: `Erases.cases` now carries
 -- the arity pins that unblock it — see the C3 status note in `SubjectReductionIota.lean` —
@@ -322,23 +420,31 @@ open LeanToLambdaBox
 --
 -- The pure pattern plumbing (`Matches` introduction for spines, the
 -- `SimplePattern.iotaRHS` reduct calculation) must be **sorryAx-free**: it touches
--- only `Pattern`/`VExpr`, never `TrExprS`. `TrExprS.mkApps_inv` and
--- `iota_defeq_spine` inherit `sorryAx` from lean4lean's `TrProj` placeholder carried
--- in `TrExprS` — the pre-existing boundary, no new gap. `PatsIotaSpec` is a
--- HYPOTHESIS structure, never an axiom, so it adds nothing to any axiom set; since the
--- `1a1ebe8` re-pin it is also DISCHARGED, by `PatsIotaSpec.of_trEnv` off the fork's
--- `TrEnv.pats_iota'`. That discharge inherits `sorryAx` through the `TrExprS` in
--- `pats_iota'`'s conclusion (`TrProj`) — the same boundary as `iota_defeq_spine` — plus
--- lean4lean's three `PersistentHashMap` `ConstMap` modelling axioms
--- (`findAux_isSome`, `WF.find?_eq`, `WF.toList'_insert`), which come in through the
--- `constMap_wf`/`find?_insert` steps of `pats_iota'`'s induction over `TrEnv'`. Its set
--- is a strict SUBSET of `shipping_visitExpr_correct'`'s, so nothing here is new. It does
--- NOT pick up `Aligned.addInduct`: `pats_iota'` is routed through `TrEnv'.constMap_wf`,
--- not `map_wf`.
+-- only `Pattern`/`VExpr`, never `TrExprS`.
+--
+-- REVISED 2026-08-27 at the `fee3ada` re-pin; the old reading of this block blamed
+-- `TrProj`, and for two of the three entries below that is now simply false.
+--
+--   `TrExprS.mkApps_inv` is sorryAx-FREE. It is a pure `.app`-indexed `cases` inversion,
+--     so its `sorryAx` was never anything but the definitional taint `TrProj` put in the
+--     TYPE of `TrExprS`. A1 removed that taint and the entry went clean.
+--   `PatsIotaSpec.of_trEnv` is sorryAx-FREE, because `TrEnv.pats_iota'` itself measures
+--     clean at `fee3ada`. `PatsIotaSpec` remains a HYPOTHESIS structure, never an axiom,
+--     and it remains DISCHARGED. What survives in its set is only lean4lean's three
+--     `PersistentHashMap` `ConstMap` modelling axioms (`findAux_isSome`, `WF.find?_eq`,
+--     `WF.toList'_insert`), which come in through the `constMap_wf`/`find?_insert` steps
+--     of `pats_iota'`'s induction over `TrEnv'`. Still a strict SUBSET of
+--     `shipping_visitExpr_correct'`'s, so nothing here is new, and it still does NOT pick
+--     up `Aligned.addInduct` — `pats_iota'` is routed through `TrEnv'.constMap_wf`, not
+--     `map_wf`.
+--   `iota_defeq_spine` STAYS dirty, and for a reason that has nothing to do with
+--     projections: it is a genuine consumer of the ι fork's `IsDefEq.pat` /
+--     `Aligned.addInduct` sorries and of `VEnv.HasType.app_inv`. Its set is unmoved
+--     across the re-pin, byte for byte.
 --
 -- The constructed guard `envι_iota_fires` must be **sorryAx-free**: it builds its
 -- `VEnv` with `VEnv.addPat` directly and applies `VEnv.IsDefEq.pat`, neither of which
--- routes through `Aligned.addInduct`/`addInduct_WF`/`TrProj`. (The δ-unfold step of
+-- routes through `Aligned.addInduct`/`addInduct_WF`. (The δ-unfold step of
 -- the remaining chain WOULD route through `Aligned.addInduct` via `TrEnv.of_value` —
 -- documented in `IotaDischarge.lean`, not exercised here.)
 -- ============================================================================
@@ -351,8 +457,11 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.envι_iota_fires
 -- The β-normalisation engine for steps (2)/(4)/(5). A β step builds its reduct's
 -- `TrExprS` by `TrExprS.inst`, so it needs no application node — hence none of the
--- `HasType` premises that block the ι reduct. Inherits `sorryAx` from `TrExprS`
--- (`TrProj`) only.
+-- `HasType` premises that block the ι reduct. [2026-08-27: these two STAY dirty, and the
+-- old "`TrProj` only" reading is wrong — `TrExprS.inst`/`.instN` are both sorryAx-free at
+-- `fee3ada`. The `sorryAx` is the unique-typing cluster arriving through the `TrExpr`
+-- layer these lemmas use to state their conclusions (`IsDefEq.uniqU`, hence C1, which the
+-- trproj round did NOT discharge).]
 #print axioms LeanToLambdaBox.trExprS_beta_step
 #print axioms LeanToLambdaBox.trExprS_betaN
 
@@ -372,6 +481,14 @@ open LeanToLambdaBox
 --
 -- The two `IotaShape` `Expr`-equation guards must be `rfl`-provable and essentially
 -- axiom-free (`[propext]`): they are closed `Expr` computations.
+--
+-- [2026-08-27, `fee3ada`: this block's provenance was already RIGHT — it named
+-- `HasType.app_inv` and `IsDefEq.uniqU`, not `TrProj` — and it is the one ι block that
+-- did not move. `iotaConsistent_of_shape` prints byte-identically across the re-pin, and
+-- in particular it did NOT pick up master's `Std.TreeMap.all_eq_all_toList` /
+-- `Lean.Level.isExplicitSubsumedAux_eq`; those enter only the executable-checker cluster.
+-- One entry below DID go clean: `TrExprS.weak_nil`, which was carrying nothing but the
+-- old definitional `TrProj` taint.]
 #print axioms Lean4Lean.VExpr.WF.mkApps_head
 #print axioms Lean4Lean.TrExprS.mkApps
 #print axioms Lean4Lean.VEnv.IsDefEqU.mkApps_congr_head
@@ -388,9 +505,17 @@ open LeanToLambdaBox
 --
 -- The `LBTerm` layers must be **sorryAx-free**: `Closed.lean` touches only `LBTerm`,
 -- never `TrExprS`, so `LBClosed`'s metatheory and the general de Bruijn commutation kit
--- (`subst_subst` and friends) carry nothing beyond `propext`/`Quot.sound`. Everything
--- that mentions `Erases`/`TrExprS` inherits `sorryAx` from lean4lean's `TrProj`
--- placeholder — the pre-existing boundary, no new gap.
+-- (`subst_subst` and friends) carry nothing beyond `propext`/`Quot.sound`.
+--
+-- [REVISED 2026-08-27, `fee3ada`: "everything that mentions `Erases`/`TrExprS` inherits
+-- `sorryAx` from lean4lean's `TrProj` placeholder" was true at the ι pin and is FALSE
+-- now. `TrProj` has a real definition and measures `[propext]`, so merely MENTIONING
+-- `Erases`/`TrExprS` costs nothing. What is left in this section is dirty because its
+-- PROOFS consume unique typing: the `casesOn`-spine inversions in `ErasesCorrectData.lean`
+-- alone hold 31 of the 69 downstream `.uniq` call sites, and `.uniq` bottoms out in
+-- `TrProj.uniq` (`PROJ-TODO`) and `IsDefEq.uniqU` (C1 + the ι `pat` cases). Section-local
+-- effect of the re-pin: the `Erases` INVERSION and TRANSPORT lemmas went clean, the
+-- SIMULATION lemmas did not.]
 --
 -- `IotaConsistent`, `PatsIotaSpec`, `IotaShape`, `IotaRelevant`, `ClosedEnv`,
 -- `ErasesEnvCasesι`, `CtorFieldsCoherent`, `IotaArityCoherent` are all HYPOTHESES (Props
@@ -1011,10 +1136,16 @@ open LeanToLambdaBox
 --
 -- SCOPE, stated so it is not over-read: this is the `Expr.lit` node. A source-level
 -- numeral `(5 : Nat)` is `@OfNat.ofNat Nat (lit 5) (instOfNatNat (lit 5))`, whose
--- `OfNat.ofNat` body erases to an `LBTerm.proj`; `Erases` is projection-free by design
--- (lean4lean's `TrProj` is a `sorry`), so a user-written numeral still does not
--- δ-unfold in the model. `Nat.add` is `@[extern]`, hence an axiom under the shipping
--- default. Neither is touched by this wall.
+-- `OfNat.ofNat` body erases to an `LBTerm.proj`; `Erases` is projection-free by design,
+-- so a user-written numeral still does not δ-unfold in the model. `Nat.add` is
+-- `@[extern]`, hence an axiom under the shipping default. Neither is touched by this
+-- wall. [2026-08-27: the parenthetical used to read "(lean4lean's `TrProj` is a
+-- `sorry`)", i.e. it gave the UPSTREAM gap as the reason `Erases` has no projection rule.
+-- That reason is gone — A1 gave `TrProj` a real definition, so an `Erases.proj` rule is
+-- now WRITABLE. The restriction that survives is ours and is downstream work: `Supported`
+-- has no `.proj` rule (`Bridge.lean`), and `NoProj` is what the `box` arm of the
+-- uniformity argument pays for. The scope statement above is still correct; only its
+-- justification changed.]
 --
 -- Expectation: no axiom of ours; `envNatT_wf` and the typing lemmas carry lean4lean's
 -- `VEnv.WF` machinery exactly as `envFO_wf` does.
@@ -1623,7 +1754,16 @@ open LeanToLambdaBox
 --
 -- Three standard Lean axioms, `sorryAx` (inherited through lean4lean's `TrExprS`
 -- structural lemmas, whose `proj` case calls the sorried `TrProj`), and four lean4lean
--- `Lean.Expr`/`PersistentHashMap` MODELLING axioms. NO AXIOM OF OURS ANYWHERE, and — the
+-- `Lean.Expr`/`PersistentHashMap` MODELLING axioms.
+--     [CORRECTED 2026-08-27 at the `fee3ada` re-pin. The SET above is still exactly what
+--      the four crown theorems print — verbatim, unmoved. The PARENTHETICAL is now false:
+--      the `TrExprS` structural lemmas (`weakFV'`, `weakBV`, `mono`, `instN`) are all
+--      sorryAx-FREE at `fee3ada`, and `TrProj` is no longer sorried. The `sorryAx` these
+--      four still carry comes from UNIQUE TYPING — `TrExprS.uniq` → `TrProj.uniq`
+--      (`PROJ-TODO`), and `IsDefEq.uniqU`, itself sorried through `IsDefEqU.weakN_iff`
+--      (= C1, not discharged) and the ι fork's `pat` cases. See the re-pin section in this
+--      file's header docstring for the measurement.]
+-- NO AXIOM OF OURS ANYWHERE, and — the
 -- point of measuring it at the composition rather than per slice — the cold-start pair
 -- prints exactly what the warm pair prints. Moving the subject from an abstract
 -- `visitExpr` run under a registered state to `Erasure.erase` from the EMPTY state, and
@@ -1710,6 +1850,13 @@ open LeanToLambdaBox
 -- touch no lean4lean witness). The `Erases`-transport lemmas inherit `sorryAx` through
 -- lean4lean's `TrProj.weak'`, which is the boundary the capstones already measure, and
 -- the fragment excludes `.proj` anyway.
+--     [CORRECTED 2026-08-27 at `fee3ada`. `TrProj.weak'` came back PROVED (A3), so it is
+--      no longer a boundary at all, and the `Erases`-transport lemmas below —
+--      `TrExprS.weakFV_fvwf`, `erases_weakFV`, `TrExprS.weakFV_nofvars`,
+--      `erases_weak_any`, `erases_fix_of_open`, `gErases_fix_of_open`,
+--      `BridgeInv.vlctx_wf`, `BridgeInv.noBV` — are all sorryAx-FREE now. The only
+--      downstream cost of A0 was passing `henv` at the two `proj` arms in
+--      `ErasesStrengthen.lean`, since `TrProj.weak'` gained an `Ordered env` premise.]
 -- ============================================================================
 
 -- Residue 3, retired.
@@ -1765,6 +1912,15 @@ open LeanToLambdaBox
 -- already — `TrProj` is a `sorry`-valued DEFINITION upstream and `Erases.box`/`lam`/`letE`
 -- mention `TrExprS`, so `#print axioms LeanToLambdaBox.Erases` has carried it from the
 -- start.
+--     [CORRECTED 2026-08-27 at `fee3ada`, and this is the annotation the re-pin most
+--      directly overturns. That mechanism is DEAD: A1 replaced the `sorry`-valued `def`
+--      with a real one, `#print axioms Lean4Lean.TrProj` is `[propext]`, and mentioning
+--      `Erases`/`TrExprS` now costs nothing. It is what retired 111 declarations in this
+--      file at a stroke — including `visitExpr_refines_erases` itself. Of the entries
+--      listed just below, `Erases.strengthen_fvlift` and `erases_uniform_of_nil` went
+--      clean; `erases_strengthen_closed` and `erases_uniform_closed` did NOT, because they
+--      genuinely consume `.uniq`. `ErasableStrengthen` was `[propext]` before and after —
+--      it is a Prop, never an axiom, and C1 not landing does not change that.]
 -- ============================================================================
 
 #print axioms LeanToLambdaBox.ErasableStrengthen
@@ -1841,6 +1997,10 @@ open LeanToLambdaBox
 -- along with `supported_const_fixOpen_not_ambient` and the two `nofixvars` guards; the
 -- other two mention `TrExprS`, and the composition mentions `Erases`, so both inherit the
 -- same lean4lean `TrProj` boundary those types have carried from the start.
+--     [CORRECTED 2026-08-27 at `fee3ada`: the other two now come out sorryAx-FREE as well.
+--      `BridgeHyps.withFixvars`, `BridgeInv.withFixvars` and `visitExpr_refines_erases_block`
+--      all measure clean, because "mentions `TrExprS`/`Erases`" stopped implying anything
+--      once `TrProj` got a definition. The entire δ-D8 slice is now sorryAx-free.]
 -- ============================================================================
 
 -- The instantiation: the bundle transports, the invariant, and the packaged bridge.
@@ -1958,6 +2118,10 @@ open LeanToLambdaBox
 -- `MLCtx.WF`, hence `TrExprS`, hence the lean4lean `TrProj` boundary — the same one
 -- `erases_target_fvars` inherits through `Erases`. Nothing new is trusted either way; a
 -- refutation that inherits a boundary is still a refutation.
+--     [CORRECTED 2026-08-27 at `fee3ada`: there is no longer a boundary to inherit. Both
+--      `BridgeInv` refutations and `erases_target_fvars` are sorryAx-FREE now — the
+--      `TrProj`-through-`TrExprS` channel they described was the definitional taint, and
+--      A1 closed it. The refutations are unconditional.]
 -- ============================================================================
 
 -- (1) The split: `decl_run` without the recursion clause, `nonrecursive` beside it.
@@ -1974,8 +2138,9 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.erases_rec_block_of_run
 #print axioms LeanToLambdaBox.gErasesRecBlockD8
 
--- (3) The wall, as theorems. The two `BridgeInv` ones inherit `TrProj` through
--- `BridgeInv.mlc`; the registration one is sorryAx-FREE.
+-- (3) The wall, as theorems. [2026-08-27, `fee3ada`: all three are sorryAx-FREE. The two
+-- `BridgeInv` ones used to inherit the definitional `TrProj` taint through
+-- `BridgeInv.mlc`; that channel is gone.]
 #print axioms LeanToLambdaBox.bridgeInv_blockReader_refuted
 #print axioms LeanToLambdaBox.bridgeInv_rec_exit_reader_refuted
 #print axioms LeanToLambdaBox.rec_exit_registers_stripped_name
@@ -2077,3 +2242,85 @@ open LeanToLambdaBox
 -- `RegisteredClosureRec`, demoted: the derived `erase` field and `RecEnvConsistent`.
 #print axioms LeanToLambdaBox.erases_rec_block_of_run
 #print axioms LeanToLambdaBox.recEnvConsistent_of_block
+
+-- ============================================================================
+-- RE-PIN 2026-08-27: lean4lean `1a1ebe8` (iota) -> `fee3ada` (trproj)
+--
+-- SUPERSEDES the 2026-08-26 composition section above ONLY on axiom provenance. Its
+-- ledger movements (R three -> one) stand unchanged; its crown-four SET stands unchanged;
+-- its explanation of WHY that set contains `sorryAx` does not. Every annotation in this
+-- file that blamed `TrProj` now carries a bracketed correction in place, and the header
+-- docstring carries the full measurement.
+--
+-- MEASURED AT this commit, from clean:
+--   `lake build`             = 167 jobs, green (was 163; the four new jobs are lean4lean's,
+--                              from master's `Verify/Level`, `NormLt`, `QSort`,
+--                              `Theory/LevelSat`, which the merge brings along).
+--   `lake build VerifyBench` = 172 jobs, green (was 168).
+--   this file                = 596 `#print axioms` entries (584 + the 12 below), of which
+--                              19 report NO axiom at all and 577 report a set.
+--
+-- WHAT THE RE-PIN COST IN CODE: two tokens. `TrProj.weak'` gained an `Ordered env`
+-- premise (A3), so the two downstream re-proofs of lean4lean's `TrExprS.weakFV'` on weaker
+-- premises pass `henv` at their `proj` arms (`ErasesStrengthen.lean`, both already had it
+-- in scope). One further straggler the migration survey did not predict: master's new
+-- `VExpr` kit for the `TrProj` proofs introduced `Lean4Lean.VExpr.mkApps_concat`, which
+-- collided by name with the identical snoc lemma `IotaPattern.lean` had been carrying;
+-- the local copy is deleted and the use site resolves upstream.
+--
+-- WHAT IT COST IN AXIOMS: two, and neither from the commissioned work.
+-- `trproj` is a MERGE OF MASTER, and master added `Std.TreeMap.all_eq_all_toList` to
+-- `Verify/Axioms.lean` and made `Lean.Level.isExplicitSubsumedAux_eq` reachable. They land
+-- on the executable kernel-checker cluster and nowhere else — three entries:
+-- `TypeChecker.kernel_isErasable_sound`, `ResidualHyps.toBridgeHyps`,
+-- `shipping_visitExpr_correct'`. The commissioned two commits add no `axiom` at all.
+--
+-- WHAT IT BOUGHT: 139 entries (111 distinct declarations) lost `sorryAx` outright.
+-- Entries carrying `sorryAx`: 230 -> 91. The mechanism is one line —
+-- `#print axioms Lean4Lean.TrProj` is now `[propext]`, where it used to be a
+-- `sorry`-valued DEFINITION, and a `sorry` in a definition taints the TYPE of every
+-- statement mentioning `TrExprS`, proof or no proof.
+--
+-- THE LINE WORTH QUOTING: **`visitExpr_refines_erases` is sorryAx-free.** The claim that
+-- the shipping eraser refines the `Erases` relation no longer rests on any lean4lean gap;
+-- it rests only on the `Expr`/`PersistentHashMap` modelling axioms. Same for its `_core`
+-- and `_block` forms, for `BridgeInv` and every transport of it, for `DeltaHyps`/
+-- `DeltaMem`/`RunConclδ`/`ColdStartSubject`, for the whole δ registration chain, and for
+-- every `Erases` transport and inversion lemma.
+--
+-- WHAT DID NOT MOVE, AND WHY THE CAPSTONES DID NOT: the forward-simulation half consumes
+-- UNIQUE TYPING, which the trproj round did not close and was not asked to. `TrExprS.uniq`
+-- (69 downstream call sites, 31 in `ErasesCorrectData.lean`) bottoms out in `TrProj.uniq`,
+-- still `PROJ-TODO`; `IsDefEq.uniqU` bottoms out in `IsDefEqU.weakN_iff`, which is
+-- commission item C1 — NOT discharged, and the delivered analysis argues it cannot be
+-- discharged from what upstream has today (module import cycle: `ChurchRosser.lean`
+-- imports `UniqueTyping.lean`; plus a same-measure logical cycle). `ErasableStrengthen`
+-- therefore stays a named premise, exactly as the 2026-08-26 ledger has it.
+--
+-- THE TWO PROJ-TODOs THAT DO NOT REACH US: `TrProj.weak'_inv` (nothing here calls
+-- `TrExprS.weakFV'_inv` — the `ErasesUniform` design routed around it, and that decision
+-- pays off again here) and `TrEnv.proj_defeq` (a real STATEMENT with a deferred proof; a
+-- new interface, deliberately not yet consumed).
+-- ============================================================================
+
+-- (1) The mechanism, measured rather than asserted: the definition that used to be a
+-- `sorry`, and the four `TrExprS` structural lemmas it used to taint.
+#print axioms Lean4Lean.TrProj
+#print axioms Lean4Lean.TrExprS.weakFV'
+#print axioms Lean4Lean.TrExprS.mono
+#print axioms Lean4Lean.TrExprS.instN
+
+-- (2) The residue, also measured: what unique typing still costs.
+#print axioms Lean4Lean.TrProj.uniq
+#print axioms Lean4Lean.TrExprS.uniq
+#print axioms Lean4Lean.VEnv.IsDefEqU.weakN_iff
+
+-- (3) The headline retirement: the bridge, and the δ chain behind it.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+#print axioms LeanToLambdaBox.Erases.abstract
+
+-- (4) Stability: the crown four are represented by the warm pair; the set is verbatim
+-- what the 2026-08-26 composition recorded.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι

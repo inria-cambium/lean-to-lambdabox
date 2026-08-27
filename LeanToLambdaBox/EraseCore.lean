@@ -588,9 +588,13 @@ or higher-order-combinator obstruction was found empirically) rather than blocke
   under-approximated.
 * **`prepare_erasure`** (the pre-pass run before `visitExpr`), **`@[csimp]`/`@[extern]`
   rewrites**, **machine-`Nat`/`Int` lowering** (`config.nat = .machine`, `.prim`
-  literals, `Nat.succ`↦`+1`), **projections** (`.proj`, blocked by lean4lean's
-  sorried `TrProj`), and **string literals** are all out of scope — `eraseCore`
-  errors on them. These are exactly the "additional, unverified rewrites layered on
+  literals, `Nat.succ`↦`+1`), **projections** (`.proj`), and **string literals** are
+  all out of scope — `eraseCore` errors on them. [The projection exclusion used to be
+  justified as "blocked by lean4lean's sorried `TrProj`". That block is gone as of the
+  `fee3ada` re-pin, 2026-08-27: `TrProj` has a real definition, so an `Erases`
+  projection rule is now writable. What still excludes `.proj` here is our own
+  `Supported` fragment (`Bridge.lean` has no `.proj` rule) and `eraseCore`'s own error
+  — downstream work, not an upstream gap.] These are exactly the "additional, unverified rewrites layered on
   top" — deliberately out of the verified subset.
 
 In short: the refinement bridge is *complete and sorry-free for the supported
