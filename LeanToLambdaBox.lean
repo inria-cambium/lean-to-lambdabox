@@ -183,3 +183,8 @@ import LeanToLambdaBox.ColdStart
 -- `TrExprS.proj` witnesses over them, and the `pats`-free refutation. Answers the
 -- inhabitation question the whole projection round is staked on.
 import LeanToLambdaBox.ProjPattern
+-- Projection round, slices P4/P5: the projection-reduction interface's discharge —
+-- `ProjCtorAgree` (the constructor agreement `ProjShape` provably cannot supply) and
+-- `projConsistent_of_coh`/`_of_shape`, the `iotaConsistent_of_shape` analogue, whose
+-- chain is short because a projection's reduct is a *subterm* of its redex.
+import LeanToLambdaBox.ProjDischarge

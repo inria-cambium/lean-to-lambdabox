@@ -4,6 +4,7 @@ import LeanToLambdaBox.ErasesCorrectData
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.IotaDischarge
 import LeanToLambdaBox.ProjPattern
+import LeanToLambdaBox.ProjDischarge
 
 /-!
 # Subject reduction and forward simulation for the ι (`casesOn`) fragment — C2/C3
@@ -224,19 +225,28 @@ certificate (`IotaShape`) — see `IotaDischarge.lean`.
 `SEvalDataι_defeq`'s own signature is deliberately left byte-identical: `IotaConsistent`
 is the *interface*, `PatsIotaSpec + IotaShape` is one (currently the only)
 *implementation*, and threading `safety`/`kenv` through every downstream ι statement
-would pollute them with kernel-environment data they never use. -/
+would pollute them with kernel-environment data they never use.
+
+Since the projection round (slice P6) the same treatment covers `ProjConsistent`: it is
+discharged here by `projConsistent_of_coh` (`ProjDischarge.lean`) from the upstream
+interface `ProjDefeqSpec`, the constructor agreement `ProjCtorAgree` — the link
+`ProjShape` provably cannot supply, see that module's docstring — and the registration
+fact `ProjFieldsCoherent`. -/
 theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
     (hspec : PatsIotaSpec safety kenv env)
     (hcon : SEnvConsistent env Us Esrc)
     (hshape : IotaShape safety kenv Γ ia Esrc)
-    (hproj : ProjConsistent env Us Γ)
+    (hpspec : ProjDefeqSpec safety kenv env)
+    (hpagree : ProjCtorAgree env Γ)
+    (hpcoh : ProjFieldsCoherent Γ)
     {e v : Expr} {ve : VExpr}
     (htr : TrExprS env Us Δ e ve)
     (hev : SEvalDataι Γ ia Esrc e v) :
     ∃ vve, TrExprS env Us Δ v vve ∧ env.IsDefEqU Us.length Δ.toCtx ve vve :=
-  SEvalDataι_defeq henv hΔ hcon (iotaConsistent_of_shape henv hspec hcon hshape) hproj htr hev
+  SEvalDataι_defeq henv hΔ hcon (iotaConsistent_of_shape henv hspec hcon hshape)
+    (projConsistent_of_coh henv hpspec hpagree hpcoh) htr hev
 
 /-! ## ι-redex relevance — the two side conditions the model needs
 

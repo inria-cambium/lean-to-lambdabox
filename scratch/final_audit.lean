@@ -6,11 +6,12 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown six times since:
+reported the same 648 entries it did at `fee3ada`. It has grown eight times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
-slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4 and to 772 at slice
-proj-P2, with every earlier entry's output byte-identical at each step. The projection
-round's new entries are **all `sorryAx`-free** bar one — proj-P2's
+slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
+proj-P2 and to 800 at slices proj-P5/P6/P7, with every earlier entry's output
+byte-identical at each step. The projection round's model-layer entries are **all
+`sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
 same `TrProj.uniq` item `erases_strengthen_closed` has carried since `fee3ada`; that slice
 kept the equational `Erases.strengthen_fvlift` beside it precisely so that no declaration
@@ -19,6 +20,13 @@ which was clean stopped being clean, and the 750-entry prefix confirms it. Γ-W4
 fixture (`envRec_foC`, whose set is its `envFO`/`envδ` siblings' verbatim — the inherited
 unique-typing item, reached through `IsDefEq.uniqU`).
 The crown four did not move at any of them.
+
+The projection round's **step** entries (P5/P6/P7) are the first of it to carry
+`sorryAx`, and it is not new: `SEvalDataι_defeq` and `erases_correct_dataι` carried it
+before the round and their sets are byte-identical after it, and `projConsistent_of_*`
+inherits the same unique-typing item its ι twin `iotaConsistent_of_shape` does — with a
+strictly smaller set, because a projection's reduct is a subterm and needs no application
+generation. The round adds no axiom, no `sorry` and no `native_decide` of ours.
 
 **The Γ-XL wave, closed.** Γ-W0 → Γ-W4 took the recursion wall down from both sides: the
 bridge walks `visitMutual`'s recursive exit (Γ-W3.6b) and the capstones no longer exclude
@@ -3273,4 +3281,102 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.visitExpr_refines_erases
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICES proj-P5/P6/P7 — THE PROJECTION STEP, END TO END
+-- ============================================================================
+--
+-- The three slices the P0/P1/P4 audit section recorded as NOT independent, landed
+-- together because they never were: `SEvalDataι.proj` is one new constructor and three
+-- new arms, and two of those arms are the subject reduction and the simulation.
+--
+-- (a) THE SOURCE RULE. `reduceProj`: the discriminant evaluates to a saturated spine of
+--     the structure's own constructor, and spine position `np + i` is selected and
+--     evaluated. THE DESIGN'S `hsel : ∃ h, SEvalDataι …` BUNDLE IS REFUTED — it puts the
+--     recursive occurrence under `Exists` and the arm loses its induction hypothesis.
+--     `hlt`/`hsel` are two fields, exactly as `iota` splits `hidx` from `hbranch`.
+#print axioms LeanToLambdaBox.SEvalDataι
+--
+-- (b) THE INTERFACE MOVED, AND ONE PLANNED LEMMA DIED WITH IT. `ProjConsistent` now takes
+--     the UNREDUCED discriminant plus its subject reduction as a function. The P4 form
+--     quantified over the reduced redex, which no consumer holds, and bridging the two
+--     was the design's `SEvalDataι_proj_congr` — a `TrProj` congruence under a defeq
+--     discriminant. It is NOT NEEDED: `ProjDefeqSpec`, and upstream's `TrEnv.proj_defeq`,
+--     already take their discriminant up to definitional equality. The congruence the
+--     design wanted to prove is the premise the upstream rule wants to be given.
+#print axioms LeanToLambdaBox.ProjConsistent
+--
+-- (c) SUBJECT REDUCTION, AND THE THIRD INDUCTION'S ARM. Three lines and a refutation.
+#print axioms LeanToLambdaBox.SEvalDataι_defeq
+#print axioms LeanToLambdaBox.SEvalDataι_defeq_of_shape
+#print axioms LeanToLambdaBox.SEvalDataι_partial_cases_lam_elim
+--
+-- (d) THE SIMULATION. `Erases.proj_redex_inv` was never written: `Erases.proj_inv` (P1)
+--     IS the two-way split, because `box` and `proj` are the only rules concluding at a
+--     projection — no spine arithmetic, no prefix relevance. `ProjRelevant` was not
+--     written either: its one surviving clause is `IotaRelevant.ctorValue` with the
+--     eliminator hypothesis widened to a disjunction (one field, one use site; nothing in
+--     the tree CONSTRUCTS an `IotaRelevant`, so there are no discharge sites to repair).
+--     What the case does need is P0's de-opacification, at exactly the predicted line.
+#print axioms LeanToLambdaBox.erases_correct_dataι
+#print axioms LeanToLambdaBox.ErasesEnvProjsι
+--
+-- (e) ADDITIVE AT THE GUARDS. Every `Γ` predating the round takes `projs`' default `⊥`,
+--     at which all three new premises are THEOREMS. `ΓFOι` discharges them; it does not
+--     assume them.
+#print axioms LeanToLambdaBox.projConsistent_of_noProjs
+#print axioms LeanToLambdaBox.projFieldsCoherent_of_noProjs
+#print axioms LeanToLambdaBox.erasesEnvProjsι_of_noProjs
+#print axioms LeanToLambdaBox.ΓFOι_erasesEnvProjs
+#print axioms LeanToLambdaBox.ΓFOι_certificates
+--
+-- (f) THE STEP FIRES, BOTH SIDES, AT ONE FIXTURE. `Γproj`/`acΓ`, linked by
+--     `projInd = acIid` (`rfl`). `AC` is one parameter and one field, and the parameter
+--     and the field are given DIFFERENT erasures, so selecting `np + i = 1` rather than
+--     `0` is observable on both sides. `wcbvEval_proj_fires` is the guard the design flags
+--     as genuinely new: `LBOptimize_correct`'s non-block `proj` arm is VACUOUS
+--     (`simp [defaultFlags] at hb`), so nothing had ever exercised this rule at the flavour
+--     the data development runs. `proj_step_fires` is `erases_correct_dataι`'s conclusion
+--     tuple built by hand — every component except the two `TrExprS`, which need a
+--     `pats`-carrying `env.WF` and are the documented upstream boundary.
+#print axioms LeanToLambdaBox.sEvalDataι_proj_fires
+#print axioms LeanToLambdaBox.wcbvEval_proj_fires
+#print axioms LeanToLambdaBox.proj_step_fires
+#print axioms LeanToLambdaBox.projInd_eq_acIid
+#print axioms LeanToLambdaBox.Γproj_erasesEnvProjsι
+#print axioms LeanToLambdaBox.Γproj_projs_ne_bot
+--
+-- (g) ⚠️ A DESIGN CLAIM THAT FAILED: `ProjShape` DOES NOT DISCHARGE THE AGREEMENT.
+--     §3.1/§3.2 assert that `ival.ctors = [ctor]` supplies `ProjDefeqSpec`'s missing
+--     constructor agreement — "the structure has exactly one constructor, so the `TrProj`
+--     witness's `ctorName` and the spine's head are the same name". It cannot.
+--     `ProjShape` relates `kenv` to `Γ`; the witness's `ctorName` is bound by the
+--     `env.pats` membership, i.e. it is a fact about the `VEnv`, which `ProjShape` never
+--     mentions. The informal step silently uses a `kenv`↔`env` alignment — which is what
+--     a `TrEnv` is, and what the eventual `of_trEnv` will have in hand.
+--
+--     So the link is NAMED, as `ProjCtorAgree`, in the `PatsIotaSpec`/`ProjDefeqSpec`
+--     idiom: a `Prop` hypothesis, never an axiom, refuted at a `pats`-free `env` and with
+--     content at `Γproj` (`c = AC.mk`). It is not a new KIND of trust item — it is the
+--     `VEnv`-side half of the same `TrEnv.proj_defeq` statement correction this round
+--     already escalates upstream.
+--
+--     `ProjShape` still reaches the arity fact, but only through a `Γ`-side uniqueness
+--     side condition (`hone`), which `Γproj_ctorsUnique` discharges by computation. The
+--     registration route (`ProjFieldsCoherent`, slice P0) needs neither.
+#print axioms LeanToLambdaBox.ProjCtorAgree
+#print axioms LeanToLambdaBox.projCtorAgree_of_noPats
+#print axioms LeanToLambdaBox.projConsistent_of_arity
+#print axioms LeanToLambdaBox.projConsistent_of_coh
+#print axioms LeanToLambdaBox.projConsistent_of_shape
+#print axioms LeanToLambdaBox.Γproj_ctorsUnique
+--
+-- (h) THE CROWN, UNMOVED. Three premises added to the ι simulation and its three
+--     capstones, one new file, one new source rule — and not one axiom set in this file
+--     changed. The bridge keeps its seven, `rec_exit_refines_erases` its six, and both
+--     cold-start capstones their eight.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

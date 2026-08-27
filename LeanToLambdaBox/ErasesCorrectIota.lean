@@ -875,4 +875,161 @@ theorem gΓfield_certificates :
   ⟨gΓfield_erasesEnvCasesι, gΓfield_ctorFieldsCoherent, gΓfield_iotaArityCoherent,
     gΓfield_not_flat, gΓfield_cc⟩
 
+/-! ## Non-vacuity for the projection step (projection round, slices P5–P7)
+
+The round's own guards, all at **one** fixture — `Γproj` (`Erases.lean`) on the source
+side and `acΓ` (`Semantics/Metatheory.lean`) on the target, linked by `projInd = acIid`
+(`rfl`). That link is what the a7c8ebc fixture merge bought: the `ProjectionInfo` the
+model builds is keyed on the `InductiveId` the target environment actually registers, so
+the two halves are about the same `AC` and not about a lookalike.
+
+`AC` is one parameter and one field, so `np + i = 1 + 0 = 1` is the *second* spine
+position: a rule that confused `paramCount` with `fieldIdx` would select the parameter
+and every guard below would fail. To make that visible the parameter and the field are
+given **different** erasures — the parameter is the nullary head `AC.mk`, the field is
+`AC.mk` applied to one argument — so both the source selection and the target selection
+are observable.
+
+The one thing not constructible here is the same one the ι round records: an actual
+call to `erases_correct_dataι`, which needs `env.WF` for a `pats`-carrying `VEnv`
+(`sorry` upstream) plus `TrExprS` witnesses. So the guard is the theorem's **conclusion**,
+built by hand at a projection redex: `proj_step_fires` below is `erases_correct_dataι`'s
+output tuple minus its two `TrExprS` components. -/
+
+/-- The source parameter: the structure's own constructor, nullary. -/
+private def projSrcParam : Expr := .const `AC.mk []
+/-- The source field: the same constructor applied to one argument — a *different* term
+from the parameter, and one with a different erasure. -/
+private def projSrcField : Expr := .app (.const `AC.mk []) (.const `AC.mk [])
+/-- The discriminant: `AC.mk` saturated at its parameter and its field. -/
+private def projSrcSpine : Expr :=
+  [projSrcParam, projSrcField].foldl Expr.app (.const `AC.mk [])
+
+private def projTgtParam : LBTerm := .construct projInd 0 []
+private def projTgtField : LBTerm := .app projTgtParam projTgtParam
+private def projTgtSpine : LBTerm := .app (.app projTgtParam projTgtParam) projTgtField
+
+/-- The parameter is a source value: a constructor spine at arity `0 ≤ 2`. -/
+private theorem projSrc_param_eval :
+    SEvalDataι Γproj (fun _ => none) (fun _ => none) projSrcParam projSrcParam := by
+  have h : projSrcParam = ([] : List Expr).foldl Expr.app (.const `AC.mk []) := rfl
+  rw [h]
+  exact .ctor_val Γproj_ctors Γproj_arity (by simp) rfl (fun i h => absurd h (by simp))
+
+/-- …and so is the field, at arity `1 ≤ 2`. -/
+private theorem projSrc_field_eval :
+    SEvalDataι Γproj (fun _ => none) (fun _ => none) projSrcField projSrcField := by
+  have h : projSrcField = ([projSrcParam] : List Expr).foldl Expr.app (.const `AC.mk []) := rfl
+  rw [h]
+  exact .ctor_val Γproj_ctors Γproj_arity (by simp) rfl
+    (fun i hi => by match i, hi with | 0, _ => exact projSrc_param_eval)
+
+/-- The discriminant evaluates to itself — a **saturated** spine, `2 = 1 + 1`, which is
+what makes the projection's selection total. -/
+private theorem projSrc_spine_eval :
+    SEvalDataι Γproj (fun _ => none) (fun _ => none) projSrcSpine projSrcSpine :=
+  .ctor_val Γproj_ctors Γproj_arity (by simp) rfl
+    (fun i hi => by
+      match i, hi with
+      | 0, _ => exact projSrc_param_eval
+      | 1, _ => exact projSrc_field_eval)
+
+/-- **`SEvalDataι.proj` fires** (slice P5): field `0` of a saturated `AC.mk` spine
+evaluates to the spine's position `np + i = 1`, i.e. the **field** and not the
+parameter. -/
+theorem sEvalDataι_proj_fires :
+    SEvalDataι Γproj (fun _ => none) (fun _ => none)
+      (.proj `AC 0 projSrcSpine) projSrcField :=
+  .proj (cargs := [projSrcParam, projSrcField])
+    Γproj_projs Γproj_ctors Γproj_ctorFields Γproj_arity (by simp) (by omega)
+    projSrc_spine_eval (by simp) projSrc_field_eval
+
+private theorem projTgt_param_eval : WcbvEval acΓ appliedFlags projTgtParam projTgtParam :=
+  .construct_atom rfl rfl
+
+private theorem projTgt_field_eval : WcbvEval acΓ appliedFlags projTgtField projTgtField :=
+  .construct_app (args := []) (ar := 2) rfl projTgt_param_eval rfl (by decide)
+    projTgt_param_eval
+
+private theorem projTgt_spine_eval : WcbvEval acΓ appliedFlags projTgtSpine projTgtSpine :=
+  .construct_app (args := [projTgtParam]) (ar := 2) rfl
+    (.construct_app (args := []) (ar := 2) rfl projTgt_param_eval rfl (by decide)
+      projTgt_param_eval)
+    rfl (by decide) projTgt_field_eval
+
+/-- **`WcbvEval.proj` fires at `appliedFlags`** (slice P7) — the guard the design records
+as genuinely new: `LBOptimize_correct`'s non-block `proj` arm is *vacuous*
+(`simp [defaultFlags] at hb`), so nothing in the tree had ever exercised this rule at the
+flavour the data development runs. It selects `args[paramCount + fieldIdx] = args[1]`,
+the field, on a two-element applied-form spine of a non-propositional inductive. -/
+theorem wcbvEval_proj_fires :
+    WcbvEval acΓ appliedFlags (.proj ⟨projInd, 1, 0⟩ projTgtSpine) projTgtField :=
+  .proj (args := [projTgtParam, projTgtField]) rfl rfl projTgt_spine_eval rfl
+    projTgt_field_eval
+
+private theorem projSrc_param_erases {env : VEnv} {Us : List Name} {Δ : VLCtx} :
+    Erases env Us Γproj Δ projSrcParam projTgtParam :=
+  .ctor_head `AC.mk [] projInd 0 Γproj_ctors
+
+private theorem projSrc_field_erases {env : VEnv} {Us : List Name} {Δ : VLCtx} :
+    Erases env Us Γproj Δ projSrcField projTgtField :=
+  .app projSrc_param_erases projSrc_param_erases
+
+private theorem projSrc_spine_erases {env : VEnv} {Us : List Name} {Δ : VLCtx} :
+    Erases env Us Γproj Δ projSrcSpine projTgtSpine :=
+  .app (.app projSrc_param_erases projSrc_param_erases) projSrc_field_erases
+
+/-- **The projection step, end to end** (slices P5–P7). At `Γproj`/`acΓ`, on one and the
+same projection redex: the source rule fires, the redex erases to a `.proj` node over the
+erased discriminant, that node is applied-form and closed, the **non-block** target rule
+steps it, and the target it reaches is an erasure of the source value.
+
+That is `erases_correct_dataι`'s conclusion tuple, minus the two `TrExprS` components —
+which are exactly the parts that need a `VEnv` with `env.WF`, unconstructible at this pin
+for the same upstream reason the ι round records (`VEnv.Ordered` has no `addPat` clause;
+`addInduct_WF` is `sorry`). Every *other* component of the simulation's output is
+exhibited here, at a projection, non-degenerately: the value reached is the field
+(`AC.mk` applied once), not the parameter (`AC.mk` nullary). -/
+theorem proj_step_fires {env : VEnv} (Us : List Name) (Δ : VLCtx) :
+    SEvalDataι Γproj (fun _ => none) (fun _ => none)
+        (.proj `AC 0 projSrcSpine) projSrcField ∧
+      Erases env Us Γproj Δ (.proj `AC 0 projSrcSpine)
+        (.proj ⟨projInd, 1, 0⟩ projTgtSpine) ∧
+      NoBlock (.proj ⟨projInd, 1, 0⟩ projTgtSpine) ∧
+      LBClosed (.proj ⟨projInd, 1, 0⟩ projTgtSpine) 0 ∧
+      WcbvEval acΓ appliedFlags (.proj ⟨projInd, 1, 0⟩ projTgtSpine) projTgtField ∧
+      Erases env Us Γproj Δ projSrcField projTgtField ∧
+      NoBlock projTgtField ∧ LBClosed projTgtField 0 :=
+  ⟨sEvalDataι_proj_fires,
+    .proj `AC 0 projInd 1 1 Γproj_projs Γproj_ctorFields (by omega) projSrc_spine_erases,
+    by simp [projTgtSpine, projTgtParam, projTgtField, NoBlock],
+    by simp [projTgtSpine, projTgtParam, projTgtField, LBClosedArgs],
+    wcbvEval_proj_fires, projSrc_field_erases,
+    by simp [projTgtParam, projTgtField, NoBlock],
+    by simp [projTgtParam, projTgtField, LBClosedArgs]⟩
+
+/-- **The two halves are about the same inductive.** The `InductiveId` the model puts in
+the emitted `ProjectionInfo` (`Γproj`'s `projInd`) is the one `acΓ` registers, so
+`wcbvEval_proj_fires`' non-propositionality premise is delivered at the node
+`sEvalDataι_proj_fires`/`Erases.proj` actually build. -/
+theorem projInd_eq_acIid : projInd = acIid := rfl
+
+/-- **`ErasesEnvProjsι` fires** at the merged fixture — the thin env premise the
+simulation takes, at a genuinely registered non-propositional structure. -/
+theorem Γproj_erasesEnvProjsι : ErasesEnvProjsι Γproj acΓ := by
+  intro S iid np hs
+  by_cases h : S = `AC
+  · subst h; simp only [Γproj] at hs; obtain ⟨rfl, _⟩ := hs; rfl
+  · simp [Γproj, if_neg h] at hs
+
+/-- **Negative polarity, and the reason the vacuity trio is honest**: at a `Γ` that
+registers no structure the projection premises hold *because nothing satisfies them*, and
+`Γproj` is a `Γ` at which they do not. Together with `Γproj_erasesEnvProjsι` this is the
+pair that keeps `projConsistent_of_noProjs` and friends from being the whole story. -/
+theorem Γproj_projs_ne_bot : Γproj.projs ≠ fun _ => none := by
+  intro h
+  have := congrFun h `AC
+  rw [Γproj_projs] at this
+  exact absurd this (by simp)
+
 end LeanToLambdaBox
