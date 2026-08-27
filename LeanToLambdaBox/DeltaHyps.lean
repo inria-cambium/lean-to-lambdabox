@@ -241,18 +241,29 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   6 from an abstract eraser and its motive-1 refinement hypothesis — the shape step 6
   holds).
 
-  **What this field is now standing in front of, and why it did not move at Γ-W3.** Not a
+  **What this field is now standing in front of** (rewritten at slice Γ-W3.5). Not a
   missing lemma. `rec_exit_refines_erases` leaves exactly one premise undischarged —
   `hreg`, the agreement that `Γ` records *this* block for its own names, which is
-  `Erases.fix`'s own registration premise. `Γ` is fixed before the run builds `defs`, and
-  any premise that pins the block inside the induction must quantify over the induction's
-  *abstract* eraser; every such phrasing is **contradictory**, since two erasers hand back
-  two different blocks and `Γ.recBodies` records one
-  (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). A `BlockHyps` field of
-  that shape would be vacuously satisfiable exactly where it is needed — the S1d/S1e
-  failure mode — so it is not in the bundle, and this field keeps the branch closed until
-  the agreement is staged somewhere a caller with a concrete run can discharge it. See the
-  `ColdStart` ledger's `hnorec` row. -/
+  `Erases.fix`'s own registration premise, and `Γ` is fixed before the run builds `defs`.
+
+  Γ-W3 found that premise stated at the induction's *abstract* eraser, where every
+  phrasing is **contradictory**: two erasers hand back two different blocks and
+  `Γ.recBodies` records one
+  (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). Γ-W3.5 removed that
+  quantifier. Every motive of the bridge now carries `f ⊑ Erasure.visitExpr`, the premise
+  is `VisitExprRefines.RecBlockRegistered` — keyed on the **shipping** eraser, where there
+  is one block — and `Erasure.run_rec_exit_siblings_le` transports an abstract sibling
+  loop's successful run onto it. Guard (iv'') fires the composition at exactly the data
+  step 6 holds.
+
+  What keeps this field is the quantifier Γ-W3.5 did *not* remove: `hreg` is stated at *a*
+  reader and *a* state, and step 6's motive quantifies both. A bundle field would have to
+  quantify them too, and readers differing in `Erasure.Config` erase the same block to
+  different `defs` — with `BridgeInv.natcfg` one-directional, nothing at this level pins
+  the reader. That premise is not provably contradictory, but it is not suppliable either:
+  a caller who built `Γ` by running the eraser holds one reader and one state. A field of
+  that shape would be the S1d/S1e failure mode with `ctx` in the role `known` played
+  there. See the `ColdStart` ledger's `hnorec` row. -/
   nonrecursive : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v : Expr}
       {w w₁ : Void IO.RealWorld},
     known n →

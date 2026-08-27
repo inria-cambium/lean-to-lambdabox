@@ -94,7 +94,7 @@ Four classes, and nothing falls outside them:
 | `hUs : Us = []` | S | universe monomorphism of the whole dependency cone. At the *entry point* it is also a fact — `Erasure.run` installs `lparams := []` and `BridgeInv.lparams` pins `ctx.lparams = Us` — but `DeltaHyps.decl_run` demands it of every dependency too, so a polymorphic callee makes the bundle uninhabited (`DeltaHyps`, scope restriction 1) |
 | `hcsimp : cfg.csimp = false` | S | csimp replacement is not kernel-semantics-preserving (`PrepareHyps`' own analysis), so it can never sit inside a correctness statement. It is also what makes R2 fire (`ColdStartRun.run_prepare_erasure_state`: with csimp off, `prepare_erasure` leaves the state at `{}`). RAISE-not-fix: the shipping *default* is `csimp := true` |
 | `hnfv : Γ.fixvars = ⊥` | S | the subject is outside every mutual block. Also `DeltaHyps.nofixvars` (scope restriction 2) |
-| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems, and since δ-D8 the walk fact behind `RegisteredClosureRec` is a theorem too (`ColdStartDelta.recEnvConsistent_of_block`). What keeps this row here is that no *run* reaches those theorems: `DeltaHyps.nonrecursive` (δ-D8e, split out of `decl_run`) forces `visitMutual`'s `nonrecursive` test `true` for every fragment name, so the bridge's step 6 refutes the recursive exit. Removing that field is necessary and **not sufficient** — see residue 1 and `VisitExprRefines.bridgeInv_blockReader_refuted` |
+| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems, and since δ-D8 the walk fact behind `RegisteredClosureRec` is a theorem too (`ColdStartDelta.recEnvConsistent_of_block`). What keeps this row here is that no *run* reaches those theorems: `DeltaHyps.nonrecursive` (δ-D8e, split out of `decl_run`) forces `visitMutual`'s `nonrecursive` test `true` for every fragment name, so the bridge's step 6 refutes the recursive exit. Removing that field is necessary and **not sufficient** — see residue 1 and `VisitExprRefines.bridgeInv_blockReader_refuted`. Slice Γ-W3.5 paid the route priced at Γ-W3c and moved the walk's registration premise onto the shipping eraser; what still keeps this row is narrower and newly named — the motive's *reader/state* quantification, not the eraser one |
 | `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
@@ -223,31 +223,40 @@ below, three ways.
    `Erases` derivation; and `Erases.fix`'s `hrarg` needed `Erasure.run_mkDef_rarg`, which
    `run_mkDef_ok` did not state.
 
-   What is left is **one premise, and it is irreducible rather than unproved**: `hreg`,
-   the agreement that `Γ` records *this* block for its own names. `Γ` is fixed before the
-   run builds `defs`, so no `Γ`-side or run-side premise inside the induction can pin it,
-   and every phrasing that quantifies it over the induction's abstract eraser is
-   *contradictory* — two erasers, two blocks, one `Γ.recBodies`
-   (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). That is why the
-   branch is still refuted by `DeltaHyps.nonrecursive`, and it is a different reason from
-   every earlier one: not a missing lemma, a missing generalisation or a layering
-   accident, but the same irreducibility `ColdStartDelta`'s ledger already names for
-   `hreg` at a parameter `Γ`, met one level further in.
+   What is left is **one premise**: `hreg`, the agreement that `Γ` records *this* block
+   for its own names. `Γ` is fixed before the run builds `defs`, so no run fact inside the
+   induction can pin it. Γ-W3 found it stated at the induction's abstract eraser, where
+   every phrasing is *contradictory* — two erasers, two blocks, one `Γ.recBodies`
+   (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`) — and priced the
+   route out of that at Γ-W3c.
 
-   **The one route that would dissolve it, priced.** `hreg` keyed on the block loop at the
-   *shipping* `Erasure.visitExpr` is perfectly satisfiable — it is the same premise
-   `EnvErasureRec.RegisteredClosureRec` has always carried, and a caller with a concrete
-   run discharges it. What blocks step 6 is only that its eraser is abstract. So the fix is
-   to make the induction *know* that its abstract eraser's successful runs are the
-   fixpoint's: add to each motive the conjunct
-   `∀ …, f x … = .ok r → Erasure.visitExpr x … = .ok r`, which is admissible in exactly the
-   `eraseM_admissible_ok₁` sense (its `Q` does not mention `f`), and whose eighteen step
-   obligations are the componentwise monotonicity of the erasure functional — available in
-   the environment as `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …`, together
-   with the fixpoint equation. That is a second Γ-W1-shaped pass over the motives plus
-   order-theoretic plumbing against `Lean.Order`'s product order, and it is the honest
-   price of walking the exit *inside* the induction rather than beside it. Until it is
-   paid, `rec_exit_refines_erases` is the walk and its caller is outside.
+   **That route was paid, at Γ-W3.5, and it bought what it said it would.** Every motive
+   of `visitExpr_refines_erases_core` now carries a second conjunct, `f ⊑ Erasure.visitXxx`
+   in `partial_fixpoint`'s own order; the eighteen admissibility obligations are the
+   eighteen old ones wrapped in `Erasure.admissible_and_le`, and the eighteen step
+   obligations are four lines each off
+   `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …`, the monotonicity proof
+   `partial_fixpoint` generated for the erasure family. `rec_exit_refines_erases`' `hreg`
+   is consequently stated at the **shipping** `Erasure.visitExpr`
+   (`VisitExprRefines.RecBlockRegistered`), and the walk still consumes it at an abstract
+   eraser because `Erasure.run_rec_exit_siblings_le` transports the sibling loop's
+   successful run from one to the other. Guard (iv'') fires the whole composition at
+   exactly the data step 6 holds. One correction to Γ-W3c's wording: the conjunct cannot
+   be the run-ok implication it named — run-ok agreement is strictly weaker than `⊑`
+   (`EST.bot` is an `.error`) and is not preserved by the erasure functional's step, so
+   the motives carry `⊑` and `Erasure.run_ok_of_le` is its corollary.
+
+   **And the wall that is left is a different one.** `hreg` is stated at *a* reader and
+   *a* state; step 6's motive quantifies both, so a premise handed to the induction from a
+   bundle would have to quantify them too. That is not the eraser wall again. It is not
+   provably contradictory — there is only one eraser now, so the two-blocks argument has
+   nothing to run on — but it is not suppliable either: readers differing in
+   `Erasure.Config` erase the same block to different `defs`, the only reader/`Γ` coherence
+   at this level is `BridgeInv.natcfg` and that is one-directional, and a caller who built
+   `Γ` by running the eraser holds one reader and one state rather than all of them. A
+   bundle field of that shape would be the S1d/S1e failure mode with `ctx` in the role
+   `known` played there. So `DeltaHyps.nonrecursive` keeps the branch closed, and this row
+   now waits on the reader/state quantification rather than on the eraser one.
 
    The capstone half cannot be landed ahead of that producer either, and for a reason that
    is not effort: it would replace a named scope restriction with an *uninhabited* premise.

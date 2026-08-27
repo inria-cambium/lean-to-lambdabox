@@ -153,7 +153,7 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
 | `hilen`/`hnlen`/lengths | **from the run** |
 | `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design. **Landed at slice Γ-W0**: `Erasure.run_mkFreshFVarId_list` chains the invariant through state *and* world, and `Nodup` is the payoff of the chaining |
-| `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that *replaces* `RegisteredClosureRec` (slice δ-D8). **Confirmed irreducible one level further in at Γ-W3**: inside the bridge's induction the eraser is abstract, so a premise pinning the block must quantify over it, and every such phrasing is *contradictory* — two erasers, two blocks, one `Γ.recBodies` (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). It is the one premise `VisitExprRefines.rec_exit_refines_erases` leaves standing |
+| `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that *replaces* `RegisteredClosureRec` (slice δ-D8). **Confirmed irreducible one level further in at Γ-W3**: inside the bridge's induction the eraser is abstract, so a premise pinning the block must quantify over it, and every such phrasing is *contradictory* — two erasers, two blocks, one `Γ.recBodies` (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). It is the one premise `VisitExprRefines.rec_exit_refines_erases` leaves standing. **Restated at Γ-W3.5**: the eraser quantification is gone — the premise is now `VisitExprRefines.RecBlockRegistered`, keyed on the shipping `Erasure.visitExpr`, and the walk feeds it at an abstract eraser through the approximation conjunct the motives carry. What still keeps it outside step 6 is the motive's *reader/state* quantification, a different and weaker obstruction |
 | `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value. **Landed at slice Γ-W2** as `DeltaHyps.BlockHyps.sibling_scope`, and only the λ-headedness is assumed: closedness and fvar-freeness are read off the `TrExprS` witness `DeltaHyps.esrc_shape` already supplies |
 | `hopen`'s `∀ Δf` | **gone** (slice δ-D8). `rec` conditioned it on a fresh `Δf`; the proof instantiates it at `Δf := []` and nowhere else, so `erases_fix_of_open_nil` states it there. That is the shape a *run* can supply |
 | `hopen` at the block-local `Γ.withFixvars fv` | **from the bridge** (slice δ-D8): `VisitExprRefines.visitExpr_refines_erases_block`. No motive changes — the bridge theorem is Γ-polymorphic as a statement, and exactly one premise breaks at `Γ.withFixvars fv` (`DeltaHyps.nofixvars`, now conditioned on the fragment). That is true of this *route*, from outside the induction. Reaching it from **inside** step 6 did need the motives to quantify `Γ`, which is slice Γ-W1; see the correction below |
@@ -219,8 +219,13 @@ theorem from, and at the block's own reader the erasure IH's `BridgeInv` premise
 *false*: `VisitExprRefines.bridgeInv_blockReader_refuted`. That obstruction is **gone** as
 of slice Γ-W1: the motives quantify `Γ`, and guard (i''') derives the core's erasure
 conjunct at an arbitrary block-local `Γ₀.withFixvars fv` with the δ conclusion still
-reported at `Γ₀`. What remains is to build the walk itself, which is the last unlanded
-piece and is priced premise by premise in `ColdStart.lean`'s residue 1.
+reported at `Γ₀`. The walk itself landed at Γ-W3
+(`VisitExprRefines.rec_exit_refines_erases`), and at Γ-W3.5 its registration premise moved
+onto the shipping eraser, where it is not refuted — the motives carry
+`f ⊑ Erasure.visitExpr` and `Erasure.run_rec_exit_siblings_le` transports the sibling
+loop's run. Guard (iv'') composes all of it at the data step 6 holds. What remains is the
+reader/state quantification a bundle-level premise would need; it is priced in
+`ColdStart.lean`'s residue 1.
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/

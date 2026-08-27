@@ -6,7 +6,9 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-still reports the same 648 entries it did at `fee3ada`.)
+reported the same 648 entries it did at `fee3ada`. It has grown twice since: to 660
+at slice proj-P3 and to 673 at slice Γ-W3.5, with every earlier entry's output
+byte-identical at each step.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -2728,3 +2730,83 @@ open LeanToLambdaBox
 -- are about the registration and not artefacts of a degenerate definition.
 #print axioms LeanToLambdaBox.trProj_refuted
 #print axioms LeanToLambdaBox.trProj_refuted_empty
+
+-- ============================================================================
+-- SLICE Γ-W3.5 — THE APPROXIMATION CONJUNCT, AND THE WALL BEHIND THE WALL
+-- ============================================================================
+--
+-- Γ-W3c priced a route out of the one premise `rec_exit_refines_erases` leaves standing.
+-- This slice paid it. Three things to check here: that the toolkit is clean, that the
+-- crown theorems did not move, and that the walk's own axiom set did not grow.
+--
+-- (a) THE TOOLKIT. `⊑` is `partial_fixpoint`'s own order on `EraseM`. `run_ok_of_le` is
+--     the only direction the bridge consumes — below the fixpoint a *successful* run is
+--     the fixpoint's run, verbatim — and it is also the correction to Γ-W3c's wording:
+--     the conjunct CANNOT be the run-ok implication that slice named. Run-ok agreement is
+--     strictly weaker than `⊑` (`EST.bot` is an `.error`, so an eraser that errors where
+--     the fixpoint succeeds satisfies it) and the erasure functional does not preserve
+--     it; monotonicity gives `F x ⊑ F y` from `x ⊑ y` and there is no run-ok analogue to
+--     feed. So the motives carry `⊑`, and run-ok is its corollary.
+--
+--     `admissible_and_le` is why the eighteen admissibility obligations cost nothing: a
+--     chain below the fixpoint has its supremum below it (`CCPO.csup_le`), and Γ-W3c's
+--     other reading — that the new conjunct's `Q` does not mention `f` — holds.
+--     `fix_step_le` is `Lean.Order.fix_eq` read as an inequality, and `mutual_le_of`
+--     packs the step's eighteen hypotheses into the `PProd` chain
+--     `Erasure.visitExpr.mutual` inhabits, so that
+--     `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …` — the monotonicity proof
+--     `partial_fixpoint` generated for the erasure family itself — discharges each step
+--     obligation with one projection. Nothing here is a conjecture and nothing is new
+--     mathematics; the eighteen `_eq_mutual` slot equations exist only because
+--     `partial_fixpoint` seals each member behind an `@[irreducible] def`.
+#print axioms Erasure.approx_rfl
+#print axioms Erasure.run_ok_of_le
+#print axioms Erasure.run_ok_of_le₁
+#print axioms Erasure.admissible_and_le
+#print axioms Erasure.fix_step_le
+#print axioms Erasure.visitExpr_eq_mutual
+#print axioms Erasure.visitAlt_eq_mutual
+#print axioms Erasure.mutual_le_of
+-- (b) THE TRANSPORT. `⊑` travels under the recursive exit's sibling `mapM` by
+--     `List.monotone_mapM` and `Erasure.withReader_mono` alone — no fact about the
+--     erasure family is needed, only that the eraser occurs positively in the loop body.
+--     That is what lets a walk at an ABSTRACT eraser feed a premise stated at the
+--     SHIPPING one.
+#print axioms Erasure.rec_exit_siblings_mono
+#print axioms Erasure.run_rec_exit_siblings_le
+-- (c) THE CROWN FOUR DID NOT MOVE. Both bridge theorems keep the same seven axioms they
+--     had at Γ-W3c — `propext`, `Classical.choice`, `Quot.sound` and lean4lean's four
+--     modeling axioms — and `visitExpr_refines_erases`' STATEMENT is byte-identical: the
+--     new conjunct is a tautology at the fixpoint, so the export projects one `.1`
+--     further and nothing else changed. `rec_exit_refines_erases` keeps its six, a subset.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+--
+-- (d) WHAT THE SLICE BOUGHT, AND WHAT IT DID NOT — the honest half.
+--
+--     BOUGHT. `hreg` used to be stated at the induction's abstract eraser, where every
+--     phrasing is *contradictory*: two erasers hand back two blocks and `Γ₀.recBodies`
+--     records one (`rec_exit_agreement_eraser_quantified_refuted`, with
+--     `rec_exit_block_ne_of_body_ne` as its instance on real leaves). It is now
+--     `RecBlockRegistered`, keyed on `Erasure.visitExpr`, where there is one block per
+--     `(names, ids, ctx, s₀, wi)`. Guard (iv'') is the fixture Γ-W3 could not state: the
+--     walk fires at exactly the data step 6 holds — an abstract eraser, its motive-1
+--     PAIR, and the shipping-keyed premise. Guard (iv') is the same composition at the
+--     induction's conclusion, where the approximation half is trivial.
+--
+--     NOT BOUGHT. Step 6 still refutes the recursive exit, and `DeltaHyps.nonrecursive`
+--     (scope restriction 5) stands. The obstruction is a DIFFERENT quantifier and this is
+--     the first slice that can name it: `hreg` is stated at *a* reader and *a* state, and
+--     step 6's motive quantifies both, so a bundle-level premise would have to quantify
+--     them too. Unlike the eraser quantification that premise is not provably
+--     contradictory — there is only one eraser now, so the two-blocks argument has
+--     nothing to run on — but it is not SUPPLIABLE either: readers differing in
+--     `Erasure.Config` erase the same block to different `defs`, the only reader/`Γ₀`
+--     coherence available at this level is `BridgeInv.natcfg` and that is
+--     one-directional, and a caller who built `Γ₀` by running the eraser holds one reader
+--     and one state rather than all of them. A `DeltaHyps` field of that shape was
+--     written, compiled and REVERTED in this slice for exactly that reason: it would have
+--     been the S1d/S1e failure mode with `ctx` in the role `known` played there — a
+--     premise vacuously satisfiable precisely where the slice needs it. The measurement
+--     is recorded rather than the field.
