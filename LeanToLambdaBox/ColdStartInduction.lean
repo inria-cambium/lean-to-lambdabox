@@ -1219,6 +1219,31 @@ structure RegBridgeHyps (Γ : ErasureCtx) : Prop where
     ∀ {con : Name} {iid : InductiveId} {np : Nat},
       Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
       Γ.casesOns con = some (iid, np) → RegisteredCtorFields Γ s'.gdecls iid
+  /-- `Γ`-agreement for the **projection** data of that block (slice P9): the same
+  statement as `regCases`, keyed on `Γ.projs` instead of `Γ.casesOns`. A separate field
+  rather than a consequence, because the two columns are independent — a structure nothing
+  pattern-matches on has `Γ.casesOns = none` everywhere, so `regCases` is silent about the
+  very block `visitProj` registers. -/
+  regProjs : ∀ {ii : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {r : InductiveId × InductiveArgMasks} {s' : ErasureState} {w' : Void IO.RealWorld},
+    s.inductives.get? ii.name = none →
+    register_inductive ii s ctx cctx ref w = .ok (r, s') w' →
+    ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) →
+      ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+        LBTerm.envLookup s'.gdecls iid.mutualBlockName = some (.inductiveDecl body) ∧
+        body.bodies[iid.idx]? = some oib ∧ body.npars = np ∧ oib.propositional = false
+  /-- `Γ`-agreement for the field counts of that block, keyed on `Γ.projs` (slice P9). -/
+  regProjFields : ∀ {ii : InductiveVal} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {r : InductiveId × InductiveArgMasks} {s' : ErasureState} {w' : Void IO.RealWorld},
+    s.inductives.get? ii.name = none →
+    register_inductive ii s ctx cctx ref w = .ok (r, s') w' →
+    ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn ii) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) → RegisteredCtorFields Γ s'.gdecls iid
   /-- `PrepareHyps`-class: `prepare_erasure` does not disturb the registry invariant. Its
   `csimp` branch runs `Lean.Core.transform` at `EraseM` through `MonadControlT`, so state
   transparency does not follow from the `liftM` lemmas. -/
@@ -1244,11 +1269,21 @@ structure RegBridgeHyps (Γ : ErasureCtx) : Prop where
     Erasure.visitExpr pe s ctx cctx ref w = .ok (t, s') w' →
     ∀ {con : Name} {iid : InductiveId} {np : Nat},
       Γ.casesOns con = some (iid, np) → BlockRegistered s'.gdecls iid
+  /-- Every inductive block `Γ` records a **structure** for was registered by the walk
+  (slice P9). One field, not two: `RegisteredProjsOn` and `RegisteredProjCtorFieldsOn` are
+  keyed on the same `Γ.projs` lookup, so the same completeness fact collapses both. -/
+  satProjs : ∀ {pe : Expr} {s : ErasureState} {ctx : ErasureContext}
+      {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+      {t : LBTerm} {s' : ErasureState} {w' : Void IO.RealWorld},
+    Erasure.visitExpr pe s ctx cctx ref w = .ok (t, s') w' →
+    ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Γ.projs S = some (iid, np) → BlockRegistered s'.gdecls iid
 
-/-- **`RegInvShape Γ` is `RunClosed`.** Five of the six fields are discharged from
+/-- **`RegInvShape Γ` is `RunClosed`.** Five of the six closure fields are discharged from
 `ColdStartShape`'s closure lemmas — including `reg`'s hit branch, which is
 state-preserving; what the bundle supplies is the `Γ`-agreement for a cold registration
-and the `prepare_erasure` trust item. -/
+(five columns since slice P9: constructors, `casesOn` data, field counts, and the two
+projection rows) and the `prepare_erasure` trust item. -/
 theorem RunClosed.regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) :
     RunClosed (RegInvShape Γ) where
   inl := fun h => h.inlinings
@@ -1262,7 +1297,8 @@ theorem RunClosed.regInvShape {Γ : ErasureCtx} (Hg : RegBridgeHyps Γ) :
       exact hQ
     | none =>
       exact (hQ.register_inductive_run Hg.knames (Hg.regCtors hi hrun)
-        (Hg.regCases hi hrun) (Hg.regFields hi hrun) hrun).1
+        (Hg.regCases hi hrun) (Hg.regFields hi hrun) (Hg.regProjs hi hrun)
+        (Hg.regProjFields hi hrun) hrun).1
   prep := fun hrun hQ => Hg.prep hrun hQ
   nrc := fun hQ hnf hcl _ => hQ.nonrecConst (Hg.knames _) hnf hcl
   rc := fun hQ hcl _ => RegInvShape.recConst Hg.knames hcl hQ
@@ -1358,9 +1394,13 @@ theorem gRegBridgeHyps
   regCtors := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
   regCases := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
   regFields := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  regProjs := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hS; exact absurd hS (by simp [gΓrb])
+  regProjFields := by
+    intro _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ hS; exact absurd hS (by simp [gΓrb])
   prep := hprep
   satCtors := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
   satCases := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ hc; exact absurd hc (by simp [gΓrb])
+  satProjs := by intro _ _ _ _ _ _ _ _ _ _ _ _ _ hS; exact absurd hS (by simp [gΓrb])
 
 /-- …and the corollaries fire on it: the registry invariant really is carried through a
 `visitExpr` run by the repaired bundle, not vacuously. (The run itself stays hypothetical
