@@ -469,6 +469,71 @@ theorem DeltaMem.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : 
       exact hwit hb
     · exact h.erase hb hm'
 
+/-- Membership in `List.zipIdx` read back as an index-with-bound. -/
+private theorem zipIdx_mem_index {α : Type _} {l : List α} {a : α} {i : Nat}
+    (h : (a, i) ∈ l.zipIdx) : ∃ hi : i < l.length, l[i]'hi = a := by
+  have hg : l[i]? = some a := List.mk_mem_zipIdx_iff_getElem?.mp h
+  have hlt : i < l.length := by
+    by_contra hc
+    rw [List.getElem?_eq_none (by omega)] at hg
+    simp at hg
+  exact ⟨hlt, by rw [List.getElem?_eq_getElem hlt] at hg; exact Option.some.inj hg⟩
+
+/-- The block registration, one sibling at a time. `Erasure.recConstState` is a `foldl` of
+`Erasure.recConstStep`, which *is* the non-recursive cons at a `.fix` body, so the block
+extension is `DeltaMem.nonrec` iterated. Stated over an arbitrary `(name, index)` list so
+the fold has something to generalise over. -/
+private theorem DeltaMem.recBlockAux {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {defs : List (@FixDef LBTerm)} :
+    ∀ (L : List (Name × Nat)) (s : ErasureState), DeltaMem env Us Γ Esrc s →
+      (∀ p ∈ L, Γ.constants p.1 = toKername p.1) →
+      (∀ p ∈ L, ∀ {m : Name}, (Esrc m).isSome → Γ.constants m = Γ.constants p.1 → m = p.1) →
+      (∀ p ∈ L, ∀ {body : Expr}, Esrc p.1 = some body →
+        ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧
+          Erases env Us Γ Δ body (.fix defs p.2)) →
+      DeltaMem env Us Γ Esrc (L.foldl (Erasure.recConstStep defs) s)
+  | [], _, h, _, _, _ => h
+  | p :: rest, s, h, hkn, hinj, hwit =>
+    DeltaMem.recBlockAux rest _
+      (h.nonrec (hkn p (by simp)) (hinj p (by simp)) (hwit p (by simp)))
+      (fun q hq => hkn q (by simp [hq])) (fun q hq => hinj q (by simp [hq]))
+      (fun q hq => hwit q (by simp [hq]))
+
+/-- **The other extension step** (recursion wall, slice Γ-W0). The recursive exit conses one
+`.fix` entry per sibling, all sharing the *same* block `defs` and differing only in the
+index; the record grows by the whole block at once.
+
+The mirror of `DeltaMem.nonrec`, premise for premise: `hkn` is `BridgeInv.knames` at each
+sibling, `hinj` is `DeltaHyps.kinj` composed with `esrc_sub`, and `hwit` is the `Erases.fix`
+derivation the recursive exit's run supplies (`ColdStartDelta.erases_rec_block_of_run`),
+whose conclusion is already `∀ Δ` — so the record's `∃ Δ` is met at whatever context the
+caller has, `[]` included, where the well-formedness and `NoBV` conjuncts are trivial. -/
+theorem DeltaMem.recBlock {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s : ErasureState} {fixnames : List Name} {defs : List (@FixDef LBTerm)}
+    (h : DeltaMem env Us Γ Esrc s)
+    (hkn : ∀ (j : Nat) (hj : j < fixnames.length),
+      Γ.constants (fixnames[j]'hj) = toKername (fixnames[j]'hj))
+    (hinj : ∀ (j : Nat) (hj : j < fixnames.length) {m : Name}, (Esrc m).isSome →
+      Γ.constants m = Γ.constants (fixnames[j]'hj) → m = fixnames[j]'hj)
+    (hwit : ∀ (j : Nat) (hj : j < fixnames.length) {body : Expr},
+      Esrc (fixnames[j]'hj) = some body →
+      ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧
+        Erases env Us Γ Δ body (.fix defs j)) :
+    DeltaMem env Us Γ Esrc (Erasure.recConstState fixnames defs s) := by
+  rw [Erasure.recConstState_eq]
+  refine DeltaMem.recBlockAux _ _ h ?_ ?_ ?_
+  · rintro ⟨nm, i⟩ hp
+    obtain ⟨hlt, rfl⟩ := zipIdx_mem_index hp
+    exact hkn i hlt
+  · rintro ⟨nm, i⟩ hp
+    obtain ⟨hlt, rfl⟩ := zipIdx_mem_index hp
+    intro m hs he
+    exact hinj i hlt hs he
+  · rintro ⟨nm, i⟩ hp
+    obtain ⟨hlt, rfl⟩ := zipIdx_mem_index hp
+    intro body hb
+    exact hwit i hlt hb
+
 /-- **The state-side conclusion every bridge motive carries** (slice D4b): the run grew the
 state in the registration-only way `Erasure.RunConcl` describes, *and* it carried the δ
 record with it. Bundling the two keeps the motives' shape — and the ~40 sites that produce
@@ -512,6 +577,22 @@ theorem RunConclδ.nonrec {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc 
       ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧ Erases env Us Γ Δ body t) :
     RunConclδ env Us Γ Esrc s (Erasure.nonrecConstState n t s) :=
   ⟨Erasure.runConcl_nonrecConstState n t s, fun h => h.nonrec hkn hinj hwit⟩
+
+/-- The recursive exit's registration delta, as a `RunConclδ` step (recursion wall, slice
+Γ-W0). The `RunConcl` half is `Erasure.runConcl_recConstState`; the δ half is
+`DeltaMem.recBlock`. -/
+theorem RunConclδ.recBlock {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
+    {s : ErasureState} {fixnames : List Name} {defs : List (@FixDef LBTerm)}
+    (hkn : ∀ (j : Nat) (hj : j < fixnames.length),
+      Γ.constants (fixnames[j]'hj) = toKername (fixnames[j]'hj))
+    (hinj : ∀ (j : Nat) (hj : j < fixnames.length) {m : Name}, (Esrc m).isSome →
+      Γ.constants m = Γ.constants (fixnames[j]'hj) → m = fixnames[j]'hj)
+    (hwit : ∀ (j : Nat) (hj : j < fixnames.length) {body : Expr},
+      Esrc (fixnames[j]'hj) = some body →
+      ∃ Δ : VLCtx, VLCtx.WF env Us.length Δ ∧ Δ.NoBV ∧
+        Erases env Us Γ Δ body (.fix defs j)) :
+    RunConclδ env Us Γ Esrc s (Erasure.recConstState fixnames defs s) :=
+  ⟨Erasure.runConcl_recConstState fixnames defs s, fun h => h.recBlock hkn hinj hwit⟩
 
 /-- A step that conses no recorded body is a `RunConclδ` as soon as it is a `RunConcl`. -/
 theorem RunConclδ.of_runConcl_gdecls {env : VEnv} {Us : List Name} {Γ : ErasureCtx}

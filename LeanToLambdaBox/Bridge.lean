@@ -233,6 +233,41 @@ theorem Supported.instantiate1 {known : Name → Prop} {Γ : ErasureCtx} {e : Ex
   rw [Lean.Expr.instantiate1_eq]
   exact h.instantiate1' x 0
 
+/-- **The fragment enters a mutual block** (recursion wall, slice Γ-W0). Every rule but
+`const` reads only registration fields that `ErasureCtx.withFixvars` leaves alone, so the
+whole derivation transports field-by-field. `const` is the one rule that reads `fixvars`,
+through the disjunct `known n ∨ Γ.fixvars n ≠ none`; at an ambient `Γ` — where
+`DeltaHyps.nofixvars` pins `Γ.fixvars = ⊥` — that disjunct's second half is *dead*, so
+every `.const` node in the derivation carries `known n`, which transports to any `fv`.
+
+The fragment therefore **grows**: at `Γ.withFixvars fv` the second disjunct becomes live
+for the block's own siblings, which is what makes a sibling reference supported at
+`known = ⊥` (`VisitExprRefines`' guard (i''), and the negative half
+`supported_const_fixOpen_not_ambient`). The converse direction is *false* for exactly that
+reason, which is why `hnfv` is a premise here rather than the statement being an iff. -/
+theorem Supported.withFixvars {known : Name → Prop} {Γ : ErasureCtx} {e : Expr}
+    (hnfv : Γ.fixvars = fun _ => none) (h : Supported known Γ e)
+    (fv : Name → Option FVarId) : Supported known (Γ.withFixvars fv) e := by
+  induction h with
+  | bvar i => exact .bvar i
+  | fvar x => exact .fvar x
+  | const n us hk hctor hcases =>
+    refine .const n us (.inl ?_) (by simpa using hctor) (by simpa using hcases)
+    rcases hk with hk | hfx
+    · exact hk
+    · exact absurd (by rw [hnfv]) hfx
+  | app _ _ ihf iha => exact .app ihf iha
+  | lam n ty bi _ ihb => exact .lam n ty bi ihb
+  | letE n ty nd _ _ ihv ihb => exact .letE n ty nd ihv ihb
+  | natLit n hpeano hzero hsucc =>
+    exact .natLit n (by simpa using hpeano) (by simpa using hzero) (by simpa using hsucc)
+  | ctorApp hc hcases har hsat hzero hsucc _ ihargs =>
+    exact .ctorApp (by simpa using hc) (by simpa using hcases) (by simpa using har)
+      hsat hzero hsucc ihargs
+  | casesApp hc hdp hnfs hpre hsat hnat hint _ hlam _ ihdiscr ihminors =>
+    exact .casesApp (by simpa using hc) (by simpa using hdp) (by simpa using hnfs)
+      hpre hsat hnat hint ihdiscr hlam ihminors
+
 /-! Non-vacuity guards: the fragment is inhabited at every rule, and genuinely
 excludes the unsupported constructs. -/
 

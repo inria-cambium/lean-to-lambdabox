@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Erasure
+import Lean4Lean.Verify.NameGenerator
 
 /-!
 # Run-level reasoning for `EraseM` (verification infrastructure)
@@ -2555,6 +2556,156 @@ theorem addAxiomState_get? (m : Name) (s : ErasureState) :
   show (Std.HashMap.get? (Std.HashMap.insert s.constants m (toKername m)) m).isSome
   rw [Std.HashMap.get?_insert]
   simp
+
+/-- **The block registration is a `RunConcl` step.** `recConstState` is a fold of
+`recConstStep`, which *is* `nonrecConstState` at a `.fix` body (`recConstState_eq`), so the
+whole block registration composes out of `runConcl_nonrecConstState`: every sibling is
+registered under its own canonical kername, so canonicity survives, and `gdecls` only gets
+prepended to. (Recursion wall, slice Γ-W0 — this is what `RunConclδ.recBlock` sits on.) -/
+theorem runConcl_foldl_recConstStep (defs : List (@FixDef LBTerm)) :
+    ∀ (L : List (Name × Nat)) (s : ErasureState), RunConcl s (L.foldl (recConstStep defs) s)
+  | [], s => RunConcl.rfl' s
+  | p :: rest, s =>
+    (runConcl_nonrecConstState p.1 (.fix defs p.2) s).trans
+      (runConcl_foldl_recConstStep defs rest _)
+
+theorem runConcl_recConstState (names : List Name) (defs : List (@FixDef LBTerm))
+    (s : ErasureState) : RunConcl s (recConstState names defs s) :=
+  runConcl_foldl_recConstStep defs names.zipIdx s
+
+/-! #### The two block loops, chained
+
+`run_rec_exit_ok'` above propagates a predicate through the recursive exit and hands back
+*nothing else*; `ColdStartRun.run_rec_exit_siblings` hands the per-sibling runs back but is
+`gw`-free by design, so its states and worlds are unrelated existentials. A consumer that
+must rebuild a `BridgeInv` at each sibling needs both at once. Neither needs a new loop
+rule — `run_list_mapM_ok` already threads the state *and* the world through its invariant;
+what was missing is an invariant that keeps them. (Recursion wall, slice Γ-W0.) -/
+
+/-- **Lemma A — the id-minting loop.** The block's fresh fvars come back `Nodup`, at an
+unchanged state, with the generator advanced once and every id reserved by the *final*
+generator, kernel-reserved, and outside the ambient fvar list `fvs`.
+
+`Nodup` is the payoff of the chaining and is exactly the fact
+`ColdStartRun.run_rec_exit_siblings` explicitly declines to give: at step `k` the new id is
+*not* reserved by `gw w_k` while every earlier id *is* (carried by the invariant, monotone
+along `NameGenerator.LE`), so it is new. `x ∉ fvs` is the same argument against `hres`.
+
+The freshness spec is taken as a hypothesis rather than as a `BridgeHyps` field so that the
+lemma sits in the run-lemma library rather than downstream of the bridge's bundles; the
+intended instantiation is `H.fresh_run`, `kgen := kernelNGen`, `fvs := Δ.fvars`. -/
+theorem run_mkFreshFVarId_list {gw : Void IO.RealWorld → NameGenerator}
+    {kgen : NameGenerator}
+    (hfr : ∀ (s' : ErasureState) (ctx' : ErasureContext) (cctx' : Core.Context)
+        (ref' : ST.Ref IO.RealWorld Core.State) (w' : Void IO.RealWorld) (x : FVarId)
+        (s'' : ErasureState) (w'' : Void IO.RealWorld),
+      (mkFreshFVarId : EraseM FVarId) s' ctx' cctx' ref' w' = .ok (x, s'') w'' →
+      ¬ (gw w').Reserves x ∧ (gw w'').Reserves x ∧ gw w' ≤ gw w'' ∧ kgen.Reserves x)
+    {names : List Name} {ids fvs : List FVarId}
+    {s s₁ : ErasureState} {ctx : ErasureContext} {w w₁ : Void IO.RealWorld}
+    (hres : ∀ x ∈ fvs, (gw w).Reserves x)
+    (hrun : names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId)) s ctx cctx ref w
+              = .ok (ids, s₁) w₁) :
+    ids.length = names.length ∧ ids.Nodup ∧ s₁ = s ∧ gw w ≤ gw w₁ ∧
+      ∀ x ∈ ids, (gw w₁).Reserves x ∧ x ∉ fvs ∧ kgen.Reserves x := by
+  have hpkg := run_list_mapM_ok _ cctx ref
+    (P := fun (pre : List Name) (outs : List FVarId) (s' : ErasureState)
+        (w' : Void IO.RealWorld) =>
+      outs.length = pre.length ∧ outs.Nodup ∧ s' = s ∧ gw w ≤ gw w' ∧
+        ∀ x ∈ outs, (gw w').Reserves x ∧ x ∉ fvs ∧ kgen.Reserves x)
+    ⟨rfl, List.nodup_nil, rfl, NameGenerator.LE.rfl, by simp⟩
+    (fun _ _ _ outs s₂ w₂ b s₃ w₃ _ hPa hb => by
+      obtain ⟨hlen, hnd, rfl, hle, hold⟩ := hPa
+      obtain ⟨hnr, hrb, hleb, hkb⟩ := hfr _ _ _ _ _ _ _ _ hb
+      obtain rfl := run_mkFreshFVarId_state _ _ cctx ref _ hb
+      have hne : ∀ y ∈ outs, y ≠ b := by
+        intro y hy hyb
+        exact absurd (hyb ▸ (hold y hy).1) hnr
+      have hbfvs : b ∉ fvs := fun hbf => hnr ((hres b hbf).mono hle)
+      refine ⟨by simp [hlen], ?_, rfl, NameGenerator.LE.trans hle hleb, ?_⟩
+      · rw [List.nodup_append]
+        refine ⟨hnd, by simp, ?_⟩
+        intro y hy z hz
+        simp only [List.mem_singleton] at hz
+        subst hz
+        exact hne y hy
+      · intro x hx
+        rcases List.mem_append.mp hx with hx' | hx'
+        · exact ⟨((hold x hx').1).mono hleb, (hold x hx').2.1, (hold x hx').2.2⟩
+        · simp only [List.mem_singleton] at hx'
+          subst hx'
+          exact ⟨hrb, hbfvs, hkb⟩)
+    hrun
+  exact ⟨hpkg.1, hpkg.2.1, hpkg.2.2.1, hpkg.2.2.2.1, hpkg.2.2.2.2⟩
+
+/-- **Lemma B — the sibling loop, chained.** `visitMutual`'s per-sibling `mapM`, decomposed
+so that the caller's invariant `P` is threaded through *state and world together* and a
+per-sibling package `R` comes back for every index.
+
+`ColdStartRun.run_rec_exit_siblings` hands the four runs back at unrelated states, and an
+unrelated state is exactly what a `BridgeInv` cannot be rebuilt from; the chaining here is
+what lets a consumer re-establish the invariant at sibling `j` from the one it had at
+sibling `j-1`. The four primitives on the path are handed to `hstep` in run order
+(`getConstInfo`, `prepare_erasure`, the abstract body eraser `vE`, `mkDef`) at the states
+and worlds they actually consume, and the reader is the block's own — `ctx` here is the
+context *after* `withReader (… fixvars …)`, further narrowed to `g ci ctx` for the
+sibling's universe parameters.
+
+`defs[j]? = some d` rather than `defs[j]` keeps the conclusion free of the length equation
+it also proves (the shape `run_rec_exit_siblings` uses, for the same reason). -/
+theorem run_rec_exit_siblings_chained {vE : Expr → EraseM LBTerm}
+    {names fixnames : List Name}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    (R : Name → (@FixDef LBTerm) → Prop)
+    {ctx : ErasureContext}
+    (hstep : ∀ {m : Name} {ci : ConstantInfo} {pe : Expr} {t : LBTerm} {d : @FixDef LBTerm}
+        {sa sb sc sd' se : ErasureState} {wa wb wc wd' we : Void IO.RealWorld},
+      m ∈ names → P sa wa →
+      (getConstInfo m : EraseM ConstantInfo) sa ctx cctx ref wa = .ok (ci, sb) wb →
+      prepare_erasure (val ci) sb (g ci ctx) cctx ref wb = .ok (pe, sc) wc →
+      vE pe sc (g ci ctx) cctx ref wc = .ok (t, sd') wd' →
+      mkDef (remove_unsafe_rec m) fixnames t sd' ctx cctx ref wd' = .ok (d, se) we →
+      P se we ∧ R m d)
+    {s sd : ErasureState} {w wd : Void IO.RealWorld} {defs : List (@FixDef LBTerm)}
+    (hP : P s w)
+    (hrun : ((names.mapM (fun m => do
+        let ci ← getConstInfo m
+        let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); vE pe)
+        mkDef (remove_unsafe_rec m) fixnames t)) : EraseM (List (@FixDef LBTerm)))
+        s ctx cctx ref w = .ok (defs, sd) wd) :
+    defs.length = names.length ∧ P sd wd ∧
+      ∀ (j : Nat) (hj : j < names.length),
+        ∃ d : @FixDef LBTerm, defs[j]? = some d ∧ R (names[j]'hj) d := by
+  have hpkg := run_list_mapM_ok _ cctx ref
+    (P := fun (pre : List Name) (outs : List (@FixDef LBTerm)) (s' : ErasureState)
+        (w' : Void IO.RealWorld) =>
+      outs.length = pre.length ∧ P s' w' ∧
+        ∀ (j : Nat) (hj : j < pre.length),
+          ∃ d : @FixDef LBTerm, outs[j]? = some d ∧ R (pre[j]'hj) d)
+    ⟨rfl, hP, by intro j hj; simp at hj⟩
+    (fun pre x post outs _ _ b _ _ hL hPa hb => by
+      obtain ⟨hlen, hPs, hold⟩ := hPa
+      rw [run_bind_ok] at hb
+      obtain ⟨ci, s2, w2, hci, hb⟩ := hb
+      rw [run_bind_ok] at hb
+      obtain ⟨t2, s4, w4, hvis, hb⟩ := hb
+      rw [run_withReader, run_bind_ok] at hvis
+      obtain ⟨pe2, s3, w3, hpr, hvis⟩ := hvis
+      have hxmem : x ∈ names := by rw [hL]; simp
+      obtain ⟨hP', hR⟩ := hstep hxmem hPs hci hpr hvis hb
+      refine ⟨by simp [hlen], hP', ?_⟩
+      intro j hj
+      simp only [List.length_append, List.length_cons, List.length_nil] at hj
+      by_cases hlt : j < pre.length
+      · obtain ⟨d, hd, hRd⟩ := hold j hlt
+        exact ⟨d, by rw [List.getElem?_append_left (by omega)]; exact hd,
+          by rw [List.getElem_append_left hlt]; exact hRd⟩
+      · obtain rfl : j = pre.length := by omega
+        refine ⟨b, ?_, ?_⟩
+        · rw [List.getElem?_append_right (by omega)]; simp [hlen]
+        · rw [List.getElem_append_right (by omega)]; simpa using hR)
+    hrun
+  exact ⟨hpkg.1, hpkg.2.1, hpkg.2.2⟩
 
 end WorldHelpers
 

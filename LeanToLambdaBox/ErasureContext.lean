@@ -125,6 +125,35 @@ others, but until they are `@[simp]` a `simp` at a block-local `Γ.withFixvars f
     (fv : Name → Option FVarId) :
     (Γ.withFixvars fv).inductives = Γ.inductives := rfl
 
+/-! ### The `Γ`-in-motives coherence equation
+
+The bridge induction's motives quantify their own `Γ` against a *fixed* ambient `Γ₀`, and
+the only motion `visitMutual` ever performs on the context is `withFixvars` (the block
+entry's `withReader … fixvars`; `lparams` lives in the reader, not in `Γ`). So the minimal
+relation between a motive-local `Γ` and the ambient `Γ₀` is the single equation
+
+```lean
+    hΓ : Γ = Γ₀.withFixvars Γ.fixvars
+```
+
+— *every field but `fixvars` is `Γ₀`'s*. The two lemmas below are what make it usable: it
+is `rfl` at the ambient instance (so every existing caller of the bridge instantiates it
+with `withFixvars_self`), and `rfl` at a block-local one (`withFixvars_withFixvars` plus
+`withFixvars_fixvars`). (Recursion wall, slice Γ-W0.) -/
+
+/-- **Structure eta for the block-local context.** Reinstalling `Γ`'s own fixvar map is a
+no-op — this is what makes the coherence equation `hΓ : Γ = Γ₀.withFixvars Γ.fixvars`
+`rfl` at `Γ := Γ₀`. -/
+@[simp] theorem ErasureCtx.withFixvars_self (Γ : ErasureCtx) :
+    Γ.withFixvars Γ.fixvars = Γ := rfl
+
+/-- **`withFixvars` is idempotent in its argument**: the second installation wins. With
+`withFixvars_fixvars` this makes the coherence equation `rfl` at a *block-local*
+`Γ := Γ₀.withFixvars fv` as well. -/
+@[simp] theorem ErasureCtx.withFixvars_withFixvars (Γ : ErasureCtx)
+    (fv fv' : Name → Option FVarId) :
+    (Γ.withFixvars fv).withFixvars fv' = Γ.withFixvars fv' := rfl
+
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=
   let s := n.toString

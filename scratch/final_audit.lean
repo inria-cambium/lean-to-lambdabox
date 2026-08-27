@@ -2324,3 +2324,57 @@ open LeanToLambdaBox
 -- what the 2026-08-26 composition recorded.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+
+-- ============================================================================
+-- SLICE Γ-W0 — foundations for the Γ-in-motives generalisation
+--
+-- THE MEASUREMENT THAT COMES FIRST (design risk 3, "check this empirically in W0, before
+-- committing to the slice"). `Compiler.LCNF.getDeclInfo? n` is `env.find? (mkUnsafeRecName
+-- n) <|> env.find? n` (`Lean/Compiler/LCNF/ToDecl.lean`) — the unsafe-recursive version is
+-- tried FIRST. Measured on the §H benchmarks' arithmetic, at this toolchain:
+--
+--   Nat.add / Nat.mul / Nat.sub / Nat.pow / Nat.ble / Nat.beq
+--   List.length / List.append / List.map / List.foldl
+--       getDeclInfo? ↦ ci.name = `n._unsafe_rec`,  ci.all = [n._unsafe_rec],
+--       name_occurs n ci.value! = true  ⟹  `nonrecursive` FALSE, the exit IS taken
+--   Nat.div / Nat.mod / Nat.decEq / Nat.repr / List.reverse
+--       no `._unsafe_rec` in the environment; ci.all = [n]; the non-recursive exit
+--
+-- Two consequences, in opposite directions:
+--
+--  (a) `BlockHyps.stripped : known n → remove_unsafe_rec n = n` is NOT the problem the
+--      design feared. `n` there is `visitMutual`'s ARGUMENT — the name the source
+--      mentions, `Nat.add` — and `remove_unsafe_rec Nat.add = Nat.add`. The `._unsafe_rec`
+--      names appear only inside `ci.all`, and registration is under
+--      `ci.all.map remove_unsafe_rec = [Nat.add]`, which is exactly what motive 6's
+--      registration conclusion asks for. Measured end-to-end: `VerifyBench/ast/Arith.ast`
+--      contains four `tFix` and ZERO occurrences of `_unsafe_rec`.
+--
+--  (b) `DeltaHyps.decl_run`'s `ci.all = [n]` conjunct is FALSE at exactly those names —
+--      it is `[n._unsafe_rec]`. So the fragment `known` cannot contain `Nat.add` as the
+--      bundle stands, and the benchmark payoff needs that conjunct relaxed to
+--      `∃ m, ci.all = [m] ∧ remove_unsafe_rec m = n` (the `single_decl` test the run
+--      actually performs is `ci.all.length == 1`, which holds). Likewise the block-local
+--      scope fields the design keys on `known m` for `m ∈ ci.all` must be keyed on
+--      `known (remove_unsafe_rec m)`. Recorded here as a W2 item; no code moves in W0.
+--
+-- WHAT LANDED. Five lemmas plus the coherence glue, all additive; the audit output below
+-- was byte-identical before and after the slice for every pre-existing entry.
+-- ============================================================================
+
+-- (1) The coherence equation `hΓ : Γ = Γ₀.withFixvars Γ.fixvars` is `rfl` at both ends.
+#print axioms ErasureCtx.withFixvars_self
+#print axioms ErasureCtx.withFixvars_withFixvars
+
+-- (2) The fragment enters a block, and grows there.
+#print axioms LeanToLambdaBox.Supported.withFixvars
+
+-- (3) The two block loops, chained (Lemmas A and B), and the block registration as a
+-- `RunConcl` step.
+#print axioms Erasure.run_mkFreshFVarId_list
+#print axioms Erasure.run_rec_exit_siblings_chained
+#print axioms Erasure.runConcl_recConstState
+
+-- (4) The δ record's second extension step.
+#print axioms LeanToLambdaBox.DeltaMem.recBlock
+#print axioms LeanToLambdaBox.RunConclδ.recBlock
