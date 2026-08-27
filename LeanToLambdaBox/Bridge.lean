@@ -27,24 +27,17 @@ terms on which the bridge theorem speaks. It deliberately covers
   applied-form rule (`Erases.ctor_head`) and a simulation under `construct_app`
   semantics (`erases_correct_data`). Both landed; `ctorApp` below is the rule;
 * **`mdata`** (`Erases` has no rule for it);
-* **projections** — and the reason changed at slice P1. `Erases` *does* have a rule now
-  (`Erases.proj`, over the new `Γ.projs` column), so the exclusion is no longer "the
-  relation cannot say it". It is that `Supported.proj` cannot be added **independently**:
-  step 1 of `visitExpr_refines_erases_core` (`VisitExprRefines.lean`) analyses `hsupp` by
-  a complete `cases`, so a new alternative is a new arm, and the only thing that can
-  discharge it is **motive 10**, whose conclusion is `True` today. Giving motive 10
-  content is design slice P8 and needs a `ProjBridgeHyps` bundle (`getConstInfo` and
-  `register_inductive` Hoare specs tying `argmasks`/`numParams` to `Γ.projs`), i.e. a new
-  premise on the bridge theorem. So the fragment stays projection-free until P8, and the
-  guard below is a fact about the missing rule rather than about `Erases`;
 * **`String` literals** (the shipping `visitLiteral` `panic!`s) and **machine-`Nat`
   literals** (they route into `prim`, out of `Erases` by design);
 * everything `visitExpr` itself panics on (`sort`, `forallE`, `mvar`).
 
-Three rules extend it: `ctorApp` (saturated constructor applications, the data
+Four rules extend it: `ctorApp` (saturated constructor applications, the data
 fragment), `casesApp` (saturated `casesOn` applications with *manifest* λ minors, the ι
-fragment) and `natLit` (`Nat` literals at a `Γ` that declares peano mode). All three are
-documented at their constructors.
+fragment), `natLit` (`Nat` literals at a `Γ` that declares peano mode) and `proj`
+(structure projections at a `Γ` that registers the structure — the typeclass-dispatch
+fragment, slice P8, whose bridge side is `ProjBridgeHyps` + motive 10). All four are
+documented at their constructors, and all four are *registration-gated*: at the default
+`Γ` each is unusable, which is what the paired guards below check.
 
 `bvar` *is* in the fragment even though `visitExpr`'s `.bvar` case is
 `unreachable!` on the locally-closed terms it actually visits: the predicate is
@@ -146,6 +139,32 @@ inductive Supported (known : Name → Prop) (Γ : ErasureCtx) : Expr → Prop
       (hzero : Γ.ctors ``Nat.zero = some (iid, 0))
       (hsucc : Γ.ctors ``Nat.succ = some (iid, 1)) :
       Supported known Γ (.lit (.natVal n))
+  /-- A **structure projection** (projection round, slice P8) — the typeclass-dispatch
+      fragment. `visitExpr` routes `.proj S i d` to `visitProj`, which looks `S` up,
+      registers it, and emits `.proj ⟨iid, np, i⟩` over the erased discriminant. The three
+      `Γ` premises are `Erases.proj`'s, verbatim, so a supported projection is one the
+      bridge can actually match:
+
+      * `hs` — `S` is a registered **structure** with `np` parameters (`Γ.projs`), which is
+        what `ProjBridgeHyps.projind_run`/`projreg_run` cash in against the run;
+      * `hnfs` — its inductive has exactly one constructor, with `nf` retained fields,
+        which is `register_inductive`'s own `is_struct` gate and what makes both the target
+        rule's hard-wired constructor index `0` and the *single* argmask correct;
+      * `hi` — the field index is in range, which is also what makes the eraser's
+        post-argmask `fieldIdx` equal `i` (`count_keep_take_replicate`).
+
+      The discriminant must itself be supported. **Nothing is asked of `S`'s
+      declaration**: `visitProj`'s `getConstInfo`/`register_inductive` never fail on a
+      registered structure, which is exactly what `ProjBridgeHyps` asserts.
+
+      Unusable at a `Γ` that registers no structure (`Γ.projs = fun _ => none`), like every
+      other registration-gated rule — the guards below check both polarities. -/
+  | proj {S : Name} {i : Nat} {d : Expr} {iid : InductiveId} {np nf : Nat}
+      (hs : Γ.projs S = some (iid, np))
+      (hnfs : Γ.ctorFields iid = some [nf])
+      (hi : i < nf)
+      (hd : Supported known Γ d) :
+      Supported known Γ (.proj S i d)
   /-- A **saturated constructor application** (data-fragment extension, A8). The
       head `cn` is a registered constructor (`Γ.ctors`) with declared arity `ar`
       (`Γ.ctorArities`); the spine is exactly saturated (`args.length = ar`), so the
@@ -215,6 +234,7 @@ theorem Supported.instantiate1' {known : Name → Prop} {Γ : ErasureCtx} {e : E
   | lam n ty bi _ ihb => exact .lam n _ bi (ihb (k + 1))
   | letE n ty nd _ _ ihv ihb => exact .letE n _ nd (ihv k) (ihb (k + 1))
   | natLit n hpeano hz hs => exact .natLit n hpeano hz hs
+  | proj hs hnfs hi _ ihd => exact .proj hs hnfs hi (ihd k)
   | ctorApp hc hcases har hsat hzero hsucc _ ihargs =>
     rw [instantiate1'_foldl_app]
     simp only [Expr.instantiate1']
@@ -271,6 +291,8 @@ theorem Supported.withFixvars {known : Name → Prop} {Γ : ErasureCtx} {e : Exp
   | letE n ty nd _ _ ihv ihb => exact .letE n ty nd ihv ihb
   | natLit n hpeano hzero hsucc =>
     exact .natLit n (by simpa using hpeano) (by simpa using hzero) (by simpa using hsucc)
+  | proj hs hnfs hi _ ihd =>
+    exact .proj (by simpa using hs) (by simpa using hnfs) hi ihd
   | ctorApp hc hcases har hsat hzero hsucc _ ihargs =>
     exact .ctorApp (by simpa using hc) (by simpa using hcases) (by simpa using har)
       hsat hzero hsucc ihargs
@@ -334,18 +356,21 @@ literal dispatch is not vacuously discharged. -/
 example : Supported (fun _ => True) ΓnatLit (.lit (.natVal 3)) :=
   .natLit 3 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ
 
-/-- **A projection is out of the fragment, at every `Γ`** — and, as of the projection
-round, that is a *statement about the missing rule* rather than about `Erases`.
-`Erases.proj` exists (slice P1); `Supported.proj` does not, and cannot until the bridge's
-**motive 10** stops concluding `True` (`VisitExprRefines.lean`, design slice P8): step 1's
-`cases hsupp` is a complete case analysis, so a `proj` alternative of `Supported` is an
-arm that only motive 10 can discharge. Until then `visitProj`'s output is outside the
-bridge and this exclusion is load-bearing, not decorative. -/
-example {known : Name → Prop} {Γ : ErasureCtx} :
+/-- **A projection is out of the fragment at a `Γ` that registers no structure** — the
+negative half of the pair, and the same shape the `natLit` guard has: the rule exists, and
+is *unusable* at the default context.
+
+This is the P1-era exclusion, restated. It used to hold at **every** `Γ`, for a reason
+that has now expired: `Supported.proj` did not exist, because step 1's `cases hsupp` is a
+complete case analysis and only motive 10 could discharge a `proj` arm, and motive 10
+concluded `True`. Slice P8 gave motive 10 content, the arm is discharged, and what is left
+is the ordinary registration gate — `Γ.projs = ⊥` makes `hs` unsatisfiable. -/
+example {known : Name → Prop} {Γ : ErasureCtx} (hnp : Γ.projs = fun _ => none) :
     ¬ Supported known Γ (.proj `Prod 0 (.fvar ⟨`p⟩)) := by
   intro h
   generalize he : (Expr.proj `Prod 0 (.fvar ⟨`p⟩)) = e at h
   cases h with
+  | @proj S i d iid np nf hs hnfs hi hd => rw [hnp] at hs; exact absurd hs (by simp)
   | @ctorApp cn us iid cidx ar args hc hcases har hsat hz hs hargs =>
       rcases List.eq_nil_or_concat args with rfl | ⟨i, l, rfl⟩ <;>
         simp only [List.foldl_nil, List.concat_eq_append, List.foldl_append,
@@ -357,12 +382,31 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
       rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
 
-/-- **The discriminant side is already in the fragment.** What `Supported.proj` would need
-of its sub-derivation is available today: the saturated constructor application a
-projection's discriminant reduces to is `ctorApp` at the structure's own constructor, at
-`Γproj` — the one-parameter, one-field structure fixture at which `erases_proj_ctor`
-derives the erasure (`Erases.lean`). So the P8 gap is exactly the projection *node*, not
-anything under it. -/
+/-- **`Supported.proj` is inhabited** (the positive half of the pair above): at `Γproj` —
+the one-parameter, one-field structure fixture at which `erases_proj_fvar`/`erases_proj_ctor`
+derive the erasure (`Erases.lean`) and at which the target step fires
+(`EnvErasureNonrec.lean`) — a projection of a variable is in the fragment. So the bridge's
+projection dispatch is not vacuously discharged. -/
+example (x : FVarId) : Supported (fun _ => True) Γproj (.proj `AC 0 (.fvar x)) :=
+  .proj Γproj_projs Γproj_ctorFields (by omega) (.fvar x)
+
+/-- **…and so is a projection of a saturated constructor spine**, the redex shape the
+forward simulation runs on: the discriminant is `ctorApp` at the structure's own
+constructor. The whole `.proj` node — not merely what is under it — is now inside the
+fragment. -/
+example (x y : FVarId) :
+    Supported (fun _ => True) Γproj
+      (.proj `AC 0 ([Expr.fvar x, .fvar y].foldl Expr.app (.const `AC.mk []))) :=
+  .proj Γproj_projs Γproj_ctorFields (by omega)
+    (.ctorApp (iid := projInd) (cidx := 0) (ar := 2) (args := [.fvar x, .fvar y])
+      Γproj_ctors (by simp [Γproj]) Γproj_arity rfl (by decide) (by decide)
+      (fun i hi => by
+        match i, hi with
+        | 0, _ => exact .fvar x
+        | 1, _ => exact .fvar y))
+
+/-- The discriminant side on its own, kept from the P1 era as the record of what the
+projection round had before it had the node. -/
 example (x y : FVarId) :
     Supported (fun _ => True) Γproj
       ([Expr.fvar x, .fvar y].foldl Expr.app (.const `AC.mk [])) :=

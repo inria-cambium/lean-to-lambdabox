@@ -7,6 +7,9 @@ import LeanToLambdaBox.DeltaHyps
 import LeanToLambdaBox.RecBlockErasure
 import LeanToLambdaBox.EraseCore
 import LeanToLambdaBox.CheckerAdequacy
+-- Only for the projection guard (v): `ofNatBodyQ` and its `TrExprS` witness, the one
+-- translation in the development that goes *through* a `TrProj`.
+import LeanToLambdaBox.ProjPattern
 import Lean4Lean.Verify.NameGenerator
 
 /-!
@@ -1928,7 +1931,14 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       Erasure.visitLambda ⊑ Erasure.visitLambda) ∧
     ((∀ tn i e s ctx cctx ref w r s' w',
-      visitProj tn i e s ctx cctx ref w = .ok (r, s') w' → True) ∧
+      visitProj tn i e s ctx cctx ref w = .ok (r, s') w' →
+      ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
+      ∀ Δ (iid : InductiveId) (np nf : Nat),
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
+        Γ.projs tn = some (iid, np) → Γ.ctorFields iid = some [nf] → i < nf →
+        Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
+        Erases env Us Γ Δ (.proj tn i e) r ∧ RunConclδ env Us Γ₀ Esrc s s' ∧
+          gw w ≤ gw w') ∧
       Erasure.visitProj ⊑ Erasure.visitProj) ∧
     ((∀ e s ctx cctx ref w t s' w', visitApp e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
@@ -2091,7 +2101,14 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       f ⊑ Erasure.visitLambda)
     (motive_10 := fun f => (∀ tn i e s ctx cctx ref w r s' w',
-      f tn i e s ctx cctx ref w = .ok (r, s') w' → True) ∧
+      f tn i e s ctx cctx ref w = .ok (r, s') w' →
+      ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
+      ∀ Δ (iid : InductiveId) (np nf : Nat),
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
+        Γ.projs tn = some (iid, np) → Γ.ctorFields iid = some [nf] → i < nf →
+        Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
+        Erases env Us Γ Δ (.proj tn i e) r ∧ RunConclδ env Us Γ₀ Esrc s s' ∧
+          gw w ≤ gw w') ∧
       f ⊑ Erasure.visitProj)
     (motive_11 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
@@ -2201,19 +2218,20 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
   · exact admissible_and_le _ _ (eraseM_admissible_ok₂ _)
   · exact admissible_and_le _ _ (eraseM_admissible_ok₃ _)
   -- Step 1: visitExpr — the erasability guard, then dispatch on the fragment.
-  · intro vE vLit vLet vLam vProj vApp _ih1 ih2 ih8 ih9 _ih10 ih11
+  · intro vE vLit vLet vLam vProj vApp _ih1 ih2 ih8 ih9 ih10 ih11
     refine ⟨?_, ?apx⟩
     case apx =>
       rw [Erasure.visitExpr_eq_mutual]
       exact (Erasure.fix_step_le Erasure.visitExpr.mutual._proof_1
         (Erasure.mutual_le_of
           _ih1.2 ih2.2 Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
-          Erasure.approx_rfl Erasure.approx_rfl ih8.2 ih9.2 _ih10.2 ih11.2 Erasure.approx_rfl
+          Erasure.approx_rfl Erasure.approx_rfl ih8.2 ih9.2 ih10.2 ih11.2 Erasure.approx_rfl
           Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
           Erasure.approx_rfl Erasure.approx_rfl)).1
     replace ih2 := ih2.1
     replace ih8 := ih8.1
     replace ih9 := ih9.1
+    replace ih10 := ih10.1
     replace ih11 := ih11.1
     intro e s ctx cctx ref w t s' w' hrun Γ hΓ Δ hinv hsupp hex
     replace H := H.of_coh hΓ
@@ -2273,6 +2291,17 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
         simp only [] at hk
         obtain ⟨er, hrc, hle₂⟩ := ih2 _ _ _ _ _ _ _ _ _ hk Γ hΓ Δ n iid (hinv.mono hle₁)
           rfl hpeano hz hs hex
+        exact ⟨er, hrc, NameGenerator.LE.trans hle₁ hle₂⟩
+      | @proj S j d iid np nf hs hnfs hi hd =>
+        -- a structure projection: `visitExpr` hands it to `visitProj`, motive 10.
+        -- The discriminant's translation is the sub-witness of the whole node's, read
+        -- straight off `TrExprS.proj` — a projection's discriminant is a subterm.
+        simp only [] at hk
+        have hexd : ∃ ve, TrExprS env Us Δ d ve := by
+          obtain ⟨ve, hve⟩ := hex
+          cases hve with | proj htrd _ => exact ⟨_, htrd⟩
+        obtain ⟨er, hrc, hle₂⟩ := ih10 _ _ _ _ _ _ _ _ _ _ _ hk Γ hΓ Δ iid np nf
+          (hinv.mono hle₁) hs hnfs hi hd hexd
         exact ⟨er, hrc, NameGenerator.LE.trans hle₁ hle₂⟩
       | @casesApp con us iid np dp nfs pre minors discr hc hdp hnfs hpre hsat hnat hint
           hdiscr hlam hminors =>
@@ -2933,8 +2962,9 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     refine ⟨?_, hs₂, NameGenerator.LE.trans hle₁ hle₂⟩
     rw [abstract_eq]
     exact bridge_lam_case hinv.trlctx.2.noBV hty hbody hx erb
-  -- Step 10: visitProj (trivial conclusion).
-  · intro _vE ih1
+  -- Step 10: visitProj — the structure-info fetch, the registration, the mask
+  -- arithmetic, and the discriminant's own erasure.
+  · intro vE ih1
     refine ⟨?_, ?apx⟩
     case apx =>
       rw [Erasure.visitProj_eq_mutual]
@@ -2945,7 +2975,45 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
           Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
           Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
           Erasure.approx_rfl)).2.2.2.2.2.2.2.2.2.1
-    intros; trivial
+    replace ih1 := ih1.1
+    intro tn i e s ctx cctx ref w r s' w' hrun Γ hΓ Δ iid np nf hinv hprojs hnfs hi hsupp hex
+    replace P := P.of_coh hΓ
+    simp only [] at hrun
+    -- (1) `getConstInfo tn` → the structure's `inductInfo`; state-preserving by
+    -- `run_getConstInfo_state`, so the `unreachable!` arm is dead and `np` is pinned.
+    rw [run_bind_ok] at hrun
+    obtain ⟨ci, s₁, w₁, hci, hrun⟩ := hrun
+    obtain ⟨hle₁, indVal, rfl, hnp, hname⟩ :=
+      P.projind_run tn iid np _ ctx cctx ref w _ s₁ w₁ hprojs hci
+    have hs₁ := run_getConstInfo_state _ _ _ _ _ hci
+    subst hs₁
+    simp only [] at hrun
+    -- (2) `register_inductive` → `Γ`'s `InductiveId` and the single trivial argmask.
+    -- Its state effect is the *theorem* `run_register_inductive_runConcl`, not a clause.
+    rw [run_bind_ok] at hrun
+    obtain ⟨rr, s₂, w₂, hreg, hrun⟩ := hrun
+    obtain ⟨hle₂, hindid, hmlen, hmask⟩ :=
+      P.projreg_run indVal tn iid np nf _ ctx cctx ref w₁ rr s₂ w₂ hprojs hnfs hname hreg
+    have hrc₂ : RunConclδ env Us Γ₀ Esrc _ _ :=
+      RunConclδ.of_runConcl_gdecls (run_register_inductive_runConcl hreg)
+        (run_register_inductive_gdeclsConst hreg)
+    obtain ⟨indid, argmasks⟩ := rr
+    simp only [] at hindid hmlen hmask
+    subst hindid
+    -- (3) the discriminant, by the one induction hypothesis this step has.
+    rw [run_bind_ok] at hrun
+    obtain ⟨tb, s₃, w₃, hvb, hp⟩ := hrun
+    rw [run_pure] at hp
+    cases hp
+    obtain ⟨erd, hrc₃, hle₃⟩ := ih1 _ _ _ _ _ _ _ _ _ hvb Γ hΓ Δ
+      ((hinv.mono_state hrc₂.rc).mono (NameGenerator.LE.trans hle₁ hle₂)) hsupp hex
+    -- (4) the emitted `fieldIdx` is `i`: the mask is trivial of width `nf`, and `i < nf`.
+    have hfield : Array.count ConstructorArgRelevance.keep
+        (Std.Slice.toArray (Array.toSubarray argmasks[0]! 0 i)) = i := by
+      rw [hmask]; exact count_keep_take_replicate (Nat.le_of_lt hi)
+    rw [hfield, hnp]
+    exact ⟨.proj tn i _ np nf hprojs hnfs hi erd, hrc₂.trans hrc₃,
+      NameGenerator.LE.trans hle₁ (NameGenerator.LE.trans hle₂ hle₃)⟩
   -- Step 11: visitApp — dispatch on the head: const heads to visitConstApp,
   -- other heads through visitExpr + visitAppArgs and the spine reconstruction.
   · intro vE vAA vCA ih1 ih7 ih12
@@ -4250,6 +4318,83 @@ theorem gRecAgreement {env : VEnv} {Us : List Name} {cfg : ErasureConfig}
     (by simp)
     (bridgeInv_cold_known env Us ΓfixRec (fun _ => rfl) rfl gen cfg
       (by simp [ΓfixRec]) `f)
+
+/-! ### (v) The projection fragment, end to end (projection round, slice P8) -/
+
+/-- The `InductiveId` `register_inductive` would assign to `ProjPattern.lean`'s one-field
+type class `MyOfNat`. -/
+def qprojInd : InductiveId := ⟨toKername `MyOfNat, 0⟩
+
+/-- A `Γ` registering `MyOfNat` as a **two-parameter, one-field** structure — the shape
+`ProjPattern.envQ` gives it (`QN = MyOfNat N n0`, `mkappQ = MyOfNat.mk N n0 _`), and the
+shape `register_inductive`'s `is_struct` gate admits (one constructor, one field, not
+recursive). Non-degenerate in the way the projection round needs: `ctorArities = 3 =
+2 params + 1 field`, so a bridge that confused `paramCount` with `fieldIdx` would emit a
+different `ProjectionInfo`. -/
+def ΓprojQ : ErasureCtx where
+  inductives := fun n => if n = `MyOfNat then some qprojInd else none
+  constants := toKername
+  ctors := fun n => if n = `MyOfNat.mk then some (qprojInd, 0) else none
+  ctorArities := fun n => if n = `MyOfNat.mk then some 3 else none
+  ctorFields := fun _ => some [1]
+  projs := fun n => if n = `MyOfNat then some (qprojInd, 2) else none
+
+theorem ΓprojQ_projs : ΓprojQ.projs `MyOfNat = some (qprojInd, 2) := by simp [ΓprojQ]
+
+/-- **`Supported.proj` is reachable at the payoff term** — the class method's prepared
+body `fun (self : MyOfNat N n0) => self.ofNat`, which is what makes
+`DeltaHyps.prepared`'s first conjunct satisfiable for the typeclass layer. Note the
+`known` class is **empty**: the body references no constant at all, so the projection
+node is the only thing the fragment has to admit. -/
+theorem supported_ofNatBodyQ : Supported (fun _ => False) ΓprojQ ofNatBodyQ :=
+  .lam `self _ .instImplicit (.proj ΓprojQ_projs rfl (by omega) (.bvar 0))
+
+/-- **(v) The bridge fires on a term containing a projection** — the projection analogue
+of guards (ii)/(iii), and the payoff shape of the whole round.
+
+*Constructed* here, and each piece is the thing a vacuous guard would be missing: the
+context `ΓprojQ`; the `BridgeInv` at the empty `VLCtx` (the body is closed, so guard (i)'s
+instance applies); the `Supported` derivation, which is where the new `Supported.proj`
+alternative — and hence motive 10, the arm that discharges it — is exercised; and the
+source translation `TrExprS envQ [] [] ofNatBodyQ _` (`ProjPattern.lean`), the one
+translation in the development that goes **through** a `TrProj`.
+
+*Hypothetical*, and for reasons that all predate this slice: the run and the four trust
+bundles (opaque runtime primitives — the standing boundary), `DeltaHyps`/`BlockHyps` (as
+in (ii): at `known = ⊥` their whole scope half is free and what is left is the generator
+bookkeeping for the primitives only `visitMutual` reaches), and `envQ.Ordered` — `envQ` is
+built by `VEnv.addPat`, and `VEnv.Ordered` has no `addPat` clause at this pin, which
+`ProjPattern.lean`'s own module note records. **No new class of hypothesis** is introduced
+by the projection round: `ProjBridgeHyps` joins the three bundles already here, and is
+`env`/`Us`-free. -/
+example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envQ [] ΓprojQ gw) (HD : DataBridgeHyps ΓprojQ gw)
+    (C : CasesBridgeHyps ΓprojQ gw) (P : ProjBridgeHyps ΓprojQ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envQ [] (fun _ => False) ΓprojQ cfg (fun _ => none) gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envQ [] (fun _ => False) ΓprojQ cfg (fun _ => none) cc rf)
+    (henv : envQ.Ordered)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
+    (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
+    (hrun : Erasure.visitExpr ofNatBodyQ {} ⟨{}, none, [], cfg⟩ cctx ref w
+      = .ok (t, s') w') :
+    Erases envQ [] ΓprojQ [] ofNatBodyQ t ∧
+      RunConclδ envQ [] ΓprojQ (fun _ => none) ({} : ErasureState) s' ∧
+      gw w ≤ gw w' :=
+  visitExpr_refines_erases H HD C P Hδ Hβ RecBlockAgreement.of_bot henv
+    _ _ _ _ _ _ _ _ _ hrun _
+    { mlc := ⟨.nil, trivial, rfl, rfl⟩
+      lparams := rfl
+      cfg := rfl
+      natcfg := fun h => absurd h (by simp [ΓprojQ])
+      kfresh := fun _ hfv => nomatch hfv
+      fixvars := by intro nm x; simp [ΓprojQ]
+      fixfresh := by intro nm x hx; simp [ΓprojQ] at hx
+      reserved := fun _ hfv => nomatch hfv
+      knames := fun _ => rfl
+      consts := by intro n k hk; simp at hk }
+    supported_ofNatBodyQ ⟨_, trExprSQ_ofNatBody⟩
 
 end NonVacuity
 
