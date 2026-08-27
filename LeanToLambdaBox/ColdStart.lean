@@ -31,6 +31,7 @@ Everything below is *derived from the run*, not assumed:
 | `NoBlockEnv sf.gdecls` (applied form of every recorded body) | `visitExpr_noBlockEnv` (δ-N: `NoBlockEnv` is a `RunClosed` predicate) |
 | `hregctors`/`hregcases`/`hregfields` | `RegInvShape.registeredCtors/…`, modulo saturation |
 | `hdelta : ErasesEnvDeltaData` | the walk's own δ record, converted (slice D5) |
+| `hrec : RecEnvConsistent` | the **same** δ record, converted the other way (slice Γ-W4): `recEnvConsistent_of_deltaMem_walked`, modulo the coverage agreement `hcov`. Until Γ-W4 it was discharged by `recEnvConsistent_of_noRec` off the scope restriction `hnorec`, which excluded every recursive program |
 | `known` as a free variable | stays free — the fragment (slice D5) |
 
 ## Scope note: the cold-start fragment used to be δ-free (slices D1–D5)
@@ -94,13 +95,13 @@ Four classes, and nothing falls outside them:
 | `hUs : Us = []` | S | universe monomorphism of the whole dependency cone. At the *entry point* it is also a fact — `Erasure.run` installs `lparams := []` and `BridgeInv.lparams` pins `ctx.lparams = Us` — but `DeltaHyps.decl_run` demands it of every dependency too, so a polymorphic callee makes the bundle uninhabited (`DeltaHyps`, scope restriction 1) |
 | `hcsimp : cfg.csimp = false` | S | csimp replacement is not kernel-semantics-preserving (`PrepareHyps`' own analysis), so it can never sit inside a correctness statement. It is also what makes R2 fire (`ColdStartRun.run_prepare_erasure_state`: with csimp off, `prepare_erasure` leaves the state at `{}`). RAISE-not-fix: the shipping *default* is `csimp := true` |
 | `hnfv : Γ.fixvars = ⊥` | S | the subject is outside every mutual block. Also `DeltaHyps.nofixvars` (scope restriction 2) |
-| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. **The producer this row was waiting on landed at Γ-W3.6b**: `DeltaHyps.nonrecursive` — the field that forced `visitMutual`'s `nonrecursive` test `true` and made the bridge's step 6 *refute* the recursive exit — is deleted, and step 6 now walks that exit (`VisitExprRefines.rec_exit_refines_erases`, fired at `RecBlockAgreement`). So a recursive fragment constant is in scope for the *bridge*. What keeps the row is the **capstone half**, which is a different piece of work: dropping `hnorec` means replacing `recEnvConsistent_of_noRec hnorec` by the recursive `ColdStartDelta.recEnvConsistent_of_block`, and that needs the walk's `.fix` registration threaded into the cold-start δ record. See residue 1, and the section "The `hnorec` trade" below, which records why the capstone half could not be landed *before* the producer and what it costs now |
+| `hcov : … → RecCovered Γ Esrc sf` | H, and S in one conjunct | **the recursion coverage agreement** (Γ-W4), and what the deleted `hnorec : Γ.recBodies = ⊥` traded for. Every constant `Γ` records as recursive is in `Esrc` (that conjunct is S — a fragment-domain condition) and has *its* block stored under its kername in the run's final environment (that one is H — a run-keyed registration agreement, `BridgeInv.knames`-class). It is the **converse** of `Hreg` below and neither derives the other: `RecBlockAgreement` says the block a run builds is the block `Γ` records; this says every block `Γ` records was built. A `Γ` naming a block for a constant the program never calls satisfies the first and not the second. At `Γ.recBodies = ⊥` it is a **theorem** (`ColdStartDelta.RecCovered.of_noRec`), which is how the two `known = ⊥` guards and the δ guard pick it up unchanged. Suppliability: `ColdStartDelta.gRecCoveredD8` and `gRecCoveredFO` compute it on the self-referential fixture at the state a walked recursive exit produces, so the premise is not satisfiable-only-vacuously — the S1d/S1e failure mode. Stated about the run because the final state is what it speaks of, exactly like `hev` |
 | `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
-| `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
+| `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec` |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
 | `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe |
-| `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is λ-headed) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues |
+| `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is λ-headed) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues. Its scope restriction is named at `RecBlockErasure.erases_rec_block_of_run`: **a block's bodies call only its own siblings, registered constructors and registered `casesOn`s** — the block's inner runs are taken at `known = ⊥`, so an external call is out of scope. That is the one restriction the recursion feature genuinely still makes, and it is *inside* a block rather than about the program |
 | `Hreg : RecBlockAgreement` | H | **the walk's registration agreement** (Γ-W3.6b): `Γ` records the block the recursive exit stores, at the readers and states the bridge's induction quantifies. `Erases.fix`'s own premise, and irreducible at a parameter `Γ` fixed before the run builds the block. Its quantifiers are *gated* — on the fragment, and on `BridgeInv`, whose `cfg` field pins the config (Γ-W3.6a) and whose `consts`/`knames` pin the registry — so the two refutations that could be written are closed, and what is left free (`ctx.lctx`, `s.inductives`, the world) is the class every run-keyed field already carries. At `known = ⊥` it is a **theorem** (`RecBlockAgreement.of_bot`). `gRecAgreement` is the suppliability guard; residue 1 records the route that would make it a theorem outright (read `Γ.recBodies` off the run's final `gdecls`, priced at "re-index the erasure relation") |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
@@ -271,13 +272,26 @@ below, three ways.
    `absurd`. The same slice re-gated `prep_esrc` and `block_esrc` on the config, which
    removes a defect those two *shipped* with since Γ-W2.
 
-   **What is left of this row is the capstone half**, and it is not effort-free for a
-   reason that is not effort: dropping `hnorec` means replacing `recEnvConsistent_of_noRec`
-   by the recursive `ColdStartDelta.recEnvConsistent_of_block`, which needs the walk's
-   `.fix` registration carried into the cold-start δ record. Before Γ-W3.6b it could not be
-   landed at all — the premise would have been uninhabited, since no cold run could produce
-   a `.fix` entry (`nonrec_exit_stores_no_fix`). That objection is now void; the work is
-   real. See the section "The `hnorec` trade" below.
+   **And the capstone half landed at Γ-W4, which closes the row.** `hnorec` is deleted from
+   both capstones. What replaced it is `hcov : RecCovered Γ Esrc sf` (see the table) and one
+   conversion, `ColdStartDelta.recEnvConsistent_of_deltaMem_walked`, which is
+   `registeredClosureData_of_deltaMem_walked` with the applied-form conjunct dropped and the
+   coverage agreement added — so it consumes the *same three arguments* the capstone already
+   assembles for its `ErasesEnvDeltaData`, and the recursive record costs exactly one new
+   premise and no new machinery.
+
+   Two predictions in this row were wrong, and both in the cheap direction. It said the
+   capstone half needs `recEnvConsistent_of_block`: it does not — that theorem takes a block
+   apart index by index and carries a single-block restriction, while the conversion the
+   capstones actually take is keyed per name on `Γ.recBodies n` and has **none** (a `Γ`
+   describing several blocks costs nothing; what stays single-declaration is the *subject*).
+   And it said the `.fix` registration has to be "carried into" the δ record: it was already
+   there. `DeltaMem` is keyed on the recorded entry and says nothing about its shape, so a
+   `.fix` body was inside its statement from D4b onwards; `DeltaMem.recBlock` (Γ-W0) is what
+   puts one there, and the walked exit fires it.
+
+   The guard is `ColdStart`'s `RecursiveGuard` section: the cold-start entry point at a `Γ`
+   where the deleted premise is *refuted* (`ΓFOrec_norec_refuted`).
 
    Slice `rec` repaired the theorem this entry is about. `erases_fix_of_open`'s `hopen`
    quantified over *every* `Δf`, and in that form it is **unsatisfiable for every
@@ -605,7 +619,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
     {ia : IotaArities} {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
     -- Γ-side conditions
-    (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
     -- the sole surviving residue: one commissioned VExpr-level obligation (slice δ-D7b)
     (hstr : ErasableStrengthen env Us)
@@ -624,10 +638,9 @@ theorem shipping_erase_correct_firstorderι_coldstart
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
-    -- the recursion premises (Γ-W3.6b): the block-local scope bundle, and the
+    -- the recursion premises (Γ-W3.6b/Γ-W4): the block-local scope bundle, and the
     -- registration agreement the bridge's step 6 consumes when it walks the recursive
-    -- exit. `hnorec` above still holds the *capstone* half of that trade — see the
-    -- module docstring's `hnorec` row.
+    -- exit. Its converse, `hcov` below, is what replaced `hnorec`.
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       BlockHyps env Us known Γ cfg Esrc cc rf)
     (Hreg : RecBlockAgreement env Us known Γ cfg)
@@ -635,6 +648,14 @@ theorem shipping_erase_correct_firstorderι_coldstart
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
     (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
+    -- the recursion coverage agreement (Γ-W4), stated about the run's final state: what
+    -- `Γ` records as recursive, the walk registered and the fragment records a body for.
+    -- This is the premise `hnorec : Γ.recBodies = ⊥` traded for; at a `Γ` registering no
+    -- recursion it is a theorem (`RecCovered.of_noRec`).
+    (hcov : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      RecCovered Γ Esrc sf)
     (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
       Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
@@ -693,6 +714,18 @@ theorem shipping_erase_correct_firstorderι_coldstart
             ((Hδ cctx ref).esrc_shape hb).1
             ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
+  -- Γ-W4: the *recursive* half of the same record, from the same walk. `hcov` supplies
+  -- what `DeltaMem` deliberately does not carry — that a `Γ`-recursive constant really
+  -- was registered — and the `Erases.fix` witness comes off the record itself.
+  have hrecc : RecEnvConsistent env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
+    recEnvConsistent_of_deltaMem_walked hmem
+      (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
+      hshape.closed
+      (fun hb _ hlb hwf hnobv her =>
+        erases_uniform_closed henv hnfv hstr (VLCtx.FVLift.from_nil hnobv) hwf
+          ((Hδ cctx ref).esrc_shape hb).1
+          ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
+      (hcov hpr hvis)
   obtain ⟨t', heval, htrv, herv, hnbv, hclv, huniq⟩ :=
     shipping_erase_correct_firstorderι henv (Us := [])
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
@@ -704,7 +737,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
       (ctorFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
-      hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C Hδ
+      hiacoh hrel hcc hrecc hnfv hshape.closed H HD C Hδ
       Hβ Hreg hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
@@ -717,7 +750,7 @@ theorem shipping_erase_correct_firstorder_coldstart
     {env : VEnv} (henv : env.WF) {Us : List Name} (hUs : Us = [])
     {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
     {cfg : ErasureConfig} (hcsimp : cfg.csimp = false)
-    (hnfv : Γ.fixvars = fun _ => none) (hnorec : Γ.recBodies = fun _ => none)
+    (hnfv : Γ.fixvars = fun _ => none)
     (hnat : Γ.natPeano = true → cfg.nat = .peano)
     -- the sole surviving residue: one commissioned VExpr-level obligation (slice δ-D7b)
     (hstr : ErasableStrengthen env Us)
@@ -729,16 +762,19 @@ theorem shipping_erase_correct_firstorder_coldstart
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
-    -- the recursion premises (Γ-W3.6b): the block-local scope bundle, and the
+    -- the recursion premises (Γ-W3.6b/Γ-W4): the block-local scope bundle, and the
     -- registration agreement the bridge's step 6 consumes when it walks the recursive
-    -- exit. `hnorec` above still holds the *capstone* half of that trade — see the
-    -- module docstring's `hnorec` row.
+    -- exit. Its converse, `hcov` below, is what replaced `hnorec`.
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       BlockHyps env Us known Γ cfg Esrc cc rf)
     (Hreg : RecBlockAgreement env Us known Γ cfg)
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
     (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
+    (hcov : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      RecCovered Γ Esrc sf)
     (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
       Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
       Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
@@ -780,17 +816,26 @@ theorem shipping_erase_correct_firstorder_coldstart
             ((Hδ cctx ref).esrc_shape hb).1
             ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
         (visitExpr_noBlockEnv hprepg hvis noBlockEnv_empty))
+  have hrecc : RecEnvConsistent env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
+    recEnvConsistent_of_deltaMem_walked hmem
+      (fun hb => (Hδ cctx ref).disj ((Hδ cctx ref).esrc_sub (by rw [hb]; simp)))
+      hshape.closed
+      (fun hb _ hlb hwf hnobv her =>
+        erases_uniform_closed henv hnfv hstr (VLCtx.FVLift.from_nil hnobv) hwf
+          ((Hδ cctx ref).esrc_shape hb).1
+          ((Hδ cctx ref).esrc_shape hb).2.choose_spec hlb her _)
+      (hcov hpr hvis)
   obtain ⟨t', heval, htrv, herv, hnbv, huniq⟩ :=
     shipping_erase_correct_firstorder henv (Us := [])
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
       hcon.walked
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
-      hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ Hβ Hreg
+      hcc hrecc hnfv H HD C Hδ Hβ Hreg
       hvis hinv hsup htr (visitExpr_noBlock hvis) (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
-/-! ## The `hnorec` trade — the producer has landed, the capstone half has not
+/-! ## The `hnorec` trade — made, and what it cost
 
 Slice δ-D8e checked whether the capstones could drop `hnorec` *then*, taking the
 registration agreement (`hcov`: "`Γ` records as recursive only blocks the run really
@@ -815,16 +860,29 @@ bridge's step 6 walks the recursive exit, so a cold run *can* reach the exit tha
 premise is no longer uninhabited, and `nonrec_exit_stores_no_fix` below keeps its other
 meaning: `.fix` entries come from the recursive exit and nowhere else.
 
-What is left is ordinary work, and it is the next slice: thread the walk's registration
-into the cold-start record and replace `recEnvConsistent_of_noRec hnorec` by
-`ColdStartDelta.recEnvConsistent_of_block` at both capstones. Until that lands, `hnorec`
-stays — an honest scope restriction, no longer a placeholder for a missing producer. -/
+**Slice Γ-W4 made the trade.** `hnorec` is gone from both capstones. What replaced it, in
+one line each:
+
+* the premise: `hcov : … → RecCovered Γ Esrc sf`, the converse of `Hreg` — see its table
+  row for the classification, and `gRecCoveredD8`/`gRecCoveredFO` for the suppliability
+  check that δ-D8e's objection demanded and this slice can now pass;
+* the derivation: `ColdStartDelta.recEnvConsistent_of_deltaMem_walked`, reusing the
+  capstone's own `hdisj`/`hclenv`/`huni`;
+* the guard: the `RecursiveGuard` section at the end of this file, where the deleted
+  premise is not merely unused but **refuted** (`ΓFOrec_norec_refuted`).
+
+What the trade did *not* cost, against the δ-D8e prediction: no single-block restriction
+(the conversion is keyed per name), no motive change, no new machinery, and no axiom.
+What it does still cost is one restriction, and it lives one level in rather than on the
+program: a walked block's bodies call only siblings, registered constructors and registered
+`casesOn`s (`Hβ`'s row). Everything the capstones say about a recursive program is said
+modulo that. -/
 
 /-- **The non-recursive exit stores no block.** `visitMutual`'s non-recursive exit cons
 exactly the `visitExpr` output it just built, and every such output is fix-free
 (`ColdStartInduction.visitExpr_noFix_closed`, no hypotheses). So a `.fix` entry in
-`gdecls` can only come from the recursive exit — the one the bridge's step 6 refutes on
-the fragment. -/
+`gdecls` can only come from the recursive exit — which since Γ-W3.6b the bridge's step 6
+*walks*, and whose registration is therefore what `RecCovered` is an agreement about. -/
 theorem nonrec_exit_stores_no_fix {pe : Expr} {t : LBTerm} {s s' : ErasureState}
     {ctx : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld}
@@ -853,8 +911,12 @@ plus one that is specific to the entry point:
   of the `NoBlock t` premise the warm guards already leave hypothetical.
 
 Everything `Γ`-level is constructed, at the same `ΓFOι`/`iaFOι` pin the warm ι guard
-uses: the fixvar and recursion exclusions, the peano-config pin, `IotaArityCoherent`,
-the constructor/`casesOn` disjointness, and the value's first-orderness. -/
+uses: the fixvar exclusion, the peano-config pin, `IotaArityCoherent`, the
+constructor/`casesOn` disjointness, and the value's first-orderness. The *recursion*
+exclusion is no longer among them — since Γ-W4 these two guards supply
+`RecCovered.of_noRec` instead, which is the same fact discharging a premise rather than a
+scope restriction on the theorem; the guard that exercises the other side is
+`RecursiveGuard`, at the end of this file. -/
 
 /-- **The cold-start capstone fires.** At the registered inductive of the ι guard, on a
 source whose prepared form evaluates to the first-order constructor `c`: `Erasure.erase`
@@ -885,9 +947,10 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
-  shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl rfl
+  shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
     hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
@@ -915,9 +978,10 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       (∃ vve, TrExprS envFO [] [] (.const `c []) vve) ∧
       Erases envFO [] ΓFOι [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
-  shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl rfl
+  shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
     ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
@@ -1208,15 +1272,346 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       (∃ vve, TrExprS envδ [] [] (.const `c []) vve) ∧
       Erases envδ [] ΓFOd [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envδ [] ΓFOd [] (.const `c []) tu → NoBlock tu → tu = t' :=
-  shipping_erase_correct_firstorder_coldstart envδ_wf rfl hcsimp rfl rfl
+  shipping_erase_correct_firstorder_coldstart envδ_wf rfl hcsimp rfl
     (by simp [ΓFOd]) hstr Hr envδ_senvConsistent
     (by
       intro cn iid cidx hc
       by_cases h : cn = `c
       · subst h; rfl
       · simp [ΓFOd, if_neg h] at hc)
-    H HD C Hδ Hβ Hreg S hev (envδ_foC_d harity) hrun
+    H HD C Hδ Hβ Hreg S (fun _ _ => RecCovered.of_noRec (Γ := ΓFOd) rfl) hev
+    (envδ_foC_d harity) hrun
 
 end DeltaGuard
+
+/-! ## The recursive guard: a cold start whose walked dependency is a mutual block (Γ-W4)
+
+This is the section slice Γ-W4 exists for. Every cold-start guard above stands at a `Γ`
+with `recBodies = ⊥` — which is what `hnorec` demanded of *every* program the capstones
+spoke about. The premise is gone; here is the statement firing at a `Γ` where it would be
+**false**.
+
+### What is genuinely recursive here, and what is not
+
+* `Γ` registers a real self-referential block: `ΓfixRec`'s `fixRecDefs` — `def f (a : Prop)
+  := f a`, whose stored body is the closed `λa. #1 #0`, `#1` being the fix binder — grafted
+  onto `ΓFOd`'s nullary constructor. `ΓFOrec_norec_refuted` is the measurement: the deleted
+  premise is not merely unused at this fixture, it is refuted.
+* the fragment contains the recursive constant (`knownRec `f`), and the source environment
+  records its body (`EsrcRec`), so the run really may walk into `visitMutual`'s recursive
+  exit — the one the bridge's step 6 walks since Γ-W3.6b and refuted before it;
+* the coverage agreement's *gate* is inhabited on computed data at the state such a walk
+  ends in (`gRecCoveredFO`), which is the S1d suppliability test for the premise that
+  replaced `hnorec`.
+
+**Why the block fixture is grafted onto `ΓFOd` rather than used bare.** `FirstOrderValue`
+has exactly one constructor, `.ctor`, so at a `Γ` registering no constructor the capstone's
+`hfo` premise is *uninhabited* and no conclusion can be stated at all. A recursive-only `Γ`
+therefore cannot carry a first-order capstone; the fixture has to register both. That is a
+fact about the statement, not about recursion.
+
+### The vacuity this guard nearly was, and the environment that fixes it
+
+The first version ran at `envFO` — `I : Sort 1`, `c : I` — and it proved **nothing**.
+`DeltaHyps.esrc_shape` demands `∃ ve, TrExprS env Us [] pe ve` of every body the fragment
+records, `fixRecSrc` mentions `.const f []`, and `envFO` does not declare `f`; so the `Hδ`
+bundle is uninhabitable there and taking it hypothetically is taking `False`. The fix is
+the environment: `envRec` declares `f` — as an **axiom** of type `Prop → I`, which is the
+honest modelling, since a recursive definition has no kernel defining equation and that is
+exactly why the eraser fetches `f._unsafe_rec`. `gRecEsrcShape` then discharges the field
+that was unsatisfiable, and `gRecScope` the other three fragment-scope fields, so nothing
+in the bundle is hypothetical *because it is empty*.
+
+One premise came out better than expected. `hcon : SEnvConsistent` is **discharged**
+(`envRec_senvConsistent`), and by η: the fixture's source body `fun (a : Prop) => f a` is
+`f`'s η-expansion, and `VEnv.IsDefEq.eta` is a rule of lean4lean's theory. That is a
+property of this fixture, not of recursion — a general recursive body is not η-equal to its
+constant, and there the premise is what the ledger says it is. Worth recording either way,
+because the structural fact behind it is not obvious: a well-formed `VEnv` *cannot* carry a
+self-referential defining equation, since `VDecl.def` types a constant's value in the
+environment before the constant is added. So for a general recursive constant `hcon` is
+never the `envδ`-style defining-equation discharge; it is a trust item about a constant
+whose only kernel form is `_unsafe_rec`.
+
+### What stays hypothetical, and why each one has to
+
+The run, the four runtime bundles (`H`/`HD`/`C`/`Hr`), the two recursion premises
+(`Hβ`/`Hreg`), the residue `hstr` and the prepared subject (`S`/`hev`) — every one of them
+a class the δ guard already leaves open, for reasons its own section docstring gives — and
+one that is specific here:
+
+* `hcov` itself. It speaks about the run's *final state*, which no in-logic term can name
+  at a cold start, exactly as `hev` does. `gRecCoveredFO` below is the suppliability check
+  that keeps it from being an invisible-unsatisfiable premise: at the state a walked
+  recursive exit produces, it is a computation. -/
+
+section RecursiveGuard
+
+/-- The recursive guard's `Γ`: `ΓFOd`'s nullary constructor `c` of `I`, plus the
+self-referential block `Erases.lean`'s fixture registers for `f`. -/
+def ΓFOrec : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  ctors := fun n => if n = `c then some (⟨toKername `I, 0⟩, 0) else none
+  ctorArities := fun n => if n = `c then some 0 else none
+  casesOns := fun _ => none
+  recBodies := fun n => if n = `f then some (fixRecDefs, 0) else none
+
+/-- **The deleted premise is refuted at this fixture** — the measurement that says the
+guard below is not the old one with a new name. `hnorec : Γ.recBodies = ⊥` cannot be
+supplied here, so before slice Γ-W4 no cold-start capstone could speak about this `Γ` at
+all. -/
+theorem ΓFOrec_norec_refuted : ΓFOrec.recBodies ≠ fun _ => none := by
+  intro h
+  have := congrFun h `f
+  simp [ΓFOrec] at this
+
+theorem ΓFOrec_ctorsC : ΓFOrec.ctors `c = some (⟨toKername `I, 0⟩, 0) := by
+  unfold ΓFOrec; simp
+theorem ΓFOrec_casesC : ΓFOrec.casesOns `c = none := rfl
+theorem ΓFOrec_recBodiesF : ΓFOrec.recBodies `f = some (fixRecDefs, 0) := by
+  simp [ΓFOrec]
+
+/-- Constructor/`casesOn` disjointness, as `ΓFOd` has it: `c` is the only constructor and
+nothing is a `casesOn` head. -/
+theorem ΓFOrec_cc {cn : Name} {iid : InductiveId} {cidx : Nat}
+    (hc : ΓFOrec.ctors cn = some (iid, cidx)) : ΓFOrec.casesOns cn = none := by
+  by_cases h : cn = `c
+  · subst h; rfl
+  · simp [ΓFOrec, if_neg h] at hc
+
+/-- The fragment: the recursive constant `f`, and nothing else. -/
+def knownRec : Name → Prop := fun n => n = `f
+
+/-- The source environment: `f` unfolds to its own recursive body. -/
+def EsrcRec : SEnv := fun n => if n = `f then some fixRecSrc else none
+
+@[simp] theorem EsrcRec_f : EsrcRec `f = some fixRecSrc := by simp [EsrcRec]
+
+/-- The `I`-registering state a cold walk reaches before it meets the block. -/
+def sIrec : ErasureState := { ({} : ErasureState) with gdecls := EFOd }
+
+/-- The two keys the guard's final environment holds are distinct, so the block really is
+found by `LBTerm.envLookup` rather than shadowed by the inductive entry. -/
+theorem gRecKeysFO : KeysDistinct (recConstState [`f] fixRecDefs sIrec).gdecls := by
+  simp only [recConstState, sIrec, EFOd, KeysDistinct, List.zipIdx, List.foldl_cons,
+    List.foldl_nil, recConstStep, nonrecConstState]
+  decide
+
+/-- **The coverage agreement, computed at the guard's own final state** (slice Γ-W4) —
+the suppliability check for the premise that replaced `hnorec`, at the fixture the capstone
+below is instantiated at. Its hypothesis is inhabited (`ΓFOrec` really records a block for
+`f`), its `Esrc` conjunct holds because the fragment records `f`'s body, and its lookup
+conjunct is a computation over a two-entry environment. -/
+theorem gRecCoveredFO : RecCovered ΓFOrec EsrcRec (recConstState [`f] fixRecDefs sIrec) where
+  cov := by
+    intro n defs idx hrec
+    by_cases hn : n = `f
+    · subst hn
+      obtain ⟨rfl, rfl⟩ : defs = fixRecDefs ∧ idx = 0 := by
+        have h := (by simpa [ΓFOrec] using hrec : fixRecDefs = defs ∧ 0 = idx)
+        exact ⟨h.1.symm, h.2.symm⟩
+      refine ⟨by simp, ?_⟩
+      show LBTerm.envLookup _ (toKername `f) = _
+      exact recConstState_envLookup (by simp) gRecKeysFO
+    · simp [ΓFOrec, hn] at hrec
+
+/-! ### The environment: `f` has to be declared, or the bundle is uninhabitable
+
+The first attempt at this guard ran at `envFO` — `I : Sort 1`, `c : I`, nothing else — and
+it was **vacuous**, for a reason worth keeping: `DeltaHyps.esrc_shape` demands
+`∃ ve, TrExprS env Us [] pe ve` of every body the fragment records, and `fixRecSrc`
+mentions `.const f []`. At an environment that does not declare `f` there is no such
+translation, so `Hδ` is *uninhabitable* there and a guard taking it hypothetically proves
+nothing. This is exactly the S1d/S1e failure mode, met from the environment side.
+
+So the guard declares `f` — as an **axiom** of type `Prop → I`, which is the honest
+modelling: a recursive definition has no kernel defining equation, which is why the eraser
+fetches `f._unsafe_rec` in the first place. `gRecEsrcShape` then discharges the field that
+was unsatisfiable, and nothing about the bundle is empty. -/
+
+/-- `f`'s declared type: `Prop → I`. -/
+def fTypeRec : VExpr := .forallE (.sort .zero) (.const `I [])
+
+/-- `envFO` (`I : Sort 1`, `c : I`) extended with the recursive constant as an axiom. -/
+noncomputable def envRec : VEnv := (envFO.addConst `f ⟨0, fTypeRec⟩).getD .empty
+
+theorem envRec_addf : envFO.addConst `f ⟨0, fTypeRec⟩ = some envRec := by
+  unfold envRec fTypeRec envFO VEnv.addConst VEnv.empty; simp
+
+theorem envRec_f : envRec.constants `f = some ⟨0, fTypeRec⟩ := by
+  unfold envRec fTypeRec envFO VEnv.addConst VEnv.empty; simp
+theorem envRec_c : envRec.constants `c = some ⟨0, .const `I []⟩ := by
+  unfold envRec fTypeRec envFO VEnv.addConst VEnv.empty; simp
+theorem envRec_I : envRec.constants `I = some ⟨0, .sort (.succ .zero)⟩ := by
+  unfold envRec fTypeRec envFO VEnv.addConst VEnv.empty; simp
+
+/-- The environment is well-formed: `envFO`'s two axioms, then one more whose type is the
+function space `Prop → I`. -/
+theorem envRec_wf : envRec.WF := by
+  obtain ⟨ds, hds⟩ := envFO_wf
+  have hty : VConstant.WF envFO ⟨0, fTypeRec⟩ := by
+    refine ⟨.imax (.succ .zero) (.succ .zero), ?_⟩
+    refine VEnv.IsDefEq.forallEDF (VEnv.IsDefEq.sortDF (by trivial) (by trivial) (by rfl)) ?_
+    exact VEnv.IsDefEq.constDF (env := envFO) (uvars := 0) (Γ := [.sort .zero]) (c := `I)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envFO_I
+      (by simp) (by simp) (by simp) (by simp)
+  exact ⟨.axiom ⟨⟨0, fTypeRec⟩, `f⟩ :: ds, .decl (.axiom hty envRec_addf) hds⟩
+
+/-- **The recursive body translates, at every context.** `f`'s type makes the self-call
+well-typed, so the source `fun (a : Prop) => f a` has a lean4lean translation — the fact
+whose absence made the `envFO` version of this guard vacuous. -/
+theorem envRec_trFixRecSrc (Δ : VLCtx) :
+    TrExprS envRec [] Δ fixRecSrc (.lam (.sort .zero) (.app (.const `f []) (.bvar 0))) := by
+  refine .lam ⟨.succ .zero, VEnv.IsDefEq.sortDF (by trivial) (by trivial) (by rfl)⟩
+    (.sort (by simp [VLevel.ofLevel])) ?_
+  refine .app (A := .sort .zero) (B := .const `I []) ?_ ?_
+    (.const envRec_f (by simp) (by simp)) (.bvar rfl)
+  · exact VEnv.IsDefEq.constDF (env := envRec) (uvars := 0) (c := `f)
+      (ci := ⟨0, fTypeRec⟩) (ls := []) (ls' := []) envRec_f
+      (by simp) (by simp) (by simp) (by simp)
+  · exact VEnv.IsDefEq.bvar .zero
+
+/-- **`DeltaHyps.esrc_shape` is satisfiable at this fixture** — the field whose failure at
+`envFO` made the first version of this guard vacuous, discharged here for every name the
+fragment records. -/
+theorem gRecEsrcShape {n : Name} {pe : Expr} (h : EsrcRec n = some pe) :
+    NoProj pe ∧ ∃ ve, TrExprS envRec [] [] pe ve := by
+  obtain rfl : n = `f := by
+    by_cases hn : n = `f
+    · exact hn
+    · simp [EsrcRec, hn] at h
+  obtain rfl : pe = fixRecSrc := by simpa using h.symm
+  exact ⟨by simp [NoProj, fixRecSrc], _, envRec_trFixRecSrc []⟩
+
+/-- **The bundle's fragment-scope fields, at this fixture** — `esrc_sub`, `disj` and
+`nofixvars`, in `DeltaHyps.gDeltaScope`'s house style: none of them is true merely because
+the fragment is empty. -/
+theorem gRecScope :
+    (∀ {n : Name}, (EsrcRec n).isSome → knownRec n) ∧
+    (∀ {n : Name}, knownRec n → ΓFOrec.ctors n = none ∧ ΓFOrec.casesOns n = none) ∧
+    (∀ {n : Name}, knownRec n → ΓFOrec.fixvars = fun _ => none) := by
+  refine ⟨?_, ?_, fun _ => rfl⟩
+  · intro n hn
+    by_cases h : n = `f
+    · exact h
+    · simp [EsrcRec, h] at hn
+  · rintro n rfl
+    exact ⟨by simp [ΓFOrec], rfl⟩
+
+/-- **The source-side δ trust item, discharged — by η.** `SEnvConsistent` asks that the
+body the fragment records for `f` be definitionally equal to `f`, and for this fixture it
+is: `fun (a : Prop) => f a` is `f`'s η-expansion, and `VEnv.IsDefEq.eta` is a rule of
+lean4lean's theory.
+
+That is a property of *this* fixture, not of recursion. A general recursive body is not
+η-equal to its constant, and there the premise is what the ledger says it is — an
+elaborator-side trust item, met at `envδ` for a non-recursive constant from the kernel's
+own defining equation, and not available at all for a constant whose only kernel form is
+`_unsafe_rec` (a well-formed `VEnv` cannot carry a self-referential defining equation:
+`VDecl.def` types a constant's value in the environment *before* the constant is added). -/
+theorem envRec_senvConsistent : SEnvConsistent envRec [] EsrcRec := by
+  intro Δ n us body cve hb htr
+  obtain rfl : n = `f := by
+    by_cases hn : n = `f
+    · exact hn
+    · simp [EsrcRec, hn] at hb
+  obtain rfl : body = fixRecSrc := by simpa using hb.symm
+  cases htr with
+  | const hci hus hlen =>
+    rw [envRec_f] at hci
+    obtain rfl : us = [] := by
+      refine List.eq_nil_of_length_eq_zero ?_
+      rw [hlen, ← Option.some.inj hci]
+    simp only [List.mapM_nil, Option.pure_def, Option.some.injEq] at hus
+    subst hus
+    refine ⟨_, envRec_trFixRecSrc Δ, .forallE (.sort .zero) (.const `I []), ?_⟩
+    refine VEnv.IsDefEq.symm (VEnv.IsDefEq.eta (e := .const `f []) ?_)
+    exact VEnv.IsDefEq.constDF (env := envRec) (uvars := 0) (c := `f)
+      (ci := ⟨0, fTypeRec⟩) (ls := []) (ls' := []) envRec_f
+      (by simp) (by simp) (by simp) (by simp)
+
+/-- `.const c []` is a first-order value at `envRec`/`ΓFOrec` — `envFO_foC_d`'s argument,
+restated at the environment that also declares `f` and the `Γ` that also registers its
+block. -/
+theorem envRec_foC (harity : ¬ IsArityUpTo envRec 0 [] (.const `I [])) :
+    FirstOrderValue envRec [] ΓFOrec [] (.const `c []) := by
+  have hcT : envRec.HasType 0 [] (.const `c []) (.const `I []) :=
+    VEnv.IsDefEq.constDF (env := envRec) (uvars := 0) (Γ := []) (c := `c)
+      (ci := ⟨0, .const `I []⟩) (ls := []) (ls' := []) envRec_c
+      (by simp) (by simp) (by simp) (by simp)
+  have hIT : envRec.HasType 0 [] (.const `I []) (.sort (.succ .zero)) :=
+    VEnv.IsDefEq.constDF (env := envRec) (uvars := 0) (Γ := []) (c := `I)
+      (ci := ⟨0, .sort (.succ .zero)⟩) (ls := []) (ls' := []) envRec_I
+      (by simp) (by simp) (by simp) (by simp)
+  have hnp : ¬ envRec.HasType 0 [] (.const `I []) (.sort .zero) := by
+    intro h
+    have huniq : envRec.IsDefEqU 0 [] (.sort .zero) (.sort (.succ .zero)) :=
+      VEnv.IsDefEq.uniqU envRec_wf trivial h hIT
+    have := VEnv.IsDefEqU.sort_inv envRec_wf trivial huniq
+    rw [VLevel.equiv_def] at this; have := this []; simp [VLevel.eval] at this
+  have heq : (.const `c [] : Expr) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
+  rw [heq]
+  exact .ctor `c [] ⟨toKername `I, 0⟩ 0 ΓFOrec_ctorsC ΓFOrec_casesC
+    ⟨.const `c [], .const `I [], .const envRec_c (by simp) (by simp), hcT, hnp, harity⟩
+    (fun i h => absurd h (by simp))
+
+/-- **The recursive cold-start capstone fires** (recursion wall, slice Γ-W4).
+
+`Erasure.erase`, from the empty state, on a program whose fragment contains a *recursive*
+constant: `Γ` registers the self-referential block `fixRecDefs` for `f`
+(`ΓFOrec_norec_refuted` — the premise this slice deleted is false here), the walk's
+recursive exit is in scope for the bridge (Γ-W3.6b), and the environment-level record the
+forward simulation consumes is *derived* from the walk's own δ record through
+`ColdStartDelta.recEnvConsistent_of_deltaMem_walked` rather than supplied by
+`recEnvConsistent_of_noRec`.
+
+**Constructed**: the environment and its well-formedness (`envRec`, which declares `f` —
+without that the `Hδ` bundle is uninhabitable, see the section above), the fixvar and
+peano-config pins, the constructor/`casesOn` disjointness, the value's first-orderness,
+and — the one that was not expected to be constructible here — the source-side δ trust
+item `hcon`, by η (`envRec_senvConsistent`).
+
+**Hypothetical**: the run, the four runtime bundles, the two recursion premises
+`Hβ`/`Hreg`, the residue `hstr`, the prepared subject `S`/`hev`, and `hcov`. Each is a
+class the δ guard already leaves open; `hcov` speaks about the run's final state, which no
+in-logic term can name at a cold start, and `gRecCoveredFO` is its suppliability check at
+exactly the state a walked recursive exit produces. The bundles' fragment-scope halves are
+not left to chance either: `gRecScope` and `gRecEsrcShape` discharge them at this fixture,
+so nothing here is hypothetical *because it is empty*. -/
+example (harity : ¬ IsArityUpTo envRec 0 [] (.const `I []))
+    (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps envRec [] ΓFOrec gw) (HD : DataBridgeHyps ΓFOrec gw)
+    (C : CasesBridgeHyps ΓFOrec gw) (Hr : RegBridgeHyps ΓFOrec)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps envRec [] knownRec ΓFOrec cfg EsrcRec gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envRec [] knownRec ΓFOrec cfg EsrcRec cc rf)
+    (Hreg : RecBlockAgreement envRec [] knownRec ΓFOrec cfg)
+    {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (hstr : ErasableStrengthen envRec [])
+    (S : ColdStartSubject envRec [] knownRec ΓFOrec e cfg cctx ref w)
+    (hcov : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      RecCovered ΓFOrec EsrcRec sf)
+    (hev : ∀ {pe : Expr} {sp sf : ErasureState} {wp wt : Void IO.RealWorld} {t : LBTerm},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, sp) wp →
+      Erasure.visitExpr pe sp { «config» := cfg } cctx ref wp = .ok (t, sf) wt →
+      SEvalDataC ΓFOrec (EsrcRec.walked ΓFOrec sf.gdecls) pe (.const `c []))
+    (hrun : Erasure.erase e cfg cctx ref w = .ok (p, inls) w') :
+    ∃ (E : GlobalDeclarations) (t t' : LBTerm),
+      p = .untyped E (some t) ∧
+      WcbvEval E appliedFlags t t' ∧
+      (∃ vve, TrExprS envRec [] [] (.const `c []) vve) ∧
+      Erases envRec [] ΓFOrec [] (.const `c []) t' ∧ NoBlock t' ∧
+      ∀ tu, Erases envRec [] ΓFOrec [] (.const `c []) tu → NoBlock tu → tu = t' :=
+  shipping_erase_correct_firstorder_coldstart envRec_wf rfl hcsimp rfl
+    (by simp [ΓFOrec]) hstr Hr envRec_senvConsistent ΓFOrec_cc H HD C Hδ Hβ Hreg S hcov hev
+    (envRec_foC harity) hrun
+
+end RecursiveGuard
 
 end LeanToLambdaBox

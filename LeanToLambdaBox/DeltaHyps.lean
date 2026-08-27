@@ -57,7 +57,13 @@ constant is recursive" (`nonrecursive`) — is gone: it existed only to make `vi
 `nonrecursive` test come out `true`, so that the bridge's step 6 could refute the recursive
 exit. Step 6 now *walks* that exit, and the field is deleted. See `decl_run`'s docstring for
 what took its place (`VisitExprRefines.RecBlockAgreement`, a named premise of the bridge,
-not a restriction on the fragment) and `ColdStart`'s `hnorec` row for what the trade cost.
+not a restriction on the fragment) and `ColdStart`'s `hcov` row for what the trade cost.
+
+The capstones followed at slice Γ-W4: `hnorec : Γ.recBodies = ⊥` is deleted there too, so
+**neither this bundle nor the cold-start statements exclude recursion any more**. What the
+recursion feature still restricts is one level in and is named at
+`RecBlockErasure.erases_rec_block_of_run`: a walked block's bodies call only its own
+siblings, registered constructors and registered `casesOn`s.
 
 1. **Universe monomorphism of the whole dependency cone.** `Erases` is indexed by a single
    `Us`, while `visitMutual` erases a dependency's body under
