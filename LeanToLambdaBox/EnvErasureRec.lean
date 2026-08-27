@@ -13,8 +13,9 @@ env-consistency obligation `ErasesEnvDelta` (`ErasesCorrect.lean`) therefore nee
 for such a constant, `Erases … Δ (ci.value! nⱼ) (.fix defs j)` — the `Erases.fix` rule
 (`Erases.lean`, re-founded by the recursion wall's slice W1).
 
-The core deliverable is **`erases_fix_of_closed`**: it constructs that `Erases.fix`
-derivation from
+The core deliverable is **`erases_fix_of_closed`** — which, with the rest of Parts 1b and
+2, now lives in `RecBlockErasure.lean`; see the note below the module docstring. What it
+constructs is that `Erases.fix` derivation, from
 * the **registration fact** — `Γ.recBodies` records this block for each of the block's
   own names (`hreg`), and every def's `principalArgIdx` is the `mkDef` default `0`
   (`hrarg`);
@@ -74,7 +75,7 @@ witness (context-uniform, `∀ Δ`) that a full DAG walk would produce — here 
 `erases_fix_of_closed` reconciliation, exercising the whole chain.
 
 **DEMOTED at slice δ-D8**, and never a capstone premise — `hnorec` stood in for it. The
-`erase` field is now derived from the run (`ColdStartDelta.erases_rec_block_of_run`); what
+`erase` field is now derived from the run (`RecBlockErasure.erases_rec_block_of_run`); what
 survives is the registration agreement. Read the structure's docstring below. -/
 
 /-- **Cold-start closure registration for the recursive fragment** (a clean `Prop`
@@ -94,9 +95,9 @@ at a block-local `Γ`. (Slice δ-D8e sharpened that: free *as a statement*, read
 outside. Inside `visitExpr_refines_erases_core` step 6 there is no outside, and the
 erasure IH's own `BridgeInv` premise is false at the block's reader —
 `VisitExprRefines.bridgeInv_blockReader_refuted`. So the generalisation is still needed
-for the capstone half.) `ColdStartDelta.erases_rec_block_of_run` composes the two into this
-record's `erase` field, and `ColdStartDelta.recEnvConsistent_of_block` into
-`RecEnvConsistent` outright.
+for the capstone half — landed at Γ-W1.) `RecBlockErasure.erases_rec_block_of_run` composes
+the two into this record's `erase` field, and `ColdStartDelta.recEnvConsistent_of_block`
+into `RecEnvConsistent` outright.
 
 What survives is **not** a certificate about an erasure: it is the `Γ`↔run registration
 agreement — "the `Γ` you supply names *this* block, under the map the run installed" —

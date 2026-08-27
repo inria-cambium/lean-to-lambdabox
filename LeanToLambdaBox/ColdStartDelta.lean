@@ -134,7 +134,7 @@ theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Na
 
 /-! ## The recursive exit's registration
 
-The δ *witness* for a recursive block is `EnvErasureRec.erases_fix_of_open`, whose premise
+The δ *witness* for a recursive block is `RecBlockErasure.erases_fix_of_open`, whose premise
 list is a dozen facts about the block (`closeFix` agreement, closedness and fvar-freeness
 of the stored node, the `Γ.recBodies` links, the per-sibling open erasures). Producing
 those from a run means reading them off the `List.mapM` over `names` that

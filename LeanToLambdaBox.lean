@@ -82,7 +82,8 @@ import LeanToLambdaBox.CasesBridgeHyps
 import LeanToLambdaBox.DeltaHyps
 -- The recursive block, from open bodies to `Erases.fix`: `Erases.instFixvars`, the
 -- `erases_fix_of_open` family, the block map's inversions and `erases_rec_block_of_run`.
--- Placed BELOW the bridge (slice Γ-W2) so the induction's step 6 can call them.
+-- Imported BY the bridge (slice Γ-W2) so the induction's step 6 can call them; the
+-- ordering that matters is `VisitExprRefines.lean`'s own import, not this line's position.
 import LeanToLambdaBox.RecBlockErasure
 -- P3-v2b: recursive (value-`fix`) cold-start env-consistency — Part 3's registration
 -- certificate and the historical record of the pre-W1 contentless `Erases.fix`.

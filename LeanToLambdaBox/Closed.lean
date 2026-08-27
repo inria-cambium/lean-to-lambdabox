@@ -11,7 +11,7 @@ lemmas) and the general `shift`/`subst` commutation laws.
 (the `LBTerm` analogue of lean4lean's `Lean4Lean.Closed`). It is what makes
 `shift`/`subst` the identity on a closed constructed `.fix` node (whose bodies live
 under `defs.length` binders and are otherwise closed) — the six transport-inertness
-equalities of `Erases.fix` are derived from it in `EnvErasureRec.lean`. Defined by the
+equalities of `Erases.fix` are derived from it in `RecBlockErasure.lean`. Defined by the
 same mutual recursion as `shift`/`hasFVar` (the per-list traversals factored into
 helpers so the structural-recursion checker sees through the nested `List`
 occurrences).
