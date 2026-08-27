@@ -48,11 +48,16 @@ fire there however much they look like they should. `BlockHyps` below is the com
 that second pair; it is a separate structure so that `of_bot` and the whole non-recursive
 path stay untouched and the recursion feature's price stays legible as one ledger row.
 
-## The five scope restrictions this bundle makes operational
+## The four scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
 violates one makes the bundle *unsatisfiable* — the right failure mode, but only because it
-is written down:
+is written down. There were **five** until slice Γ-W3.6b, and the fifth — "no fragment
+constant is recursive" (`nonrecursive`) — is gone: it existed only to make `visitMutual`'s
+`nonrecursive` test come out `true`, so that the bridge's step 6 could refute the recursive
+exit. Step 6 now *walks* that exit, and the field is deleted. See `decl_run`'s docstring for
+what took its place (`VisitExprRefines.RecBlockAgreement`, a named premise of the bridge,
+not a restriction on the fragment) and `ColdStart`'s `hnorec` row for what the trade cost.
 
 1. **Universe monomorphism of the whole dependency cone.** `Erases` is indexed by a single
    `Us`, while `visitMutual` erases a dependency's body under
@@ -77,11 +82,6 @@ is written down:
 4. **Fragment names are distinguished by their kernames.** `Erasure.toKername` is not
    injective, so without `kinj` the δ *record* below is false whenever two fragment names
    collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
-5. **No fragment constant is recursive.** `nonrecursive` — split out of `decl_run` by slice
-   δ-D8e, because it is a restriction on the *fragment* and not a fact about the fetch.
-   It forces `visitMutual`'s `nonrecursive` test `true`, and it is the single field the
-   cold-start capstones' `hnorec` is waiting on. What trading it additionally costs is
-   *not* another premise but a motive change, and that is recorded on the field itself.
 
 ## Two environments, deliberately: the fragment and the evaluation's
 
@@ -181,11 +181,13 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   every consumer is unaffected.
 
   It used to carry a fifth, `name_occurs n v = false` — the recursion exclusion. Slice
-  δ-D8e **split that out** into `nonrecursive` below, keyed on the runs the consumer actually
-  holds. Nothing about the *fetch* is recursive or not, and the two facts are traded
-  separately: `decl_run` is a statement about `getDeclInfo?`'s answer, `nonrecursive` is a scope
-  restriction on the fragment. Keeping them in one conjunction hid that, and hid which of
-  the two the cold-start `hnorec` premise is waiting on.
+  δ-D8e split that out into a field of its own, `nonrecursive`, precisely so that it could
+  be *traded* rather than unpicked from a five-conjunct spec; slice Γ-W3.6b traded it. The
+  field is **deleted**: the bridge's step 6 now walks the recursive exit
+  (`VisitExprRefines.rec_exit_refines_erases`) instead of refuting it, so nothing needs
+  the run's `nonrecursive` test to come out `true`. What replaced it is one named premise
+  of the bridge, `VisitExprRefines.RecBlockAgreement`, and it is not a fragment
+  restriction: a recursive fragment constant is now *in scope*.
 
   **The single declaration is `[m]`, not `[n]`** (slice Γ-W2), and the difference is the
   whole of what the fragment can contain. `Compiler.LCNF.getDeclInfo?` tries
@@ -209,66 +211,6 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
     gw w ≤ gw w₁ ∧ ∃ (ci : ConstantInfo) (m : Name),
       r = some ci ∧ ci.all = [m] ∧ remove_unsafe_rec m = n ∧ ci.levelParams = Us
-  /-- **No fragment constant is recursive** — scope restriction 5, split out of `decl_run`
-  by slice δ-D8e and stated on the two runs its consumer holds (the fetch, which ties the
-  value to the name, and the `value?` hit), in the keying style of `prep_esrc`.
-
-  This is the field — the *only* field — that forces `visitMutual`'s `nonrecursive` test
-  `true` on the fragment, and hence the one that makes the bridge's step 6 **refute** the
-  recursive exit (`VisitExprRefines`, case `isFalse hnr`) instead of walking it. It is
-  therefore what a cold start's `hnorec : Γ.recBodies = ⊥` is waiting on, and the reason
-  it is now a field of its own rather than a conjunct of `decl_run` is that the trade is a
-  one-field trade.
-
-  **What it is *not* waiting on, and the honest accounting** (slice δ-D8e). Dropping this
-  field does not by itself let step 6 walk the recursive exit, and the obstruction is
-  structural rather than another premise: the exit erases each sibling body under the
-  reader `visitMutual` installs, whose `fixvars` is the block's own map, and
-  `BridgeInv`'s `fixvars` field is an *iff* against `Γ.fixvars` — which this bundle pins
-  at `⊥` for every fragment name (`nofixvars`). So the invariant the erasure IH demands is
-  **false** at that reader for the motives' fixed `Γ`
-  (`VisitExprRefines.bridgeInv_blockReader_refuted`), and the inner runs are runs of the
-  induction's *abstract* fixpoint argument, about which nothing outside the motives may be
-  assumed. Walking the exit therefore needs the motives to quantify `Γ` — the
-  generalisation slice δ-D8a showed is unnecessary for the bridge theorem *as a statement*
-  (`visitExpr_refines_erases_block`) and which is still necessary *inside* the induction.
-
-  **Status.** That generalisation landed at slice Γ-W1: the motives do quantify `Γ`, and
-  guard (i''') derives the core's erasure conjunct at an arbitrary block-local
-  `Γ₀.withFixvars fv`. The foundations for the walk landed at Γ-W0, the block-local scope
-  supply at Γ-W2 (`BlockHyps`), and the walk itself at Γ-W3
-  (`VisitExprRefines.rec_exit_refines_erases`, which derives all three conjuncts of motive
-  6 from an abstract eraser and its motive-1 refinement hypothesis — the shape step 6
-  holds).
-
-  **What this field is now standing in front of** (rewritten at slice Γ-W3.5). Not a
-  missing lemma. `rec_exit_refines_erases` leaves exactly one premise undischarged —
-  `hreg`, the agreement that `Γ` records *this* block for its own names, which is
-  `Erases.fix`'s own registration premise, and `Γ` is fixed before the run builds `defs`.
-
-  Γ-W3 found that premise stated at the induction's *abstract* eraser, where every
-  phrasing is **contradictory**: two erasers hand back two different blocks and
-  `Γ.recBodies` records one
-  (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). Γ-W3.5 removed that
-  quantifier. Every motive of the bridge now carries `f ⊑ Erasure.visitExpr`, the premise
-  is `VisitExprRefines.RecBlockRegistered` — keyed on the **shipping** eraser, where there
-  is one block — and `Erasure.run_rec_exit_siblings_le` transports an abstract sibling
-  loop's successful run onto it. Guard (iv'') fires the composition at exactly the data
-  step 6 holds.
-
-  What keeps this field is the quantifier Γ-W3.5 did *not* remove: `hreg` is stated at *a*
-  reader and *a* state, and step 6's motive quantifies both. A bundle field would have to
-  quantify them too, and readers differing in `Erasure.Config` erase the same block to
-  different `defs` — with `BridgeInv.natcfg` one-directional, nothing at this level pins
-  the reader. That premise is not provably contradictory, but it is not suppliable either:
-  a caller who built `Γ` by running the eraser holds one reader and one state. A field of
-  that shape would be the S1d/S1e failure mode with `ctx` in the role `known` played
-  there. See the `ColdStart` ledger's `hnorec` row. -/
-  nonrecursive : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v : Expr}
-      {w w₁ : Void IO.RealWorld},
-    known n →
-    (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
-    r = some ci → ci.value? (allowOpaque := true) = some v → name_occurs n v = false
   /-- **The prepared dependency body is in the fragment.** Quantified over the
   `prepare_erasure` run that produces it, exactly as `ColdStartSubject.supported` is for the
   top-level subject: this is the *same* premise, generalised from "the subject" to "the
@@ -393,7 +335,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
 
 The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
-`nonrecursive`, `prepared`, `prep_esrc` and `esrc_shape` all have `known n` or
+`prepared`, `prep_esrc` and `esrc_shape` all have `known n` or
 `(Esrc n).isSome`
 in their premises, and `axiom_free`'s conclusion is `none = none`. Since slice δ-D8 `nofixvars`
 joins them — it is conditioned on `known n` too, which is why this lemma no longer takes
@@ -435,7 +377,6 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   kinj := fun h => h.elim
   nofixvars := fun h => h.elim
   decl_run := fun h => h.elim
-  nonrecursive := fun h => h.elim
   prepared := fun h => h.elim
   prep_esrc := fun h => h.elim
   axiom_free := fun _ => rfl

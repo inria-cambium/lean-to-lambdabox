@@ -117,6 +117,9 @@ theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Na
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -129,7 +132,7 @@ theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Na
     LBTerm.envLookup s₁.gdecls (Γ.constants n) = some (.constantDecl ⟨some t⟩) ∧
       Erases env Us Γ [] pe t ∧ NoFix t ∧ LBClosed t 0 := by
   obtain ⟨hnf, hcl⟩ := visitExpr_noFix_closed hvis
-  refine ⟨?_, erases_nonrec_const_body H HD C Hδ henv hvis hinv hsupp hex, hnf, hcl⟩
+  refine ⟨?_, erases_nonrec_const_body H HD C Hδ Hβ Hreg henv hvis hinv hsupp hex, hnf, hcl⟩
   rw [hpost.gdecls, hknames n]
   exact envLookup_cons_self _ _ _
 
@@ -190,19 +193,23 @@ erased at a third `Γ` (`fixvars := none`)". Neither half survived contact.
   unless every motive it dispatches to does. Only motive 10, whose conclusion is `True` and
   which nothing calls, stays fixed.
 
-**What is still not wired to the capstones, and why.** The cold-start capstones' `hnorec`
-does *not* trade for these results yet, and the obstruction is upstream of them:
-`DeltaHyps.nonrecursive` — split out of `decl_run` by slice δ-D8e — demands
+**What is still not wired to the capstones, and why.** The obstruction used to be upstream
+of them: `DeltaHyps.nonrecursive` — split out of `decl_run` by slice δ-D8e — demanded
 `name_occurs n v = false` for every fragment name, which forces `visitMutual`'s
-`nonrecursive` test `true`, so the bridge's step 6 refutes the recursive exit rather than
-walking it (`VisitExprRefines`, case `isFalse hnr`). A cold start therefore never *takes*
-the recursive exit inside the fragment, and there is no run for these theorems to consume
-there. Wiring them in means giving step 6 a recursive branch: `RunConclδ`'s `δ` transport
-across `recConstState` (which is exactly `erases_rec_block_of_run`'s conclusion, so it
-composes) and the generator bookkeeping for the block's `mkFreshFVarId`/`getConstInfo`
-loop — both landed at slice Γ-W0 (`Erasure.run_mkFreshFVarId_list`,
-`run_rec_exit_siblings_chained`, `DeltaMem.recBlock`) — plus the block-local scope supply,
-landed at Γ-W2 as `DeltaHyps.BlockHyps`.
+`nonrecursive` test `true`, so the bridge's step 6 refuted the recursive exit rather than
+walking it. **That field is gone (slice Γ-W3.6b) and step 6 walks the exit**, so a cold
+start inside the fragment does now take it and these theorems have a run to consume. What
+made the walk possible, in order: `RunConclδ`'s `δ` transport across `recConstState`
+(exactly `erases_rec_block_of_run`'s conclusion, so it composes) and the generator
+bookkeeping for the block's `mkFreshFVarId`/`getConstInfo` loop, both at slice Γ-W0
+(`Erasure.run_mkFreshFVarId_list`, `run_rec_exit_siblings_chained`, `DeltaMem.recBlock`);
+the block-local scope supply at Γ-W2 (`DeltaHyps.BlockHyps`); and the registration
+agreement at Γ-W3.5/Γ-W3.6 (`VisitExprRefines.RecBlockAgreement`, keyed on the shipping
+eraser and gated on `BridgeInv`).
+
+What is left for the capstones is *their* half: `recEnvConsistent_of_noRec hnorec` has to
+become `recEnvConsistent_of_block`, which needs the walk's `.fix` registration threaded
+into the cold-start δ record. `ColdStart.lean`'s `hnorec` row prices it.
 
 **Two items on that list were wrong, and both were found by measurement.** The first: it
 said the trade costs "one further scope restriction, since the registration is keyed on
@@ -221,12 +228,14 @@ theorem from, and at the block's own reader the erasure IH's `BridgeInv` premise
 of slice Γ-W1: the motives quantify `Γ`, and guard (i''') derives the core's erasure
 conjunct at an arbitrary block-local `Γ₀.withFixvars fv` with the δ conclusion still
 reported at `Γ₀`. The walk itself landed at Γ-W3
-(`VisitExprRefines.rec_exit_refines_erases`), and at Γ-W3.5 its registration premise moved
-onto the shipping eraser, where it is not refuted — the motives carry
-`f ⊑ Erasure.visitExpr` and `Erasure.run_rec_exit_siblings_le` transports the sibling
-loop's run. Guard (iv'') composes all of it at the data step 6 holds. What remains is the
-reader/state quantification a bundle-level premise would need; it is priced in
-`ColdStart.lean`'s residue 1.
+(`VisitExprRefines.rec_exit_refines_erases`), at Γ-W3.5 its registration premise moved onto
+the shipping eraser, where it is not refuted — the motives carry `f ⊑ Erasure.visitExpr`
+and `Erasure.run_rec_exit_siblings_le` transports the sibling loop's run — and at Γ-W3.6
+the remaining reader/state quantification was gated rather than removed: `BridgeInv.cfg`
+pins the config (Γ-W3.6a) and `RecBlockAgreement` states the premise over exactly the
+configurations the induction quantifies (Γ-W3.6b). Step 6's `case isFalse` is now the
+walk, and guard (iv'') is that composition with nothing left hypothetical but the run and
+the bundles.
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/
@@ -446,6 +455,9 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -468,7 +480,8 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     · subst hm
       obtain rfl : body = pe := hEsrc hunf
       obtain ⟨hlook, her, -, -⟩ :=
-        erases_nonrec_const_registered H HD C Hδ henv hknames hvis hinv hsupp hex hpost
+        erases_nonrec_const_registered H HD C Hδ Hβ Hreg henv hknames hvis hinv hsupp hex
+          hpost
       exact ⟨t, hlook, fun {Δ} => huni (Δ := Δ) her, hnb⟩
     · obtain ⟨body', hlook, her, hnbb⟩ := hold.erase hunf
       exact ⟨body', envLookup_mono_stateLe hle hkeys hlook, her, hnbb⟩

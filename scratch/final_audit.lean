@@ -6,9 +6,9 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown three times since:
-to 660 at slice proj-P3, to 673 at slice Γ-W3.5 and to 691 at slice Γ-W3.6a, with
-every earlier entry's output byte-identical at each step.)
+reported the same 648 entries it did at `fee3ada`. It has grown four times since:
+to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a and to 707
+at slice Γ-W3.6b, with every earlier entry's output byte-identical at each step.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -2878,3 +2878,55 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.visitExpr_refines_erases
 #print axioms LeanToLambdaBox.visitExpr_refines_erases_block
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
+
+-- ============================================================================
+-- SLICE Γ-W3.6b — THE TRADE, AND THE WALK
+-- ============================================================================
+--
+-- The recursion wall's last brick. `DeltaHyps.nonrecursive` is DELETED and the bridge's
+-- step 6 WALKS `visitMutual`'s recursive exit; the `absurd` is gone.
+--
+-- (a) THE PREMISE. `RecBlockAgreement` is `Erases.fix`'s own registration premise, stated
+--     over the configurations the induction quantifies. It is not a theorem — `Γ₀` is
+--     fixed before the run builds `defs` — but its quantifiers are GATED, and that is the
+--     whole content of the slice: on the fragment (`known (remove_unsafe_rec m)` plus
+--     `Nodup`, keyed as `BlockHyps` is), and on `BridgeInv`, whose `cfg` field pins the
+--     config (Γ-W3.6a) and whose `consts`/`knames` pin the registry. The two refutations
+--     anyone could write — two configs, one non-canonical registry — are therefore closed
+--     rather than assumed away. What is left free is `ctx.lctx`, `s.inductives` and the
+--     world, which is exactly what `DeltaHyps.prep_esrc`, `BlockHyps.block_esrc` and
+--     `BridgeHyps.fresh_run` have carried since they shipped.
+#print axioms LeanToLambdaBox.RecBlockAgreement
+#print axioms LeanToLambdaBox.RecBlockAgreement.of_bot
+#print axioms LeanToLambdaBox.gRecAgreement
+--
+-- (b) THE NEGATIVE RECORD STANDS, AND IS NOW LABELLED. The eraser-quantified phrasing is
+--     still refuted, with its exhibited instance on real leaves; that is why the premise is
+--     keyed on `Erasure.visitExpr`. The READER-quantified refutation — "two configs, two
+--     blocks" — is the one that would have applied to `RecBlockAgreement`, and it cannot be
+--     instantiated any more: `BridgeInv.cfg` admits one config. Closed by the gate, not
+--     withdrawn.
+#print axioms LeanToLambdaBox.rec_exit_agreement_eraser_quantified_refuted
+#print axioms LeanToLambdaBox.rec_exit_block_ne_of_body_ne
+#print axioms LeanToLambdaBox.bridgeInv_blockReader_refuted
+#print axioms LeanToLambdaBox.bridgeInv_rec_exit_reader_refuted
+--
+-- (c) THE TRADE, AS A COUNT. `DeltaHyps` loses one field and one scope restriction (five
+--     become four): a recursive fragment constant is no longer excluded. What replaces it
+--     is two premises of the bridge — `Hβ : BlockHyps` (which the walk needed anyway) and
+--     `Hreg` — both of the `block_esrc` class, and at `known = ⊥` `Hreg` is a theorem, so
+--     the block instantiation `visitExpr_refines_erases_block` picks it up for free.
+#print axioms LeanToLambdaBox.DeltaHyps
+#print axioms LeanToLambdaBox.DeltaHyps.of_bot
+#print axioms LeanToLambdaBox.BlockHyps.of_bot
+--
+-- (d) THE CROWN, AGAIN. Two premises and a deleted field change no axiom set. Both bridge
+--     theorems keep their seven, `rec_exit_refines_erases` its six, and the capstones are
+--     verbatim what they were — they gained `Hβ`/`Hreg` as premises, which is a widening of
+--     the hypothesis list, not of the trust base.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart

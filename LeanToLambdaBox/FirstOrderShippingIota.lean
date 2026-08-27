@@ -138,6 +138,9 @@ theorem shipping_erase_correct_firstorderι
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrcδ cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -156,8 +159,8 @@ theorem shipping_erase_correct_firstorderι
   obtain ⟨t', vve, heval, htrv, herv, hnbv, hclv⟩ :=
     erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
       (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hnfv hclenv hev htr
-      (visitExpr_refines_erases H HD C Hδ henv.ordered e s ctx cctx ref w t s' w' hrun
-        [] hinv hsup ⟨ve, htr⟩).1
+      (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+        e s ctx cctx ref w t s' w' hrun [] hinv hsup ⟨ve, htr⟩).1
       hnb hcl
   exact ⟨t', heval, ⟨vve, htrv⟩, herv, hnbv, hclv,
     fun tu hertu hnbtu =>
@@ -203,6 +206,9 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrcδ cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -220,7 +226,7 @@ theorem shipping_erase_correct_firstorderι_of_shape
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
     (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ
+    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ Hβ Hreg
     hrun hinv hsup htr hnb hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
@@ -264,6 +270,9 @@ theorem shipping_erase_correct_firstorderι_registered
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrcδ cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -284,7 +293,7 @@ theorem shipping_erase_correct_firstorderι_registered
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
-    hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ hrun hinv hsup htr hnb hcl hev hfo
+    hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ Hβ Hreg hrun hinv hsup htr hnb hcl hev hfo
 
 /-! ## Non-vacuity guards
 
@@ -457,6 +466,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hiota : IotaConsistent envFO [] ΓFOι iaFOι)
     (hrel : IotaRelevant envFO [] ΓFOι)
     (cfg : ErasureConfig)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) cc rf)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw)
@@ -482,7 +493,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
     ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
     (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl) rfl
-    EFOd_closedEnv H HD C Hδ hrun hinv hsup envFO_trC hnb hcl ?_
+    EFOd_closedEnv H HD C Hδ Hβ RecBlockAgreement.of_bot
+    hrun hinv hsup envFO_trC hnb hcl ?_
     (envFO_foC_ι harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro Δ n body h; exact absurd h (by simp)          -- ErasesEnvDeltaData, vacuous

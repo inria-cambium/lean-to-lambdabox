@@ -94,12 +94,14 @@ Four classes, and nothing falls outside them:
 | `hUs : Us = []` | S | universe monomorphism of the whole dependency cone. At the *entry point* it is also a fact — `Erasure.run` installs `lparams := []` and `BridgeInv.lparams` pins `ctx.lparams = Us` — but `DeltaHyps.decl_run` demands it of every dependency too, so a polymorphic callee makes the bundle uninhabited (`DeltaHyps`, scope restriction 1) |
 | `hcsimp : cfg.csimp = false` | S | csimp replacement is not kernel-semantics-preserving (`PrepareHyps`' own analysis), so it can never sit inside a correctness statement. It is also what makes R2 fire (`ColdStartRun.run_prepare_erasure_state`: with csimp off, `prepare_erasure` leaves the state at `{}`). RAISE-not-fix: the shipping *default* is `csimp := true` |
 | `hnfv : Γ.fixvars = ⊥` | S | the subject is outside every mutual block. Also `DeltaHyps.nofixvars` (scope restriction 2) |
-| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. The recursion machinery (W0–W3.1) is *live* in the warm theorems, and since δ-D8 the walk fact behind `RegisteredClosureRec` is a theorem too (`ColdStartDelta.recEnvConsistent_of_block`). What keeps this row here is that no *run* reaches those theorems: `DeltaHyps.nonrecursive` (δ-D8e, split out of `decl_run`) forces `visitMutual`'s `nonrecursive` test `true` for every fragment name, so the bridge's step 6 refutes the recursive exit. Removing that field is necessary and **not sufficient** — see residue 1 and `VisitExprRefines.bridgeInv_blockReader_refuted`. Slice Γ-W3.5 paid the route priced at Γ-W3c and moved the walk's registration premise onto the shipping eraser; what still keeps this row is narrower and newly named — the motive's *reader/state* quantification, not the eraser one |
+| `hnorec : Γ.recBodies = ⊥` | S | **no recursive dependency at a cold start.** Feeds `recEnvConsistent_of_noRec`. **The producer this row was waiting on landed at Γ-W3.6b**: `DeltaHyps.nonrecursive` — the field that forced `visitMutual`'s `nonrecursive` test `true` and made the bridge's step 6 *refute* the recursive exit — is deleted, and step 6 now walks that exit (`VisitExprRefines.rec_exit_refines_erases`, fired at `RecBlockAgreement`). So a recursive fragment constant is in scope for the *bridge*. What keeps the row is the **capstone half**, which is a different piece of work: dropping `hnorec` means replacing `recEnvConsistent_of_noRec hnorec` by the recursive `ColdStartDelta.recEnvConsistent_of_block`, and that needs the walk's `.fix` registration threaded into the cold-start δ record. See residue 1, and the section "The `hnorec` trade" below, which records why the capstone half could not be landed *before* the producer and what it costs now |
 | `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at the δ guard | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
-| `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`nonrecursive`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). The `uniform` field is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which is what makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion is **its own field** since δ-D8e (`nonrecursive`), because it is a restriction on the fragment and not a fact about the declaration fetch, and because it is the one field `hnorec` is waiting on |
+| `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe |
+| `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is λ-headed) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues |
+| `Hreg : RecBlockAgreement` | H | **the walk's registration agreement** (Γ-W3.6b): `Γ` records the block the recursive exit stores, at the readers and states the bridge's induction quantifies. `Erases.fix`'s own premise, and irreducible at a parameter `Γ` fixed before the run builds the block. Its quantifiers are *gated* — on the fragment, and on `BridgeInv`, whose `cfg` field pins the config (Γ-W3.6a) and whose `consts`/`knames` pin the registry — so the two refutations that could be written are closed, and what is left free (`ctx.lctx`, `s.inductives`, the world) is the class every run-keyed field already carries. At `known = ⊥` it is a **theorem** (`RecBlockAgreement.of_bot`). `gRecAgreement` is the suppliability guard; residue 1 records the route that would make it a theorem outright (read `Γ.recBodies` off the run's final `gdecls`, priced at "re-index the erasure relation") |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
 | `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
@@ -150,21 +152,24 @@ below, three ways.
    constructors and registered `casesOn`s** — the block's inner runs are taken at
    `known = ⊥`, so an external call is out of scope.
 
-   **`hnorec` does not trade for this, and slice δ-D8e found out why** — correcting what
-   the previous slice recorded here.
+   **`hnorec` did not trade for this at δ-D8e, and the reason is worth keeping** — the
+   proximate gate was a premise with a name of its own: `DeltaHyps.nonrecursive` demanded
+   `name_occurs n v = false` of every fragment name, which forces `visitMutual`'s
+   `nonrecursive` test `true`, so the bridge's step 6 *refuted* the recursive exit rather
+   than walking it. δ-D8e split that clause out of `decl_run` — a restriction on the
+   fragment, not a fact about the fetch — so that the trade would be a **one-field trade**
+   rather than surgery on a five-conjunct spec.
 
-   The *proximate* gate is a premise, and it now has a name of its own:
-   `DeltaHyps.nonrecursive` demands `name_occurs n v = false` of every fragment name, which
-   forces `visitMutual`'s `nonrecursive` test `true`, so the bridge's step 6 *refutes* the
-   recursive exit rather than walking it. δ-D8e split that clause out of `decl_run` — it is
-   a restriction on the fragment, not a fact about the fetch — so the trade is a one-field
-   trade rather than surgery on a five-conjunct spec.
+   **Slice Γ-W3.6b made the trade.** The field is deleted; step 6 walks the exit. What it
+   traded for is one named premise of the bridge, `VisitExprRefines.RecBlockAgreement`, of
+   the `block_esrc` class — a Hoare-style agreement over runs, gated on the fragment and on
+   `BridgeInv` — plus the `Hβ : BlockHyps` bundle the walk already needed. So the bridge's
+   half of this row is **paid**, and what remains is the capstone half (below).
 
-   The previous slice's plan for the rest — "the `δ` transport across `recConstState`
-   composes, plus the block loop's generator bookkeeping, plus the `remove_unsafe_rec`
-   scope restriction" — is **incomplete, and the missing item is structural.** Removing
-   `nonrecursive` lets the run *reach* the recursive exit; it does not let the bridge
-   *walk* it. Inside `visitExpr_refines_erases_core` the exit's per-sibling erasures are
+   The δ-D8e plan for the rest — "the `δ` transport across `recConstState` composes, plus
+   the block loop's generator bookkeeping, plus the `remove_unsafe_rec` scope restriction"
+   — was **incomplete, and the missing item was structural.** Removing `nonrecursive` lets
+   the run *reach* the recursive exit; on its own it does not let the bridge *walk* it. Inside `visitExpr_refines_erases_core` the exit's per-sibling erasures are
    runs of the induction's **abstract** fixpoint argument, so the only thing available
    about them is the motives — and the motives fix one `Γ`. The exit runs each sibling
    under the reader carrying the block's fixvar map, while `BridgeInv.fixvars` is an *iff*
@@ -246,22 +251,33 @@ below, three ways.
    (`EST.bot` is an `.error`) and is not preserved by the erasure functional's step, so
    the motives carry `⊑` and `Erasure.run_ok_of_le` is its corollary.
 
-   **And the wall that is left is a different one.** `hreg` is stated at *a* reader and
-   *a* state; step 6's motive quantifies both, so a premise handed to the induction from a
-   bundle would have to quantify them too. That is not the eraser wall again. It is not
-   provably contradictory — there is only one eraser now, so the two-blocks argument has
-   nothing to run on — but it is not suppliable either: readers differing in
-   `Erasure.Config` erase the same block to different `defs`, the only reader/`Γ` coherence
-   at this level is `BridgeInv.natcfg` and that is one-directional, and a caller who built
-   `Γ` by running the eraser holds one reader and one state rather than all of them. A
-   bundle field of that shape would be the S1d/S1e failure mode with `ctx` in the role
-   `known` played there. So `DeltaHyps.nonrecursive` keeps the branch closed, and this row
-   now waits on the reader/state quantification rather than on the eraser one.
+   **The wall that was left after Γ-W3.5 was a different one, and Γ-W3.6 took it down.**
+   `hreg` is stated at *a* reader and *a* state; step 6's motive quantifies both, so a
+   premise handed to the induction from outside has to quantify them too. That was not the
+   eraser wall again: it was never provably contradictory — there is only one eraser now,
+   so the two-blocks argument has nothing to run on — but it was not *suppliable* either,
+   because readers differing in `Erasure.Config` erase the same block to different `defs`
+   and the only reader/`Γ` coherence available was `BridgeInv.natcfg`, which is
+   one-directional.
 
-   The capstone half cannot be landed ahead of that producer either, and for a reason that
-   is not effort: it would replace a named scope restriction with an *uninhabited* premise.
-   See the section "The `hnorec` trade, and why its capstone half cannot be landed first"
-   below, and `nonrec_exit_stores_no_fix`.
+   Γ-W3.6a supplied the missing coherence, and it turned out to be one field: config is a
+   **run invariant** — none of the eraser's five `withReader` sites touches it,
+   `{ … with config := … }` occurs nowhere, and the only fresh reader is `Erasure.run`'s
+   own — so `BridgeInv` can carry `cfg : ctx.config = cfg₀` at the cost of five transport
+   lines and no proof obligation at all. With the config pinned and the registry pinned by
+   `consts`/`knames`, the reader/state quantifier admits no refutation, and Γ-W3.6b landed
+   the premise: `VisitExprRefines.RecBlockAgreement`, of the `block_esrc` class.
+   `DeltaHyps.nonrecursive` is **deleted** and step 6's `case isFalse` is a walk, not an
+   `absurd`. The same slice re-gated `prep_esrc` and `block_esrc` on the config, which
+   removes a defect those two *shipped* with since Γ-W2.
+
+   **What is left of this row is the capstone half**, and it is not effort-free for a
+   reason that is not effort: dropping `hnorec` means replacing `recEnvConsistent_of_noRec`
+   by the recursive `ColdStartDelta.recEnvConsistent_of_block`, which needs the walk's
+   `.fix` registration carried into the cold-start δ record. Before Γ-W3.6b it could not be
+   landed at all — the premise would have been uninhabited, since no cold run could produce
+   a `.fix` entry (`nonrec_exit_stores_no_fix`). That objection is now void; the work is
+   real. See the section "The `hnorec` trade" below.
 
    Slice `rec` repaired the theorem this entry is about. `erases_fix_of_open`'s `hopen`
    quantified over *every* `Δf`, and in that form it is **unsatisfiable for every
@@ -608,6 +624,13 @@ theorem shipping_erase_correct_firstorderι_coldstart
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
+    -- the recursion premises (Γ-W3.6b): the block-local scope bundle, and the
+    -- registration agreement the bridge's step 6 consumes when it walks the recursive
+    -- exit. `hnorec` above still holds the *capstone* half of that trade — see the
+    -- module docstring's `hnorec` row.
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg)
     -- the subject
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
@@ -650,8 +673,9 @@ theorem shipping_erase_correct_firstorderι_coldstart
   -- entry-state instance (nothing is recorded yet), and the bridge's `RunConclδ` — the
   -- state-side conclusion every motive carries since D4b — transports it to `sf`.
   have hmem : DeltaMem env [] Γ Esrc sf :=
-    (visitExpr_refines_erases H HD C Hδ henv.ordered pe {} { «config» := cfg } cctx ref wp
-      t sf wt hvis [] hinv hsup ⟨ve, htr⟩).2.1.δ DeltaMem.empty
+    (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+      pe {} { «config» := cfg } cctx ref wp t sf wt hvis [] hinv hsup
+      ⟨ve, htr⟩).2.1.δ DeltaMem.empty
   -- …converted, at the walk-restricted source environment, into the record the data
   -- simulation consumes. Existence and key distinctness are *by construction* of
   -- `SEnv.walked`; `hdisj` is the fragment's own δ-closure clause; the two residues are
@@ -681,7 +705,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
       hiacoh hrel hcc (recEnvConsistent_of_noRec hnorec) hnfv hshape.closed H HD C Hδ
-      hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
+      Hβ Hreg hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
 /-- **Cold-start D3 — the βζδ+data flavour.** Same composition, with the source
@@ -705,6 +729,13 @@ theorem shipping_erase_correct_firstorder_coldstart
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
+    -- the recursion premises (Γ-W3.6b): the block-local scope bundle, and the
+    -- registration agreement the bridge's step 6 consumes when it walks the recursive
+    -- exit. `hnorec` above still holds the *capstone* half of that trade — see the
+    -- module docstring's `hnorec` row.
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg)
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
     (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
@@ -734,8 +765,9 @@ theorem shipping_erase_correct_firstorder_coldstart
     gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, ve, htr⟩ := S.supported hpr
   have hmem : DeltaMem env [] Γ Esrc sf :=
-    (visitExpr_refines_erases H HD C Hδ henv.ordered pe {} { «config» := cfg } cctx ref wp
-      t sf wt hvis [] hinv hsup ⟨ve, htr⟩).2.1.δ DeltaMem.empty
+    (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+      pe {} { «config» := cfg } cctx ref wp t sf wt hvis [] hinv hsup
+      ⟨ve, htr⟩).2.1.δ DeltaMem.empty
   have hdelta : ErasesEnvDeltaData env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
     erasesEnvDeltaData_of_registeredClosureData
       (registeredClosureData_of_deltaMem_walked hmem
@@ -754,29 +786,39 @@ theorem shipping_erase_correct_firstorder_coldstart
       hcon.walked
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
-      hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ
+      hcc (recEnvConsistent_of_noRec hnorec) hnfv H HD C Hδ Hβ Hreg
       hvis hinv hsup htr (visitExpr_noBlock hvis) (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
-/-! ## The `hnorec` trade, and why its capstone half cannot be landed first
+/-! ## The `hnorec` trade — the producer has landed, the capstone half has not
 
-Slice δ-D8e checked whether the capstones could drop `hnorec` *now*, taking the
+Slice δ-D8e checked whether the capstones could drop `hnorec` *then*, taking the
 registration agreement (`hcov`: "`Γ` records as recursive only blocks the run really
 stored") in its place and deriving `RecEnvConsistent` from the δ record the walk already
-carries. They cannot, and the reason is worth recording, because the change would *look*
-like a widening.
+carries. They could not, and the reason is worth keeping, because the change would have
+*looked* like a widening while being none.
 
 `DeltaMem` is keyed on the recorded entry and says nothing about its shape, so a `.fix`
-entry is inside its statement already — that half composes. What does not is the supply:
+entry is inside its statement already — that half composes. What did not was the supply:
 the only exit that ever cons a `.constantDecl ⟨some (.fix …)⟩` is the recursive one, which
-`DeltaHyps.nonrecursive` refutes on the fragment, and the *non-recursive* exit provably
+`DeltaHyps.nonrecursive` refuted on the fragment, and the *non-recursive* exit provably
 cannot produce one — it stores a `visitExpr` output, and those are `NoFix`
-(`nonrec_exit_stores_no_fix` below). So at a cold start no `.fix` entry exists, an
-`hcov` premise phrased on membership is uninhabited for every `n` with
-`Γ.recBodies n ≠ none`, and the "widened" capstone would speak about exactly the same
-programs as the `hnorec` one — while hiding the restriction inside a premise instead of
-naming it in the ledger. The trade waits for its producer, which is step 6's recursive
-branch; see residue 1. -/
+(`nonrec_exit_stores_no_fix` below). So at a cold start no `.fix` entry existed, an `hcov`
+premise phrased on membership was uninhabited for every `n` with `Γ.recBodies n ≠ none`,
+and the "widened" capstone would have spoken about exactly the same programs as the
+`hnorec` one — while hiding the restriction inside a premise instead of naming it in the
+ledger.
+
+**Slice Γ-W3.6b removed that objection.** `DeltaHyps.nonrecursive` is deleted and the
+bridge's step 6 walks the recursive exit, so a cold run *can* reach the exit that stores a
+`.fix` entry and the bridge reports it in the δ record (`RunConclδ.recBlock`). The
+premise is no longer uninhabited, and `nonrec_exit_stores_no_fix` below keeps its other
+meaning: `.fix` entries come from the recursive exit and nowhere else.
+
+What is left is ordinary work, and it is the next slice: thread the walk's registration
+into the cold-start record and replace `recEnvConsistent_of_noRec hnorec` by
+`ColdStartDelta.recEnvConsistent_of_block` at both capstones. Until that lands, `hnorec`
+stays — an honest scope restriction, no longer a placeholder for a missing producer. -/
 
 /-- **The non-recursive exit stores no block.** `visitMutual`'s non-recursive exit cons
 exactly the `visitExpr` output it just built, and every such output is fix-free
@@ -827,6 +869,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envFO [])
@@ -843,7 +887,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
-    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ S
+    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
@@ -855,6 +899,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envFO [])
@@ -871,7 +917,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
-    ΓFOι_cc H HD C Hδ S (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
+    ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
 
 /-! ## The δ guard: a program that CALLS a walked function (slice D5)
@@ -1095,6 +1142,9 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (C : CasesBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envδ [] knownδ ΓFOd cfg Esrcδ cc rf)
+    (Hreg : RecBlockAgreement envδ [] knownδ ΓFOd cfg)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.const `g []) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -1121,7 +1171,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       by_cases h : cn = `c
       · subst h; rfl
       · simp [ΓFOd, if_neg h] at hc)
-    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C Hδ hrun
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C Hδ Hβ Hreg hrun
     (gBridgeInv_nil envδ [] knownδ ΓFOd (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOd]))
     (.const `g [] (Or.inl rfl) (by simp [ΓFOd]) rfl)
     envδ_trG hnb gSEvalδ (envδ_foC_d harity)
@@ -1140,6 +1190,9 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (C : CasesBridgeHyps ΓFOd gw) (Hr : RegBridgeHyps ΓFOd)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envδ [] knownδ ΓFOd cfg Esrcδ cc rf)
+    (Hreg : RecBlockAgreement envδ [] knownδ ΓFOd cfg)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envδ [])
@@ -1162,7 +1215,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       by_cases h : cn = `c
       · subst h; rfl
       · simp [ΓFOd, if_neg h] at hc)
-    H HD C Hδ S hev (envδ_foC_d harity) hrun
+    H HD C Hδ Hβ Hreg S hev (envδ_foC_d harity) hrun
 
 end DeltaGuard
 

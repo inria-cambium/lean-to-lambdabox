@@ -315,6 +315,9 @@ theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name →
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     (henv : env.Ordered)
     {prepbody : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {body' : LBTerm}
@@ -324,7 +327,8 @@ theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name →
     (hsupp : Supported known Γ prepbody)
     (hex : ∃ ve, TrExprS env Us [] prepbody ve) :
     Erases env Us Γ [] prepbody body' :=
-  (visitExpr_refines_erases H HD C Hδ henv _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
+  (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv
+    _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
 
 /-- **Cold-start closure registration for the non-recursive fragment** (a clean `Prop`
 hypothesis; P3-v2b's DAG registration discharges it). For every source constant `n`

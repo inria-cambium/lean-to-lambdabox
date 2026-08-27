@@ -116,6 +116,9 @@ theorem shipping_erase_correct_firstorder_registered
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env Us known Γ cfg₀ Esrc cc rf)
+    (Hreg : RecBlockAgreement env Us known Γ cfg₀)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
@@ -132,7 +135,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hrec hnfv H HD C Hδ hrun hinv hsup htr hnb hev hfo
+    hctorenv hcc hrec hnfv H HD C Hδ Hβ Hreg hrun hinv hsup htr hnb hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -142,7 +145,10 @@ D3's own guard: the registration records hold vacuously (`Esrc` is all-`none`, s
 firing `RegisteredCtors` on `c`'s inductive), and the theorem *fires* — producing `t'`
 and its uniqueness. The run and the two trust bundles stay hypothetical. -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
-    {cfg₀ : ErasureConfig} (gw : Void IO.RealWorld → NameGenerator)
+    {cfg₀ : ErasureConfig}
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) cc rf)
+    (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -162,7 +168,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_
     (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)        -- ΓFOd registers no recursion
     rfl                                                -- …and installs no fixvar map
-    H HD C Hδ hrun hinv hsup envFO_trC hnb ?_
+    H HD C Hδ Hβ RecBlockAgreement.of_bot hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.disj, vacuous
