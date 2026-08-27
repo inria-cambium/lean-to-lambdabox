@@ -1,5 +1,6 @@
 import Lean4Lean.Verify.Environment.Lemmas
 import Lean4Lean.Verify.Typing.Lemmas
+import LeanToLambdaBox.Erases
 
 /-!
 # The projection pattern interface: the first constructed `TrProj`
@@ -59,7 +60,23 @@ recursor has `numMotives = numMinors = 1`, `numIndices = 0` — i.e. `TrProj`'s 
   `Expr.proj`, via `TrExprS.proj` over those witnesses.
 * `trProj_refuted` — the negative polarity: no `TrProj` at a `pats`-free environment.
 
-All `sorryAx`-free (audited in `scratch/final_audit.lean`).
+Since slice **P4** the file also carries the *interface* layer the round consumes:
+
+* `TrProjCtor` — `TrProj` with its constructor witness named, and the two conversions
+  (`toTrProj`, `TrProj.exists_ctorName`) that make it a reparenthesisation rather than a
+  strengthening;
+* `ProjDefeqSpec` — the projection-reduction rule as a **named premise**, stated over
+  `TrProjCtor` because the upstream `TrEnv.proj_defeq` is missing the agreement between
+  its two constructor names and is therefore likely unprovable as written (see §"Why the
+  upstream statement is not the one to plan on" below);
+* `ProjShape` — the `rfl`-checkable per-structure certificate, and
+  `ProjShape.ctorAgreement`, the accessor that supplies `ProjDefeqSpec`'s missing
+  hypothesis locally;
+* `TrExprS.proj_inv` / `proj_inv'` — total inversion at a `.proj` source.
+
+All `sorryAx`-free (audited in `scratch/final_audit.lean`). In particular
+`ProjDefeqSpec.of_trEnv` is deliberately **not** here: it would be one line, and it would
+be this development's only `sorryAx` provenance.
 
 ## The recipe, for the slices that follow
 
@@ -576,6 +593,238 @@ def ΔqV : VLCtx := [(none, .vlam QN)]
 theorem trExprSQ_proj :
     TrExprS envQ [] ΔqV (.proj `MyOfNat 0 (.bvar 0)) (eProjQ (.bvar 0)) :=
   .proj (.bvar (by rfl)) trProjQ_bvar
+
+/-! ## The projection-reduction interface (slice P4)
+
+Above, `TrProj` was shown inhabited. Here it is turned into the *interface* the
+projection round consumes, in the `PatsIotaSpec` two-layer idiom: a named hypothesis
+structure stating the reduction rule the discharge needs, plus a `rfl`-checkable
+per-structure certificate. Neither is an axiom, and nothing below carries `sorryAx`.
+
+### Why the upstream statement is not the one to plan on
+
+`TrEnv.proj_defeq` (`Verify/Environment/Lemmas.lean`) exists as a statement with a
+deferred proof (`PROJ-TODO`). Read its premises:
+
+```lean
+    (hp : TrProj venv U Γ S i d e'')
+    (hd : venv.IsDefEqU U Γ d ((VExpr.const ctorName cus).mkApps (params ++ fields)))
+```
+
+`hp` carries its **own**, existentially bound constructor name — the one in the `env.pats`
+membership — while `hd` supplies a *different*, universally quantified `ctorName` for the
+spine `d` is defeq to. **Nothing in the premises ties the two together.** The PROJ-TODO's
+own sketch ("rewrite `d` by `hd` so the ι rule fires") silently assumes they coincide, and
+they must: `Pattern.Matches` on `SimplePattern.iota recName _ ctorName' _` requires the
+major premise to be a spine of `ctorName'`. Recovering `ctorName = ctorName'` from
+`TrEnv` plus `HasType` alone is a canonicity argument, not a rewrite. So as stated the
+theorem is plausibly **unprovable, not merely unproved**, and the downstream must not plan
+on the discharge arriving in the delivered shape.
+
+This is the disease `PatsIotaSpec` was created for — *the witness is existentially bound,
+so the upstream lemma cannot be instantiated* — in a different field. The cure is the
+same: expose the witness. `TrProjCtor` is `TrProj` with its `ctorName` named, and
+`ProjDefeqSpec` states `proj_defeq` over it.
+
+### What this slice does *not* do
+
+It does **not** ship `ProjDefeqSpec.of_trEnv`. That discharge is one line —
+`⟨fun hp hd hty hlen hflen hi => H.proj_defeq hp.toTrProj hd hty hlen hflen hi⟩`, and
+`TrProjCtor.toTrProj` below is exactly the piece it needs — but calling
+`TrEnv.proj_defeq` today injects the upstream `PROJ-TODO` `sorryAx`, and this slice is
+zero-new-`sorryAx`. `ProjDefeqSpec` therefore stays a **named premise**: a consumer that
+holds a `TrEnv` supplies it once upstream proves the lemma (or, better, once upstream
+corrects the *statement* to carry the agreement, at which point `toTrProj` is not even
+needed). That is a statement correction to escalate, not a proof request. -/
+
+end LeanToLambdaBox
+
+namespace Lean4Lean
+
+open Lean LeanToLambdaBox
+
+/-- **`TrProj` with its constructor witness named.** Definitionally `TrProj` after one
+existential introduction: `TrProjCtor … c → TrProj …` is `⟨_, c, …⟩`
+(`TrProjCtor.toTrProj`) and `TrProj … → ∃ c, TrProjCtor … c` is one `obtain`
+(`TrProj.exists_ctorName`). The `c` is the constructor of `S`'s ι rule — the one the
+registered `SimplePattern.iota` pattern matches its major premise against — and naming it
+is what lets a reduction lemma relate it to the constructor heading the spine the
+discriminant is defeq to. -/
+def TrProjCtor (env : VEnv) (U : Nat) (Γ : List VExpr)
+    (S : Name) (i : Nat) (e e' : VExpr) (ctorName : Name) : Prop :=
+  ∃ (recName : Name) (us : List VLevel) (params fieldTys : List VExpr)
+    (np : Nat) (structTy fieldTy : VExpr)
+    (r : (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern.RHS ×
+         (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern.Check),
+    recName = mkRecName S ∧
+    env.pats (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern r ∧
+    params.length = np ∧ i < fieldTys.length ∧
+    env.HasType U Γ e structTy ∧
+    e' = (VExpr.const recName us).mkApps
+           (params ++ [.lam structTy fieldTy.lift, VExpr.fieldSelector fieldTys i, e]) ∧
+    env.HasType U Γ e' fieldTy
+
+/-- Forgetting the name gives `TrProj` back, on the nose. -/
+theorem TrProjCtor.toTrProj {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Name} {i : Nat}
+    {e e' : VExpr} {c : Name} (h : TrProjCtor env U Γ S i e e' c) :
+    TrProj env U Γ S i e e' := by
+  obtain ⟨recName, us, params, fieldTys, np, structTy, fieldTy, r, h⟩ := h
+  exact ⟨recName, c, us, params, fieldTys, np, structTy, fieldTy, r, h⟩
+
+/-- …and every `TrProj` names one. The two are interderivable, so `ProjDefeqSpec` is not
+a *stronger* interface than the upstream statement wants to be — it is the same content
+with one binder moved out, which is the whole point. -/
+theorem TrProj.exists_ctorName {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Name} {i : Nat}
+    {e e' : VExpr} (h : TrProj env U Γ S i e e') :
+    ∃ c, TrProjCtor env U Γ S i e e' c := by
+  obtain ⟨recName, c, us, params, fieldTys, np, structTy, fieldTy, r, h⟩ := h
+  exact ⟨c, recName, us, params, fieldTys, np, structTy, fieldTy, r, h⟩
+
+/-! ### `TrExprS` inversion at a projection
+
+`TrExprS.proj` is the only rule concluding at a `.proj` source, so the inversion is total
+and one `cases`. The primed form hands back the constructor witness as well, which is the
+shape `projConsistent_of_shape` consumes: it needs the discriminant's translation *and* a
+name to instantiate `ProjDefeqSpec` at. -/
+
+theorem TrExprS.proj_inv {env : VEnv} {Us : List Name} {Δ : VLCtx} {S : Name} {i : Nat}
+    {e : Expr} {e'' : VExpr} (h : TrExprS env Us Δ (.proj S i e) e'') :
+    ∃ e', TrExprS env Us Δ e e' ∧ TrProj env Us.length Δ.toCtx S i e' e'' := by
+  cases h with | proj hd hp => exact ⟨_, hd, hp⟩
+
+theorem TrExprS.proj_inv' {env : VEnv} {Us : List Name} {Δ : VLCtx} {S : Name} {i : Nat}
+    {e : Expr} {e'' : VExpr} (h : TrExprS env Us Δ (.proj S i e) e'') :
+    ∃ (e' : VExpr) (c : Name),
+      TrExprS env Us Δ e e' ∧ TrProjCtor env Us.length Δ.toCtx S i e' e'' c := by
+  obtain ⟨e', hd, hp⟩ := h.proj_inv
+  obtain ⟨c, hpc⟩ := hp.exists_ctorName
+  exact ⟨e', c, hd, hpc⟩
+
+end Lean4Lean
+
+namespace LeanToLambdaBox
+
+open Lean Lean4Lean
+
+/-- **The projection-reduction interface.** `TrEnv.proj_defeq`'s statement, strengthened
+with the one hypothesis it is missing: the constructor heading the spine `d` is defeq to
+is the *same* one the `TrProj` witness carries. See the section docstring for why the
+upstream form is likely unprovable as written, and why naming the witness is the
+`PatsIotaSpec` move rather than a new assumption.
+
+Stated at a `VEnv` with `safety`/`kenv` as parameters it only ever uses through the
+eventual discharge — the same discipline `SEvalDataι_defeq`'s docstring records for
+`IotaConsistent`: the interface keeps kernel-environment data out of every downstream
+`VEnv`-level statement.
+
+A `Prop` **hypothesis**, never an axiom. -/
+structure ProjDefeqSpec (safety : DefinitionSafety) (kenv : Lean.Kernel.Environment)
+    (venv : VEnv) : Prop where
+  /-- A projection whose discriminant is definitionally a saturated spine of *its own
+  structure's* constructor is definitionally the spine's `i`-th field. -/
+  proj_defeq : ∀ {U : Nat} {Γ : List VExpr} {S ctorName : Name} {i np nf : Nat}
+      {cus : List VLevel} {params fields : List VExpr} {d e'' A : VExpr},
+    TrProjCtor venv U Γ S i d e'' ctorName →
+    venv.IsDefEqU U Γ d ((VExpr.const ctorName cus).mkApps (params ++ fields)) →
+    venv.HasType U Γ d A →
+    params.length = np → ∀ (hflen : fields.length = nf) (hi : i < nf),
+    venv.IsDefEqU U Γ e'' (fields[i]'(hflen ▸ hi))
+
+/-- **Per-structure shape certificate** — `IotaShape`'s analogue, and much smaller: four
+kernel lookups and no `Expr` equation at all, because a projection's reduct is a *subterm*
+of the redex rather than a rule template that has to be β-normalised.
+`rfl`/`decide`-checkable for any concrete structure; nothing in it is a typing or
+translation assumption.
+
+`ival.ctors = [ctor]` is the load-bearing conjunct: it is `register_inductive`'s own
+`is_struct` gate (`inf.ctors.length == 1`), it is what makes the target rule's hard-wired
+constructor index `0` correct, and it is what discharges `ProjDefeqSpec`'s agreement
+premise locally — a structure has exactly one constructor, so the `TrProjCtor` witness's
+name and the spine's head are the same name.
+
+The `kenv.find?` conjuncts are not constructible in-logic (a `Kernel.Environment` is
+opaque), which is the same documented boundary `IotaShape` has; what *is* guarded is the
+`Γ` half, and `ProjShape.ctorAgreement` below is the accessor the discharge uses. -/
+structure ProjShape (safety : DefinitionSafety) (kenv : Lean.Kernel.Environment)
+    (Γ : ErasureCtx) : Prop where
+  shape : ∀ {S : Name} {iid : InductiveId} {np nf : Nat},
+    Γ.projs S = some (iid, np) → Γ.ctorFields iid = some [nf] →
+    ∃ (ival : InductiveVal) (ctor : Name) (cval : ConstructorVal),
+      kenv.find? S = some (.inductInfo ival) ∧
+      ival.ctors = [ctor] ∧ ival.numParams = np ∧ ival.numIndices = 0 ∧
+      ival.isRec = false ∧
+      kenv.find? ctor = some (.ctorInfo cval) ∧
+      cval.numParams = np ∧ cval.numFields = nf ∧
+      Γ.ctors ctor = some (iid, 0) ∧ Γ.ctorArities ctor = some (np + nf) ∧
+      safety ≤ (Lean.ConstantInfo.inductInfo ival).safety
+
+/-- **The agreement, read off the certificate.** The `Γ`-side half of `ProjShape`: the
+structure's unique constructor, registered at index `0` with arity `np + nf`. This is what
+`projConsistent_of_shape` (slice P5) instantiates `ProjDefeqSpec`'s `ctorName` at, and it
+is the step that has no ι analogue — the ι discharge had to *build* its reduct's
+translation by application generation, whereas a projection's reduct is a subterm. -/
+theorem ProjShape.ctorAgreement {safety : DefinitionSafety}
+    {kenv : Lean.Kernel.Environment} {Γ : ErasureCtx} (h : ProjShape safety kenv Γ)
+    {S : Name} {iid : InductiveId} {np nf : Nat}
+    (hs : Γ.projs S = some (iid, np)) (hnfs : Γ.ctorFields iid = some [nf]) :
+    ∃ ctor : Name, Γ.ctors ctor = some (iid, 0) ∧ Γ.ctorArities ctor = some (np + nf) := by
+  obtain ⟨ival, ctor, cval, -, -, -, -, -, -, -, -, hc, har, -⟩ := h.shape hs hnfs
+  exact ⟨ctor, hc, har⟩
+
+/-! ### Guards for the interface
+
+`ProjDefeqSpec` cannot be *constructed* — that is the point of a named premise, and the
+one implementation is upstream's deferred lemma. What can be guarded, and what matters, is
+that it does not quantify over an empty domain: its premise `TrProjCtor` is inhabited, at
+both fixtures above and at both polarities. -/
+
+/-- **`TrProjCtor` is inhabited** — the witness with its constructor named, at `MyProd`'s
+first field. -/
+theorem trProjCtorP_bvar0 :
+    TrProjCtor envP 0 ΓpV `MyProd 0 (.bvar 0) (eProj 0 (.bvar 0)) `MyProd.mk :=
+  ⟨`MyProd.rec, [], [Nty], [Nty, Nty], 1, PN, Nty,
+    (SimplePattern.iotaRHS `MyProd.rec `MyProd.mk 1 1 1 0 2 rhsP rhsP_closed, .true),
+    envP_mkRecName, VEnv.addPat_self, rfl, by simp, hdV, rfl, hEProj0 hdV⟩
+
+/-- …and at the payoff shape, the two-parameter one-field class. This is the
+`ProjDefeqSpec` instance the `OfNat.ofNat` trace runs through. -/
+theorem trProjCtorQ_bvar :
+    TrProjCtor envQ 0 ΓqV `MyOfNat 0 (.bvar 0) (eProjQ (.bvar 0)) `MyOfNat.mk :=
+  ⟨`MyOfNat.rec, [], [Nty, n0c], [Nty], 2, QN, Nty,
+    (SimplePattern.iotaRHS `MyOfNat.rec `MyOfNat.mk 2 1 1 0 1 rhsQ rhsQ_closed, .true),
+    envQ_mkRecName, VEnv.addPat_self, rfl, by simp, .bvar .zero, rfl,
+    hEProjQ (.bvar .zero)⟩
+
+/-- The forgetful direction lands back on `TrProj` — so `TrProjCtor` really is a
+reparenthesisation and not a strengthening in disguise. -/
+example : TrProj envP 0 ΓpV `MyProd 0 (.bvar 0) (eProj 0 (.bvar 0)) :=
+  trProjCtorP_bvar0.toTrProj
+
+/-- …and the naming direction recovers a constructor from the bare witness. -/
+example : ∃ c, TrProjCtor envP 0 ΓpV `MyProd 0 (.bvar 0) (eProj 0 (.bvar 0)) c :=
+  trProjP_bvar0.exists_ctorName
+
+/-- The negative polarity travels too: at a `pats`-free environment no `TrProjCtor`
+exists, for any constructor name. -/
+theorem trProjCtor_refuted {env : VEnv} {U Γ S i e e' c}
+    (hp : ∀ (p : Pattern) r, ¬ env.pats p r) : ¬ TrProjCtor env U Γ S i e e' c :=
+  fun h => trProj_refuted hp h.toTrProj
+
+/-- **`ProjShape`'s `Γ`-side conjuncts fire** at `Γproj` (`Erases.lean`), the
+one-parameter one-field structure fixture: its unique constructor is registered at index
+`0` with arity `1 + 1`. The `kenv.find?` half is the documented in-logic boundary
+(`IotaShape` has the same one), so what a guard can show is that the certificate's `Γ`
+demands are the ones registration actually meets — non-degenerately, since a
+`paramCount`/`fieldIdx` confusion would give `2 ≠ 1 + 1`. -/
+example : Γproj.ctors `AC.mk = some (projInd, 0) ∧ Γproj.ctorArities `AC.mk = some (1 + 1) :=
+  ⟨Γproj_ctors, Γproj_arity⟩
+
+/-- **`TrExprS.proj_inv'` fires**, and hands back exactly what the discharge asks for: the
+discriminant's translation and the constructor name. -/
+example : ∃ (e' : VExpr) (c : Name),
+    TrExprS envQ [] ΔqV (.bvar 0) e' ∧
+      TrProjCtor envQ 0 ΔqV.toCtx `MyOfNat 0 e' (eProjQ (.bvar 0)) c :=
+  trExprSQ_proj.proj_inv'
 
 end LeanToLambdaBox
 

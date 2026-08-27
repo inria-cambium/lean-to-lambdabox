@@ -280,6 +280,38 @@ def CtorFieldsCoherent (Γ : ErasureCtx) : Prop :=
     ∃ (h : cidx < nfs.length), Γ.ctorArities cn = some (np + nfs[cidx])
 
 
+/-- **Projection reduction, as a definitional equality** — the `VEnv`-level interface of
+the projection round (slice P4), and the source analogue of the kernel's `reduceProj`: a
+projection whose discriminant is (translated as) a saturated constructor spine of `S`'s
+single constructor is definitionally equal to the spine's `np + i`-th argument, and that
+argument translates.
+
+`IotaConsistent`'s shape, one arity premise lighter — a projection has no motive, no
+indices and no minors, so there is no `IotaArities` analogue: everything it would carry is
+`1`/`0` by `register_inductive`'s `is_struct` gate, and the shape is pinned by
+`Γ.ctorFields iid = some [nf]` instead.
+
+Like `IotaConsistent` this stays a **premise** even once derivable. That is not
+timidity: it is what keeps `safety`/`kenv` out of every `VEnv`-level statement downstream,
+the discipline `SEvalDataι_defeq`'s own docstring records. The implementation route is
+`ProjDefeqSpec` + `ProjShape` (`ProjPattern.lean`), whose composition
+`projConsistent_of_shape` is slice P5; that route is *structurally simpler* than the ι
+one, because the reduct `cargs[np+i]` is a **subterm of the redex**, so its `TrExprS` is
+read straight off `TrExprS.mkApps_inv`'s `Forall₂` rather than built by application
+generation.
+
+A `Prop` **hypothesis**, never an axiom. -/
+def ProjConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop :=
+  ∀ {Δ : VLCtx} {S ctor : Name} {cus : List Level} {cargs : List Expr}
+    {iid : InductiveId} {np nf i ar : Nat} {ve : VExpr},
+    VLCtx.WF env Us.length Δ →
+    Γ.projs S = some (iid, np) → Γ.ctors ctor = some (iid, 0) →
+    Γ.ctorFields iid = some [nf] → Γ.ctorArities ctor = some ar →
+    cargs.length = ar → i < nf → (hlt : np + i < cargs.length) →
+    TrExprS env Us Δ (.proj S i (cargs.foldl Expr.app (.const ctor cus))) ve →
+    ∃ fve, TrExprS env Us Δ (cargs[np + i]'hlt) fve ∧
+      env.IsDefEqU Us.length Δ.toCtx ve fve
+
 /-- **`Γ`-internal projection-arity coherence** — `CtorFieldsCoherent`'s twin, keyed on
 `Γ.projs` instead of `Γ.casesOns` (projection round, slice P0).
 
