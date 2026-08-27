@@ -441,6 +441,48 @@ inductive Erases (env : VEnv) (Us : List Name) (Γ : ErasureCtx) :
       (hcl : env.ContainsLits l)
       (h : Erases env Us Γ Δ l.toConstructor t) :
       Erases env Us Γ Δ (.lit l) t
+  /-- **A structure projection** (projection round, slice P1). `visitProj`
+      (`Erasure.lean`) looks the structure `S` up, registers it, and emits
+      `.proj ⟨iid, numParams, i⟩` over the erased discriminant. The three `Γ` premises
+      reproduce that lookup:
+      * `hs` — `S` is a registered **structure** with `np` parameters (`Γ.projs`), which
+        is `visitProj`'s `(indid, _) ← register_inductive indinfo` together with
+        `indinfo.numParams`;
+      * `hnfs` — its inductive has exactly **one** constructor, with `nf` retained fields
+        (`Γ.ctorFields iid = some [nf]`). That singleton list *is*
+        `register_inductive`'s own `is_struct` gate (`inf.ctors.length == 1`) expressed in
+        data `Γ` already carries, and it is what makes the target rule's hard-wired
+        constructor index `0` correct;
+      * `hi` — the field index is in range, mirroring `TrProj`'s `i < fieldTys.length`.
+
+      Like `Erases.cases`, only the discriminant is erased; the projection metadata is
+      static. The target is `WcbvEval.proj`'s **non-block** flavour, which is the one
+      `appliedFlags` runs (`with_constructor_as_block = false` kills `proj_block`,
+      `with_prop_case = false` kills `proj_prop`).
+
+      **No `TrExprS` premise**, and that is a deliberate divergence from `box`, `lam` and
+      `letE`. Those carry one because they *record* a `VExpr` witness that later
+      transports (the binder type, the `let` value, the erasable term); this rule's target
+      carries no `VExpr`, and the source's translation is supplied at the use sites — the
+      simulation gets it from its own `TrExprS` hypothesis, the strengthening lemma from
+      `hwt`. Adding one would buy nothing and would cost an equational-uniqueness
+      obligation that is *false* at `.proj`: `TrProj` pins `params`/`fieldTys` only up to
+      definitional equality, which is why `TrProj.uniq` claims `IsDefEqU` and not equality.
+
+      Note (pre-existing, inherited from `Erases.ctor`): shipping computes its field index
+      *post*-argmask (`argmasks[0]![:i].toArray.count .keep`) and the model uses `i`, so
+      like `Erases.ctor` — which relates a source spine to a target spine of the same
+      length — this rule is exact when the argmask is all-`keep`. The parameter count is
+      *not* mis-scaled by that: `register_inductive` builds its argmask over fields only,
+      and `visitConstructor` emits the parameters unfiltered, so `np + i` indexes the
+      target spine correctly at any mask. -/
+  | proj {Δ} (S : Name) (i : Nat) (iid : InductiveId) (np nf : Nat)
+      {e : Expr} {t : LBTerm}
+      (hs : Γ.projs S = some (iid, np))
+      (hnfs : Γ.ctorFields iid = some [nf])
+      (hi : i < nf)
+      (hd : Erases env Us Γ Δ e t) :
+      Erases env Us Γ Δ (.proj S i e) (.proj ⟨iid, np, i⟩ t)
   | bvar {Δ} (i : Nat) :
       Erases env Us Γ Δ (.bvar i) (.bvar i)
   | fvar {Δ} (x : FVarId) :
@@ -681,6 +723,7 @@ theorem erases_shift {env : VEnv} (henv : env.Ordered) {Us : List Name}
     -- `liftLooseBVars'` is the identity on `.lit`, and on the (closed) unfolding.
     refine .lit hcl (Expr.liftLooseBVars_eq_self ?_ ▸ ih W :)
     exact Closed.toConstructor.looseBVarRange_le
+  | proj S i iid np nf hs hnfs hi _ ihd => exact .proj S i iid np nf hs hnfs hi (ihd W)
   | bvar i =>
     simp only [Expr.liftLooseBVars', LBTerm.shift]
     by_cases hlt : i < dk
@@ -761,6 +804,7 @@ theorem erases_subst {env : VEnv} (henv : env.Ordered) {Us : List Name}
       -- `instantiate1'` is the identity on `.lit`, and on the (closed) unfolding.
       refine .lit hcl (Expr.instantiate1'_eq_self ?_ ▸ ih W :)
       exact Closed.toConstructor.looseBVarRange_le
+  | proj S i iid np nf hs hnfs hi _ ihd => exact .proj S i iid np nf hs hnfs hi (ihd W)
   | bvar i =>
       simp only [Expr.instantiate1', LBTerm.subst]
       split <;> rename_i h
@@ -892,6 +936,55 @@ example (Us : List Name) (Δ : VLCtx) :
       (.app (.construct natLitInd 1 [])
         (.app (.construct natLitInd 1 []) (.construct natLitInd 0 []))) :=
   erases_natLit Us Δ 2
+
+/-! ### Non-vacuity for `Erases.proj` (projection round, slice P1)
+
+The rule is guarded at both polarities, which is what the development asks of every
+hypothesis-bearing rule. The fixture is the shape `register_inductive`'s `is_struct` gate
+admits and the one the target-side metatheory already uses (`AC`,
+`Semantics/Metatheory.lean`: one parameter, one constructor `mk`, one field, not
+recursive), rebuilt here as a `Γ` because `Erases` needs no `GlobalDeclarations`. Its
+non-degeneracy matters: `ctorArities = 2 = 1 param + 1 field`, so a rule that confused
+`paramCount` with `fieldIdx` would produce a different `ProjectionInfo`. -/
+
+/-- The target-side `InductiveId` `register_inductive` would assign to the structure
+`AC`. -/
+def projInd : InductiveId := ⟨toKername `AC, 0⟩
+
+/-- A concrete `Γ` registering the one-parameter, one-field structure `AC`: the structure
+name under `projs` (with its parameter count), its single constructor `AC.mk` at index
+`0` with arity `1 + 1`, and the field-count list `[1]` — the singleton that *is*
+`is_struct`'s `inf.ctors.length == 1`. -/
+def Γproj : ErasureCtx where
+  inductives := fun n => if n = `AC then some projInd else none
+  constants := toKername
+  ctors := fun n => if n = `AC.mk then some (projInd, 0) else none
+  ctorArities := fun n => if n = `AC.mk then some 2 else none
+  ctorFields := fun _ => some [1]
+  projs := fun n => if n = `AC then some (projInd, 1) else none
+
+theorem Γproj_projs : Γproj.projs `AC = some (projInd, 1) := by simp [Γproj]
+theorem Γproj_ctorFields : Γproj.ctorFields projInd = some [1] := rfl
+theorem Γproj_ctors : Γproj.ctors `AC.mk = some (projInd, 0) := by simp [Γproj]
+theorem Γproj_arity : Γproj.ctorArities `AC.mk = some 2 := by simp [Γproj]
+
+/-- **Non-vacuity (`Erases.proj`), positive.** Field `0` of a registered structure erases
+to `.proj ⟨projInd, 1, 0⟩` over the erased discriminant — here a free variable, so the
+sub-derivation is `Erases.fvar` and nothing about the environment is needed. -/
+theorem erases_proj_fvar {env : VEnv} (Us : List Name) (Δ : VLCtx) (x : FVarId) :
+    Erases env Us Γproj Δ (.proj `AC 0 (.fvar x)) (.proj ⟨projInd, 1, 0⟩ (.fvar x)) :=
+  .proj `AC 0 projInd 1 1 Γproj_projs Γproj_ctorFields (by omega) (.fvar x)
+
+/-- …and at a **compound** discriminant, so the sub-derivation is doing work: the
+structure's own constructor applied to its parameter and its field, in the applied form
+the shipping eraser emits. This is the redex the projection simulation will step. -/
+theorem erases_proj_ctor {env : VEnv} (Us : List Name) (Δ : VLCtx) (x y : FVarId) :
+    Erases env Us Γproj Δ
+      (.proj `AC 0 ([Expr.fvar x, .fvar y].foldl Expr.app (.const `AC.mk [])))
+      (.proj ⟨projInd, 1, 0⟩
+        (.app (.app (.construct projInd 0 []) (.fvar x)) (.fvar y))) :=
+  .proj `AC 0 projInd 1 1 Γproj_projs Γproj_ctorFields (by omega)
+    (.app (.app (.ctor_head `AC.mk [] projInd 0 Γproj_ctors) (.fvar x)) (.fvar y))
 
 /-! ### The literal's own **translation** (Nat-literals wall, L4)
 

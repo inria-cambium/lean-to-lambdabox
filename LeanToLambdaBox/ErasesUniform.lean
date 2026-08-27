@@ -358,6 +358,18 @@ theorem Erases.strengthen_fvlift {env : VEnv} (henv : env.Ordered) {Us : List Na
       intro _ _ _ _ _ W hΔ' _ hwt
       cases hwt with
       | lit _ h2 => exact .lit hcl (ih W hΔ' NoProj.toConstructor h2)
+  | proj S i iid np nf hs hnfs hi _ _ =>
+      -- **Vacuous, and deliberately so** (projection round, slice P1). The scope
+      -- predicate is `NoProj`, and `NoProj (.proj ..) = False`, so this arm is
+      -- unreachable — which is exactly the wall §3.4 of the design names: the lemma's
+      -- engine is `TrExprS.unique`, whose `proj` arm upstream is `cases H`, and
+      -- equational uniqueness at `.proj` is *false*, not merely unproved (`TrProj`
+      -- pins `params`/`fieldTys` only up to defeq). Relaxing `NoProj` to
+      -- `NoProjBinders` — projection-free at the three positions the lemma actually
+      -- spends `unique` on (a λ binder type, a `let`'s type and value) — is slice P2;
+      -- it is what makes `DeltaHyps.esrc_shape` inhabitable for the typeclass layer,
+      -- and it is not this slice.
+      intro _ _ _ _ _ _ _ hnp _; exact absurd hnp id
   | bvar i => intro _ _ _ _ _ _ _ _ _; exact .bvar i
   | fvar x => intro _ _ _ _ _ _ _ _ _; exact .fvar x
   | const n us kn h hctor hcases =>

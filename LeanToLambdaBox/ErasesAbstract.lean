@@ -132,6 +132,8 @@ theorem Erases.abstract {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     -- literal case, verbatim). `hc` at a `.lit` is `True`; the IH gets `Closed.toConstructor`.
     exact .lit hcl
       (FVarsIn.toConstructor.abstract_eq_self Closed.toConstructor ▸ ih W Closed.toConstructor)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+    exact .proj S i iid np nf hs hnfs hi (ihd W hc)
   | bvar i =>
     have hi : i < dk := hc
     simp only [Expr.abstract1, if_pos hi, toBvar]

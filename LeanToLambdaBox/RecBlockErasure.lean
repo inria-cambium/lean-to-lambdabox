@@ -161,6 +161,10 @@ theorem Erases.instFixvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
       simp only [substFix, substFVarList_box]
       exact .box htr her
   | lit hcl _ ih => intro _; exact .lit hcl (ih FVarsIn.toConstructor)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      intro hsc
+      simp only [substFix, substFVarList_proj]
+      exact .proj S i iid np nf hs hnfs hi (ihd hsc)
   | bvar i =>
       intro _
       simp only [substFix, substFVarList_bvar]
@@ -274,6 +278,8 @@ theorem erases_target_fvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx} :
   induction h with
   | box htr her => intro _ x hx; simp at hx
   | lit hcl _ ih => intro _ x hx; exact ih FVarsIn.toConstructor hx
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      intro hsc x hx; simp only [hasFVar_proj] at hx; exact ihd hsc hx
   | bvar i => intro _ x hx; simp at hx
   | fvar y =>
       -- the one rule that could invent a target fvar; its source is `.fvar y`, whose
@@ -368,6 +374,8 @@ theorem erases_target_lbClosed {env : VEnv} {Us : List Name} {Γ : ErasureCtx} :
   induction h with
   | box htr her => intro _; trivial
   | lit hcl _ ih => intro _; exact ih Closed.toConstructor
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      intro hc; rw [LBClosed_proj]; exact ihd hc
   | bvar i => intro hc; exact hc
   | fvar y => intro _; trivial
   | const n us kn hkn hctor hcases => intro _; trivial

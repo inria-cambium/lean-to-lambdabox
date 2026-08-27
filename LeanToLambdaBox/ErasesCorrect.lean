@@ -387,6 +387,7 @@ theorem erases_subst_let {env : VEnv} (henv : env.Ordered) {Us : List Name}
       -- `instantiate1'` is the identity on `.lit`, and on the (closed) unfolding.
       refine .lit hcl (Expr.instantiate1'_eq_self ?_ ▸ ih W :)
       exact Closed.toConstructor.looseBVarRange_le
+  | proj S i iid np nf hs hnfs hi _ ihd => exact .proj S i iid np nf hs hnfs hi (ihd W)
   | bvar i =>
       simp only [Expr.instantiate1', LBTerm.subst]
       split <;> rename_i h

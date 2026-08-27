@@ -1251,6 +1251,12 @@ theorem Erases.defeqDFC {env : VEnv} (henv : env.WF) {Us : List Name} {Γ : Eras
       exact .box htr₂ (Erasable.defeq henv hΓ₂ (VEnv.IsDefEqU.symm hd)
         (Erasable.defeqDFC henv.ordered hΔ.defeqCtx her_e))
   | lit hcl _ ih => cases htyped with | lit _ h => exact .lit hcl (ih hΔ h)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      -- Context-blind: the rule certifies nothing about `Δ`, and the paired `TrExprS`
+      -- hands the discriminant's translation straight to the IH. The `TrProj` witness
+      -- is discarded — the transported derivation builds its own.
+      cases htyped with
+      | proj htd _ => exact .proj S i iid np nf hs hnfs hi (ihd hΔ htd)
   | bvar i => exact .bvar i
   | fvar x => exact .fvar x
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases

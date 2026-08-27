@@ -531,6 +531,15 @@ clause, iterated down the substitution list. -/
   | nil => rfl
   | cons p rest ih => obtain ⟨y, s⟩ := p; simp only [substFVarList, ih]; rfl
 
+/-- (Projection round, slice P1.) The `.app` twin: `substFVar` is inert in a
+`ProjectionInfo`, so a fvar substitution goes straight through a projection node. -/
+@[simp] theorem substFVarList_proj (L : List (FVarId × LBTerm)) (pinfo : ProjectionInfo)
+    (e : LBTerm) :
+    substFVarList L (.proj pinfo e) = .proj pinfo (substFVarList L e) := by
+  induction L with
+  | nil => rfl
+  | cons q rest ih => obtain ⟨y, s⟩ := q; simp only [substFVarList, ih]; rfl
+
 theorem substFVarList_construct (L : List (FVarId × LBTerm)) (iid : InductiveId) (k : Nat)
     (args : List LBTerm) :
     substFVarList L (.construct iid k args) = .construct iid k (args.map (substFVarList L)) := by

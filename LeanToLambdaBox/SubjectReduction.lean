@@ -184,6 +184,27 @@ theorem Erases.lit_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLC
   | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_lit
   | _ => exact absurd he (by simp)
 
+/-- A spine `args.foldl Expr.app (.const cn us)` is never a `.proj`
+(projection round, slice P1) — the `.lit` twin, and what refutes `Erases.ctor` at a
+projection source. -/
+theorem foldl_app_const_ne_proj {cn : Name} {us : List Level} {args : List Expr}
+    {S : Name} {i : Nat} {e : Expr} :
+    args.foldl Expr.app (.const cn us) ≠ .proj S i e := by
+  intro heq
+  rcases foldl_app_eq_or_isApp (.const cn us) args with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
+/-- A spine `(discr :: minors).foldl Expr.app pre` is never a `.proj`. -/
+theorem foldl_app_cons_ne_proj {pre : Expr} {discr : Expr} {minors : List Expr}
+    {S : Name} {i : Nat} {e : Expr} :
+    (discr :: minors).foldl Expr.app pre ≠ .proj S i e := by
+  intro heq
+  simp only [List.foldl] at heq
+  rcases foldl_app_eq_or_isApp (pre.app discr) minors with h | h
+  · rw [heq] at h; simp at h
+  · rw [heq] at h; simp [Expr.isApp] at h
+
 /-- **Inversion of `Erases` on a `.lam` source.** The `box` and `lam` rules apply, and
 — since `Erases.fix`'s source is a syntactic `.lam` (P3) — the environment-level `fix`
 rule too, giving a third disjunct `t = .fix defs idx`. This is the **only** inversion
@@ -414,5 +435,43 @@ theorem Erases.const_fvar_elim {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {
   · exact absurd hb (by simp)
   · exact absurd hb (by simp)
   · rw [hnfv] at hfx; exact absurd hfx (by simp)
+
+/-- **Inversion of `Erases` on a `.proj` source** (projection round, slice P1). Two
+rules and no more: `box` (the whole projection is irrelevant) and `proj`. Every other
+rule is refuted by head mismatch — the spine rules need an `.app`- or `.const`-shaped
+source, the leaves are their own node — so this is the *cheapest* of the inversions:
+unlike `const_inv` there is no competing rule concluding at the same source, and unlike
+`lam_inv` there is no `fix` widening (`Erases.fix`'s source is a syntactic `.lam`).
+
+The two disjuncts are separated by their targets (`.box ≠ .proj _ _`), which is what
+makes a consumer's `rcases` on it a two-way split with no arithmetic. -/
+theorem Erases.proj_inv {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    {S : Name} {i : Nat} {e : Expr} {t : LBTerm}
+    (h : Erases env Us Γ Δ (.proj S i e) t) :
+    (∃ ve, TrExprS env Us Δ (.proj S i e) ve ∧
+        Erasable env Us.length Δ.toCtx ve ∧ t = .box) ∨
+    (∃ (iid : InductiveId) (np nf : Nat) (t' : LBTerm),
+        Γ.projs S = some (iid, np) ∧ Γ.ctorFields iid = some [nf] ∧ i < nf ∧
+        Erases env Us Γ Δ e t' ∧ t = .proj ⟨iid, np, i⟩ t') := by
+  generalize he : (Expr.proj S i e) = e₀ at h
+  induction h with
+  | box htr' her' => subst he; exact .inl ⟨_, htr', her', rfl⟩
+  | proj S' i' iid np nf hs hnfs hi hd =>
+      cases he; exact .inr ⟨iid, np, nf, _, hs, hnfs, hi, hd, rfl⟩
+  | ctor cn us _ _ _ _ _ => exact absurd he.symm foldl_app_const_ne_proj
+  | cases _ _ _ _ _ _ _ _ _ => exact absurd he.symm foldl_app_cons_ne_proj
+  | _ => exact absurd he (by simp)
+
+/-- **Non-vacuity (`Erases.proj`), negative polarity** (projection round, slice P1). At a
+`Γ` registering no structure the rule is unusable, so the *only* erasure of a projection
+is `box` — the exclusion the relation always had, now stated as a fact about `Γ` rather
+than about the rule set. The `natLit` precedent verbatim; the positive half is
+`erases_proj_fvar`/`erases_proj_ctor` at `Γproj` (`Erases.lean`). -/
+theorem Erases.proj_none {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Δ : VLCtx}
+    (hnp : Γ.projs = fun _ => none) {S : Name} {i : Nat} {e : Expr} {t : LBTerm}
+    (h : Erases env Us Γ Δ (.proj S i e) t) : t = .box := by
+  rcases h.proj_inv with ⟨_, _, _, rfl⟩ | ⟨_, _, _, _, hs, _⟩
+  · rfl
+  · rw [hnp] at hs; exact absurd hs (by simp)
 
 end LeanToLambdaBox

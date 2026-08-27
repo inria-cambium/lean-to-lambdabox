@@ -178,6 +178,8 @@ theorem Erases.thin_vlet {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   induction H generalizing Δ with
   | box htr her => exact .box (TrExprS.thin_vlet W htr sc) (W.toCtx ▸ her)
   | lit hcl _ ih => exact .lit hcl (ih W .toConstructor)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+    exact .proj S i iid np nf hs hnfs hi (ihd W sc)
   | bvar i => exact .bvar i
   | fvar y => exact .fvar y
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
@@ -454,6 +456,8 @@ theorem erases_weakFV {env : VEnv} (henv : env.Ordered) {Us : List Name} {Γ : E
   induction h generalizing Δ' dk k with
   | box htr her => exact .box (TrExprS.weakFV_fvwf henv W hΔ' htr) (her.weakN henv W.toCtx)
   | lit hcl _ ih => exact .lit hcl (ih W hΔ' hfv)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      exact .proj S i iid np nf hs hnfs hi (ihd W hΔ' hfv)
   | bvar i => exact .bvar i
   | fvar x => exact .fvar x
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases
@@ -641,6 +645,8 @@ theorem erases_weakFV_nofvars {env : VEnv} (henv : env.Ordered) {Us : List Name}
   | box htr her =>
       exact .box (TrExprS.weakFV_nofvars henv W htr hfvf) (her.weakN henv W.toCtx)
   | lit hcl _ ih => exact .lit hcl (ih W FVarsIn.toConstructor)
+  | proj S i iid np nf hs hnfs hi _ ihd =>
+      exact .proj S i iid np nf hs hnfs hi (ihd W hfvf)
   | bvar i => exact .bvar i
   | fvar x => exact .fvar x
   | const n us kn h hctor hcases => exact .const n us kn h hctor hcases

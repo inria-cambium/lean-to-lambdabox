@@ -26,7 +26,17 @@ terms on which the bridge theorem speaks. It deliberately covers
   `Erases.ctor` is the args-inside *block* form, so bridging them needed an
   applied-form rule (`Erases.ctor_head`) and a simulation under `construct_app`
   semantics (`erases_correct_data`). Both landed; `ctorApp` below is the rule;
-* **projections** and **`mdata`** (`Erases` has no rule for either);
+* **`mdata`** (`Erases` has no rule for it);
+* **projections** — and the reason changed at slice P1. `Erases` *does* have a rule now
+  (`Erases.proj`, over the new `Γ.projs` column), so the exclusion is no longer "the
+  relation cannot say it". It is that `Supported.proj` cannot be added **independently**:
+  step 1 of `visitExpr_refines_erases_core` (`VisitExprRefines.lean`) analyses `hsupp` by
+  a complete `cases`, so a new alternative is a new arm, and the only thing that can
+  discharge it is **motive 10**, whose conclusion is `True` today. Giving motive 10
+  content is design slice P8 and needs a `ProjBridgeHyps` bundle (`getConstInfo` and
+  `register_inductive` Hoare specs tying `argmasks`/`numParams` to `Γ.projs`), i.e. a new
+  premise on the bridge theorem. So the fragment stays projection-free until P8, and the
+  guard below is a fact about the missing rule rather than about `Erases`;
 * **`String` literals** (the shipping `visitLiteral` `panic!`s) and **machine-`Nat`
   literals** (they route into `prim`, out of `Erases` by design);
 * everything `visitExpr` itself panics on (`sort`, `forallE`, `mvar`).
@@ -324,6 +334,13 @@ literal dispatch is not vacuously discharged. -/
 example : Supported (fun _ => True) ΓnatLit (.lit (.natVal 3)) :=
   .natLit 3 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ
 
+/-- **A projection is out of the fragment, at every `Γ`** — and, as of the projection
+round, that is a *statement about the missing rule* rather than about `Erases`.
+`Erases.proj` exists (slice P1); `Supported.proj` does not, and cannot until the bridge's
+**motive 10** stops concluding `True` (`VisitExprRefines.lean`, design slice P8): step 1's
+`cases hsupp` is a complete case analysis, so a `proj` alternative of `Supported` is an
+arm that only motive 10 can discharge. Until then `visitProj`'s output is outside the
+bridge and this exclusion is load-bearing, not decorative. -/
 example {known : Name → Prop} {Γ : ErasureCtx} :
     ¬ Supported known Γ (.proj `Prod 0 (.fvar ⟨`p⟩)) := by
   intro h
@@ -339,6 +356,22 @@ example {known : Name → Prop} {Γ : ErasureCtx} :
         (args := pre ++ discr :: minors) (by simp)
       rw [hga] at he; exact absurd he (by simp)
   | _ => simp_all
+
+/-- **The discriminant side is already in the fragment.** What `Supported.proj` would need
+of its sub-derivation is available today: the saturated constructor application a
+projection's discriminant reduces to is `ctorApp` at the structure's own constructor, at
+`Γproj` — the one-parameter, one-field structure fixture at which `erases_proj_ctor`
+derives the erasure (`Erases.lean`). So the P8 gap is exactly the projection *node*, not
+anything under it. -/
+example (x y : FVarId) :
+    Supported (fun _ => True) Γproj
+      ([Expr.fvar x, .fvar y].foldl Expr.app (.const `AC.mk [])) :=
+  .ctorApp (iid := projInd) (cidx := 0) (ar := 2) (args := [.fvar x, .fvar y])
+    Γproj_ctors (by simp [Γproj]) Γproj_arity rfl (by decide) (by decide)
+    (fun i hi => by
+      match i, hi with
+      | 0, _ => exact .fvar x
+      | 1, _ => exact .fvar y)
 
 /-- **The sibling alternative of `Supported.const` is inhabited** (recursion wall, W3.1):
 inside a mutual block, a reference to the block's own name `f` is in the fragment even at
