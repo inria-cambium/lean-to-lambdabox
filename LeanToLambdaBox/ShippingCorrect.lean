@@ -40,9 +40,11 @@ transpiler: the erased program `Eval`-uates to an erasure of the source value.
 * `hcon`/`hdelta`: source-env ↔ `VEnv` ↔ target-env consistency, as in
   `erases_correct`.
 * `hinv`/`hsup`: the run starts in a state corresponding to `Δ`/`Γ` with all
-  `known` constants pre-registered, and the source lies in the supported v1
-  fragment (`Supported`, `Bridge.lean`) — `box|bvar|fvar|const|app|lam|letE`,
-  constructor/`casesOn`/literal/`mdata`/projection-free.
+  `known` constants pre-registered, and the source lies in the supported
+  fragment (`Supported`, `Bridge.lean`) — `bvar|fvar|const|app|lam|letE` plus the four
+  registration-gated rules `ctorApp` (A8), `casesApp` (ι/C4), `natLit` (L3) and `proj`
+  (P8); `mdata`, `String` literals, machine-`Nat` literals and η-contracted `casesOn`
+  minors stay out, each for the reason its constructor's docstring gives.
 
 Everything else — the de Bruijn↔fvar reconciliation, the traversal, the state
 and name-generator bookkeeping, the relation to the semantics — is proved.

@@ -190,8 +190,9 @@ erased at a third `Γ` (`fixvars := none`)". Neither half survived contact.
 * **Not three motives but all seventeen with content.** The IH call graph of
   `visitExpr_refines_erases_core` is one strongly connected component — the cycle
   `1 → 11 → 12 → 4 → 5 → 6 → 1` closes it by itself — so a motive cannot quantify `Γ`
-  unless every motive it dispatches to does. Only motive 10, whose conclusion is `True` and
-  which nothing calls, stays fixed.
+  unless every motive it dispatches to does. Only motive 10, whose conclusion was `True`
+  and which nothing called, stayed fixed — and slice proj-P8 retired that exemption too:
+  motive 10 carries `Γ` like the rest, and step 1 dispatches to it.
 
 **What is still not wired to the capstones, and why.** The obstruction used to be upstream
 of them: `DeltaHyps.nonrecursive` — split out of `decl_run` by slice δ-D8e — demanded

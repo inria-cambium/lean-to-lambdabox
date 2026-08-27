@@ -6,11 +6,13 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown eight times since:
+reported the same 648 entries it did at `fee3ada`. It has grown nine times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
-proj-P2 and to 800 at slices proj-P5/P6/P7, with every earlier entry's output
-byte-identical at each step. The projection round's model-layer entries are **all
+proj-P2, to 800 at slices proj-P5/P6/P7 and to 818 at slice proj-P8, with every earlier
+entry's output byte-identical at each step — at proj-P8 the whole 800-entry prefix is,
+which is the strongest form of that claim the file can make and the one a slice adding
+a premise to 33 signatures had to earn. The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
 same `TrProj.uniq` item `erases_strengthen_closed` has carried since `fee3ada`; that slice
@@ -3379,4 +3381,96 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.visitExpr_refines_erases
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE proj-P8 — THE BRIDGE COVERS PROJECTIONS
+-- ============================================================================
+--
+-- The last of the projection round's model-side slices, and the one the P1 report named
+-- as the obstruction: `Supported.proj` could not be added independently, because step 1
+-- of `visitExpr_refines_erases_core` analyses `hsupp` by a COMPLETE `cases`, and the only
+-- thing that can discharge a new arm is motive 10 — whose conclusion was `True`.
+--
+-- (a) THE FOURTH BUNDLE. Two clauses, one per non-recursive call `visitProj` makes, and
+--     between them they pin all three fields of the emitted `ProjectionInfo`. Both are
+--     Γ↔environment registration agreements and both are `env`/`Us`-free, so THE
+--     PROJECTION BRIDGE ADDS NO TYPING ASSUMPTION — the claim `CasesBridgeHyps` makes for
+--     itself, and the one this bundle was shaped to keep. No `ProjInfoAgrees` (visitProj
+--     reads no `CasesInfo`), no `inferType` clause (the projection path never η-expands),
+--     so nothing here is of `BridgeHyps.orc_run`'s elaborator-correctness class.
+#print axioms LeanToLambdaBox.ProjBridgeHyps
+#print axioms LeanToLambdaBox.ProjBridgeHyps.withFixvars
+#print axioms LeanToLambdaBox.ProjBridgeHyps.of_coh
+--
+-- (b) AND IT IS A THEOREM WHEREVER THE ROUND DOES NOT REACH. Both clauses are keyed on
+--     `Γ.projs S = some _`, uninhabited at the default `⊥`, so every context predating the
+--     round satisfies the bundle outright. That is what kept the 33 signatures and 34
+--     application sites of the threading commit mechanical: they carry a premise that is
+--     free at every Γ they instantiate.
+#print axioms LeanToLambdaBox.ProjBridgeHyps.of_bot
+--
+-- (c) THE MASK ARITHMETIC, AND A LIBRARY GAP. `visitProj` computes its field index
+--     POST-argmask (`argmasks[0]![:i].toArray.count .keep`) and the model uses `i`; at a
+--     trivial mask the two agree, which is where the all-`keep` restriction inherited from
+--     `Erases.ctor` is cashed in on the bridge side. It needed its own
+--     `count_keep_replicate`: `ConstructorArgRelevance` derives `BEq` but NOT `LawfulBEq`
+--     (shipping code, byte-unchanged this round as every round), so the library's
+--     count-of-replicate lemmas do not apply and `decide` does not reduce through
+--     `Std.Slice.toArray`. The guard is stated with `2 ≠ 3` beside it so it cannot be
+--     misread as the degenerate `count = width`.
+#print axioms LeanToLambdaBox.count_keep_replicate
+#print axioms LeanToLambdaBox.count_keep_take_replicate
+--
+-- (d) THE RULE, AND THE INVERSIONS THAT COST NOTHING. Every `Supported` inversion the
+--     bridge uses already ended in a catch-all (`const_inv'`, `app_inv''`, `lam_inv`,
+--     `letE_inv`, `ctorApp_inv`, `casesApp_inv`, `supported_foldl_app_inv`), so the new
+--     constructor was absorbed with no edit at all. The two lemmas that ENUMERATE the
+--     constructors — `instantiate1'` and `withFixvars` — gain one line each.
+#print axioms LeanToLambdaBox.Supported
+#print axioms LeanToLambdaBox.Supported.instantiate1'
+#print axioms LeanToLambdaBox.Supported.withFixvars
+--
+-- (e) MOTIVE 10, WITH CONTENT, AND THE STEP. The motive is in the post-Γ-W1 shape
+--     (∀ Γ hΓ after the run hypothesis; `RunConclδ` re-indexed to Γ₀; the ⊑ conjunct
+--     outside), and it adds exactly ONE IH site — `ih1`, at the local Γ, never the step-6
+--     `Γ₀ rfl` column. The admissibility obligation did NOT change:
+--     `eraseM_admissible_ok₃` quantifies its `Q` and already named `visitProj` as a client.
+--     The step itself is four moves: `projind_run` (state transparency is the THEOREM
+--     `run_getConstInfo_state`, so the `unreachable!` arm is dead), `projreg_run` (state
+--     effect is the THEOREM `run_register_inductive_runConcl`, not a clause),
+--     `count_keep_take_replicate`, and the discriminant's IH.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+--
+-- (f) WHY STEP 1's ARM IS TEN LINES. A projection's discriminant is a SUBTERM of its
+--     redex, so its translation is read straight off `TrExprS.proj` — no application
+--     generation, no `HasType.app_inv`. The same structural fact that made P5's discharge
+--     shorter than ι's makes the bridge arm shorter than the `casesApp` one.
+--
+-- (g) BOTH POLARITIES, AND THE P1 GUARD FLIPPED. The P1-era exclusion held at EVERY Γ for
+--     a reason that has now expired; restated, it is the ordinary registration gate that
+--     `natLit` has (`Γ.projs = ⊥` makes the rule unusable). Positive: `Supported.proj` at
+--     `Γproj` over a variable and over a saturated constructor spine.
+#print axioms LeanToLambdaBox.ΓprojQ_projs
+#print axioms LeanToLambdaBox.supported_ofNatBodyQ
+--
+-- (h) THE PAYOFF, AS A GUARD. Guard (v) runs the bridge end to end on
+--     `fun (self : MyOfNat N n0) => self.ofNat` — the prepared class-method body whose
+--     `Supported` half was the first conjunct `DeltaHyps.prepared` could not satisfy for
+--     the typeclass layer. Constructed: `ΓprojQ`, the `BridgeInv`, the `Supported`
+--     derivation, and the source translation `trExprSQ_ofNatBody` — the ONE translation in
+--     the tree that goes through a `TrProj`. Hypothetical: the run, the four bundles,
+--     `DeltaHyps`/`BlockHyps`, and `envQ.Ordered` (`VEnv.Ordered` has no `addPat` clause at
+--     this pin — `ProjPattern.lean`'s own note). Every one of those predates the slice.
+#print axioms LeanToLambdaBox.trExprSQ_ofNatBody
+--
+-- (i) THE CROWN, UNMOVED — AND THIS TIME THE WHOLE FILE IS. The 800-entry prefix this
+--     slice inherited is BYTE-IDENTICAL after it: a new premise on 33 signatures, a new
+--     `Supported` alternative, a motive that stopped being `True`, and not one axiom set in
+--     the audit changed. The bridge keeps its seven, `rec_exit_refines_erases` its six,
+--     and both cold-start capstones their eight.
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

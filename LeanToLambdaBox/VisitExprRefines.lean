@@ -3648,7 +3648,10 @@ motives 1/5/6, since a dependency reached from inside a block is genuinely erase
 * **not three motives but all seventeen with content.** The IH call graph is one strongly
   connected component (`1 → 11 → 12 → 4 → 5 → 6 → 1` closes it by itself), so a motive
   cannot quantify `Γ` unless every motive it dispatches to does. Only motive 10, whose
-  conclusion is `True` and which nothing calls, stays fixed.
+  conclusion was `True` and which nothing called, stayed fixed — and that exemption
+  **expired at slice P8**, which gave motive 10 content in the shape recorded here (`Γ hΓ`
+  immediately after the run hypothesis, `RunConclδ` re-indexed to `Γ₀`) and made step 1
+  call it. All eighteen now carry `Γ`.
 
 This theorem survives and keeps its callers, but it is now *subsumed*: the core proves the
 block case directly, at the local `Γ` its motives carry. -/

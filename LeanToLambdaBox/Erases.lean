@@ -44,9 +44,11 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
 * `machine`-`Nat`/`Int` lowering and `@[extern]`/`@[csimp]` rewrites are out of
   scope (documented), as before.
 
-This relation covers the projection-free fragment:
-`box | lit | bvar | fvar | const | app | lam | letE | ctor | ctor_head | cases |
-fixvar | const_fix | fix`.
+This relation covers:
+`box | lit | proj | bvar | fvar | const | app | lam | letE | ctor | ctor_head | cases |
+fixvar | const_fix | fix`. It stopped being the *projection-free* fragment at slice P1,
+when `Erases.proj` landed over the `Γ.projs` column; the shipping bridge reaches that rule
+from slice P8 (`Supported.proj` + motive 10, `Bridge.lean`/`VisitExprRefines.lean`).
 
 ## Trust boundary: inherited `sorryAx`
 
