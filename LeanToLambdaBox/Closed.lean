@@ -200,6 +200,73 @@ theorem LBClosed.subst_eq {t : LBTerm} {k : Nat} (hc : LBClosed t k)
               ihr (fun x hx => hshl x (List.mem_cons_of_mem _ hx))]
       exact key defs (fun x hx => ih x hx (hc x hx) (by omega))
 
+/-! ### …and the converse, at the unit shift
+
+`shift 1 k` is the identity on `t` *only* when there is nothing at or above `k` to move.
+Reading the equality backwards is what turns `Erases.const_fix`/`Erases.fix`' `hshift`
+inertness premise — all a derivation carries about the block it emits — into a closedness
+fact about the target (`RecBlockErasure.erases_target_lbClosed`). It is the closedness
+twin of `FixUnfold.not_hasFVar_of_toBvar_eq_self`, which reads `htobv` the same way.
+(Recursion wall, slice Γ-W3.) -/
+
+/-- From `l.map f = l` and `u ∈ l`, `f u = u`: the elementwise readback of a map fixed
+point, for the three list traversals `shift` descends through. -/
+private theorem map_eq_self_mem {α : Type} {f : α → α} {l : List α} (h : l.map f = l)
+    {u : α} (hu : u ∈ l) : f u = u := by
+  obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hu
+  have h2 : (l.map f)[i]? = l[i]? := by rw [h]
+  rw [List.getElem?_map, List.getElem?_eq_getElem hi] at h2
+  simpa using h2
+
+/-- **The converse of `LBClosed.shift_eq`**, at `d = 1` and the closedness bound as the
+cutoff: a term fixed by `shift 1 k` has no loose de-Bruijn index at or above `k`. -/
+theorem lbClosed_of_shift_eq :
+    ∀ (t : LBTerm) (k : Nat), LBTerm.shift 1 k t = t → LBClosed t k := by
+  intro t
+  induction t using LBTerm.recData with
+  | hbox | hfvar | hconst | hprim => intro _ _; trivial
+  | hbvar i =>
+      intro k h
+      simp only [LBClosed_bvar]
+      by_contra hlt
+      rw [show LBTerm.shift 1 k (LBTerm.bvar i)
+            = if i ≥ k then LBTerm.bvar (i + 1) else LBTerm.bvar i from rfl,
+        if_pos (Nat.le_of_not_lt hlt)] at h
+      simp at h
+  | hlam n b ih =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.lambda.injEq, true_and] at h
+      exact ih (k + 1) h
+  | hletIn n v b ihv ihb =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.letIn.injEq, true_and] at h
+      exact ⟨ihv k h.1, ihb (k + 1) h.2⟩
+  | happ f a ihf iha =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.app.injEq] at h
+      exact ⟨ihf k h.1, iha k h.2⟩
+  | hconstruct iid c args ih =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.construct.injEq, LBTerm.shiftArgs_eq_map,
+        true_and] at h
+      rw [LBClosed_construct, LBClosedArgs_iff]
+      exact fun x hx => ih x hx k (map_eq_self_mem h hx)
+  | hcase info discr alts ihd iha =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.case.injEq, LBTerm.shiftAlts_eq_map, true_and] at h
+      rw [LBClosed_case, LBClosedAlts_iff]
+      refine ⟨ihd k h.1, fun a ha => iha a ha _ ?_⟩
+      exact congrArg Prod.snd (map_eq_self_mem h.2 ha)
+  | hproj p e ih =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.proj.injEq, true_and] at h
+      exact ih k h
+  | hfix defs i ih =>
+      intro k h
+      simp only [LBTerm.shift, LBTerm.fix.injEq, LBTerm.shiftDefs_eq_map, and_true] at h
+      rw [LBClosed_fix, LBClosedDefs_iff]
+      exact fun d hd => ih d hd _ (congrArg FixDef.body (map_eq_self_mem h hd))
+
 /-! ## Part 2 — `LBClosed` under shift, subst, and the spine/telescope builders -/
 
 /-- Closedness is monotone in the bound. -/
@@ -381,6 +448,19 @@ theorem LBClosed.mkLambdas {names : List BinderName} {body : LBTerm} {k : Nat}
   | cons n ns ih =>
       simp only [LeanToLambdaBox.mkLambdas, LBClosed_lambda]
       exact ih (h.mono (by simp only [List.length_cons]; omega))
+
+/-- …and the converse: the telescope closes *exactly* its own binders, so reading a
+`mkLambdas`-wrapped alternative back gives the branch body's own bound. `Erases.cases`
+relates each minor to its alternative re-wrapped as a lambda chain, while `LBClosedAlts`
+speaks about the bare body — this is that step (recursion wall, slice Γ-W3). -/
+theorem LBClosed.mkLambdas_inv {names : List BinderName} {body : LBTerm} {k : Nat}
+    (h : LBClosed (LeanToLambdaBox.mkLambdas names body) k) :
+    LBClosed body (k + names.length) := by
+  induction names generalizing k with
+  | nil => exact h
+  | cons n ns ih =>
+      simp only [LeanToLambdaBox.mkLambdas, LBClosed_lambda] at h
+      exact (ih h).mono (by simp only [List.length_cons]; omega)
 
 /-! ## Part 3 — the general de-Bruijn commutation kit
 

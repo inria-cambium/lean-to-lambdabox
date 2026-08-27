@@ -328,6 +328,78 @@ theorem erases_target_fvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx} :
       intro _ x hx
       exact absurd hx (not_hasFVar_of_toBvar_eq_self x _ 0 (htobv x 0))
 
+/-! ### …and where the target's loose de-Bruijn indices come from
+
+The closedness companion of `erases_target_fvars`, and the fact step 6 of the bridge
+cannot get anywhere else. `erases_rec_block_of_run` needs each opened block body to be
+de-Bruijn closed (`hoclosed`), and for a *run* of the shipping `visitExpr` that is
+`ColdStartInduction.visitExpr_noFix_closed` — but inside `visitExpr_refines_erases_core`
+the eraser is the induction's **abstract** fixpoint argument, about which only the motives
+may be assumed, and no motive carries an output shape. So the fact has to come from the
+one thing the motive does hand back: the `Erases` derivation itself.
+
+It does. Erasure moves de-Bruijn indices around but never invents one: `Erases.bvar` is
+the only rule with a loose-index target and it copies the source's index, every binder
+rule extends `Δ` by a bvar entry exactly where its target extends its own scope, and the
+two fix leaves carry their block's inertness (`hshift`), which `lbClosed_of_shift_eq`
+reads back as closedness. (Recursion wall, slice Γ-W3.) -/
+
+/-- `closed_foldl_app` (`ErasesAbstract`), replicated here rather than imported: slice
+Γ-W2c's move added **zero** modules to the bridge's import closure, and one twelve-line
+spine inversion is not worth spending that. -/
+private theorem closed_foldl_app' {k : Nat} {args : List Expr} {f : Expr}
+    (h : Closed (args.foldl Expr.app f) k) : Closed f k ∧ ∀ a ∈ args, Closed a k := by
+  induction args generalizing f with
+  | nil => exact ⟨h, by simp⟩
+  | cons a as ih =>
+    obtain ⟨hfa, hrest⟩ := ih (f := f.app a) h
+    refine ⟨hfa.1, fun b hb => ?_⟩
+    rcases List.mem_cons.mp hb with rfl | hb
+    · exact hfa.2
+    · exact hrest _ hb
+
+/-- **A de-Bruijn-closed source erases to a de-Bruijn-closed target**, at the erasure
+context's own bvar depth. At `Δ = []` — where the block's sibling bodies are erased once
+`erases_strengthen_closed` has brought them down — this is outright `LBClosed t 0`. -/
+theorem erases_target_lbClosed {env : VEnv} {Us : List Name} {Γ : ErasureCtx} :
+    ∀ {Δ : VLCtx} {e : Expr} {t : LBTerm}, Erases env Us Γ Δ e t →
+      Closed e Δ.bvars → LBClosed t Δ.bvars := by
+  intro Δ e t h
+  induction h with
+  | box htr her => intro _; trivial
+  | lit hcl _ ih => intro _; exact ih Closed.toConstructor
+  | bvar i => intro hc; exact hc
+  | fvar y => intro _; trivial
+  | const n us kn hkn hctor hcases => intro _; trivial
+  | app _ _ ihf iha => intro hc; exact ⟨ihf hc.1, iha hc.2⟩
+  | lam hty _ ihb => intro hc; exact ihb hc.2
+  | letE hty hval _ _ ihv ihb => intro hc; exact ⟨ihv hc.2.1, ihb hc.2.2⟩
+  | ctor_head cn us iid cidx hc => intro _; trivial
+  | @ctor _ cn us iid cidx args args' hc hlen _ ihargs =>
+      intro hcl
+      obtain ⟨-, hall⟩ := closed_foldl_app' hcl
+      rw [LBClosed_construct, LBClosedArgs_iff]
+      intro u hu
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hu
+      have hi' : i < args.length := by omega
+      exact ihargs i hi' (hall _ (List.getElem_mem hi'))
+  | @cases _ con us iid numParams pre discr discr' minors alts' nfs hc hpre hnfs _
+      hlen hnlen harity _ ihd ihalts =>
+      intro hcl
+      obtain ⟨-, hall⟩ := closed_foldl_app' hcl
+      rw [LBClosed_case, LBClosedAlts_iff]
+      refine ⟨ihd (hall _ (List.mem_cons_self ..)), fun a ha => ?_⟩
+      obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem ha
+      have hj' : j < minors.length := by omega
+      exact LBClosed.mkLambdas_inv
+        (ihalts j hj' (hall _ (List.mem_cons_of_mem _ (List.getElem_mem hj'))))
+  | fixvar nm us y hfx hctor hcases hfresh => intro _; trivial
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      intro _; exact lbClosed_of_shift_eq _ _ (hshift 1 _)
+  | @fix Δc idx nm' tty tb tbi nms srcs d' hidx hnlen' hslen' hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      intro _; exact lbClosed_of_shift_eq _ _ (hshift 1 _)
+
 /-! ## Part 2 — the `Erases.fix` reconciliation from closedness + bridge facts
 
 `erases_fix_of_closed` builds the `Erases.fix` derivation (`Erases.lean`) for a

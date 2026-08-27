@@ -2576,3 +2576,35 @@ open LeanToLambdaBox
 -- …and the two that stayed, still proving from their new-home dependencies.
 #print axioms LeanToLambdaBox.run_rec_exit_siblings_close
 #print axioms LeanToLambdaBox.recEnvConsistent_of_block
+
+--------------------------------------------------------------------------------
+-- SLICE Γ-W3 — step 6 walks the recursive exit
+--------------------------------------------------------------------------------
+-- (a) THE OUTPUT-SHAPE OBSTRUCTION, and the design claim it falsifies.
+--
+-- The design's premise ledger for `erases_rec_block_of_run` routed `hoclosed` (each opened
+-- block body is de-Bruijn closed) to `ColdStartInduction.visitExpr_noFix_closed`, annotated
+-- "no hypotheses". Inside `visitExpr_refines_erases_core` that is unavailable TWICE OVER:
+-- `ColdStartInduction` sits downstream of the bridge, and — the substantive half — the
+-- eraser at step 6 is the induction's ABSTRACT fixpoint argument `vE`, about which only the
+-- motives may be assumed. No motive carries an output shape, and adding one is not a local
+-- change: the IH call graph is one SCC (Γ-W1), so `LBClosed` in motive 1 means `LBClosed` in
+-- all seventeen content motives, i.e. a second copy of `ColdStartInduction.visitExpr_shape`.
+--
+-- The fact is instead read off the ONE thing the motive does hand back — the `Erases`
+-- derivation. Erasure moves de-Bruijn indices but never invents one: `Erases.bvar` copies
+-- the source's index, every binder rule extends `Δ` exactly where its target extends scope,
+-- and the two fix leaves carry `hshift`, which `lbClosed_of_shift_eq` reads back as
+-- closedness. That converse is the closedness twin of
+-- `FixUnfold.not_hasFVar_of_toBvar_eq_self`, which reads `htobv` the same way — and the
+-- parallel is exact, down to which premise of `Erases.const_fix`/`Erases.fix` is consumed.
+--
+-- All three are pure target-side / relation-side reasoning, hence sorryAx-free.
+#print axioms LeanToLambdaBox.lbClosed_of_shift_eq
+#print axioms LeanToLambdaBox.LBClosed.mkLambdas_inv
+#print axioms LeanToLambdaBox.erases_target_lbClosed
+
+-- …and the `mkDef` output fact `Erases.fix`'s `hrarg` needs. `run_mkDef_ok` had four
+-- conjuncts and three destructuring call sites; the fifth fact is stated apart so those are
+-- untouched.
+#print axioms Erasure.run_mkDef_rarg

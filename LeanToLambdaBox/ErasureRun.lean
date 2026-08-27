@@ -1808,6 +1808,25 @@ theorem run_mkDef_ok {nm : Name} {fixvarnames : List Name} {body : LBTerm}
     rw [run_pure] at hp2
     exact nomatch hp2
 
+/-- **…and the def's `principalArgIdx` is the `Basic.lean` default `0`.** `mkDef` never
+sets the field, and `Erases.fix`'s `hrarg` — the premise on which the whole source-β ↔
+target-`fix_guarded` correspondence rests — is exactly this. Stated apart from
+`run_mkDef_ok` so that its three destructuring call sites are untouched (recursion wall,
+slice Γ-W3). -/
+theorem run_mkDef_rarg {nm : Name} {fixvarnames : List Name} {body : LBTerm}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : @FixDef LBTerm} {s₁ : ErasureState} {w₁ : Void IO.RealWorld}
+    (hrun : mkDef nm fixvarnames body s ctx cctx ref w = .ok (r, s₁) w₁) :
+    r.principalArgIdx = 0 := by
+  unfold mkDef at hrun
+  simp only [] at hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨acc, sa, wa, hloop, hp⟩ := hrun
+  rw [run_pure] at hp
+  cases hp
+  rfl
+
 /-- **R10.** -/
 theorem run_modify_forIn_ok {γ : Type} {L : List γ} {g : γ → ErasureState → ErasureState}
     {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
