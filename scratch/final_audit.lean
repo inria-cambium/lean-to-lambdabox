@@ -8,12 +8,17 @@ and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
 reported the same 648 entries it did at `fee3ada`. It has grown six times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
-slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4 and to 750 at slice Γ-W4, with every
-earlier entry's output byte-identical at each step. The projection round's twenty-three
-new entries are **all `sorryAx`-free**; Γ-W4's twenty are too, bar the one that restates a first-order-value
+slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4 and to 772 at slice
+proj-P2, with every earlier entry's output byte-identical at each step. The projection
+round's new entries are **all `sorryAx`-free** bar one — proj-P2's
+`Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
+same `TrProj.uniq` item `erases_strengthen_closed` has carried since `fee3ada`; that slice
+kept the equational `Erases.strengthen_fvlift` beside it precisely so that no declaration
+which was clean stopped being clean, and the 750-entry prefix confirms it. Γ-W4's twenty are
+`sorryAx`-free too, bar the one that restates a first-order-value
 fixture (`envRec_foC`, whose set is its `envFO`/`envδ` siblings' verbatim — the inherited
 unique-typing item, reached through `IsDefEq.uniqU`).
-The crown four did not move at either round.
+The crown four did not move at any of them.
 
 **The Γ-XL wave, closed.** Γ-W0 → Γ-W4 took the recursion wall down from both sides: the
 bridge walks `visitMutual`'s recursive exit (Γ-W3.6b) and the capstones no longer exclude
@@ -3159,6 +3164,112 @@ open LeanToLambdaBox
 --     (three standard + `sorryAx` + the four `Expr`/`PersistentHashMap` modelling axioms),
 --     the bridge keeps its seven and `rec_exit_refines_erases` its six. The `sorryAx` is
 --     still unique typing, inherited, and still not ours.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE proj-P2 — `NoProjBinders`: THE TYPECLASS LAYER STOPS BEING EXCLUDED
+-- ============================================================================
+--
+-- The wall this slice takes down is NOT `Erases` and NOT `TrProj`: since P1 the erasure
+-- relation has a `proj` rule and since `fee3ada` `TrProj` is a real, inhabited definition
+-- (P3). What still excluded every class method was a SCOPE PREDICATE:
+-- `DeltaHyps.esrc_shape` demanded `NoProj pe` of every body the fragment records, and
+-- `NoProj (.proj ..) = False`, while `OfNat.ofNat`'s prepared body IS a projection —
+-- `fun α x self => self.1`. So the field was uninhabitable for the whole
+-- typeclass-dispatch layer no matter what could be derived about it.
+--
+-- (a) WHERE THE PREDICATE IS ACTUALLY SPENT — the measurement that sizes the slice.
+--     `Erases.strengthen_fvlift` THREADS `NoProj` through all sixteen arms but CONSUMES it
+--     at exactly three: a boxed subterm (whole), a λ binder's type, and a `let`'s type and
+--     value — the three positions where `Erases` records a `VExpr` witness an `FVLift` must
+--     match ON THE NOSE. `NoProjBinders` keeps the binder-shaped ones and drops the rest.
+#print axioms LeanToLambdaBox.NoProjBinders
+#print axioms LeanToLambdaBox.NoProj.toNoProjBinders
+#print axioms LeanToLambdaBox.NoProjBinders.toConstructor
+#print axioms LeanToLambdaBox.noProjBinders_foldl_app
+--
+-- (b) THE BOX ARM, RE-PROVED THROUGH DEFEQ. The boxed-subterm position cannot simply be
+--     dropped — a boxed proof may itself contain a projection (`And` is a structure) — so
+--     it is PAID FOR: `TrExprS.uniq` gives a definitional equality where `TrExprS.unique`
+--     gave an equation, and `Erasable.defeq` transports the irrelevance witness along it.
+--     That is the module docstring's own "survivable in `box`, fatal in `lam`" split, cashed.
+--
+--     THE PREMISE COST, AND A DESIGN CLAIM CORRECTED. The design priced this as
+--     "`hΔ' : Δ'.FVWF` strengthens to `VLCtx.WF`" and called it free. It is not obviously
+--     available: `erases_weakFV`'s docstring records that `VLCtx.WF` CANNOT survive this
+--     induction, because the `lam`/`letE` arms descend to `(none, .vlam ty') :: Δ'` and
+--     `Erases.lam` carries no `IsType`. It survives HERE for a reason that lemma has no
+--     analogue of — `hwt`, the small-context translation, is a premise, and lean4lean's
+--     `TrExprS.lam`/`TrExprS.letE` DO record the binder's `IsType`/`HasType`, so the
+--     extended context's `VLocalDecl.WF` is that witness weakened along `W.toCtx`.
+--     `env.Ordered` also strengthens to `env.WF`. Both are held by every caller already.
+#print axioms LeanToLambdaBox.Erases.strengthen_fvlift_binders
+--
+-- (c) TWO LEMMAS, NOT ONE — and this is the whole trust story of the slice.
+--     `TrExprS.uniq` bottoms out in `TrProj.uniq`, still `PROJ-TODO`, so the defeq route
+--     carries `sorryAx` where the equational route does not. Rather than move that reach
+--     into declarations that were clean, the equational `Erases.strengthen_fvlift` is KEPT
+--     verbatim (`NoProj`, `Ordered`, `FVWF`, sorryAx-free) beside the new one, and the two
+--     scopes are split by consumer:
+--       * `erases_strengthen_closed`/`erases_uniform_closed` take `NoProjBinders` and route
+--         through the defeq lemma — they have carried that `sorryAx` since `fee3ada`, so
+--         nothing moves;
+--       * the bridge's recursive exit keeps the equational lemma, because
+--         `BlockHyps.block_lam` keeps `NoProj` for the sibling bodies (below).
+--     MEASURED: the whole audit is BYTE-IDENTICAL across this slice, all 750 earlier
+--     entries, including `Erases.strengthen_fvlift` (three axioms, no `sorryAx`),
+--     `visitExpr_refines_erases` (seven) and `rec_exit_refines_erases` (six).
+#print axioms LeanToLambdaBox.Erases.strengthen_fvlift
+#print axioms LeanToLambdaBox.erases_strengthen_closed
+#print axioms LeanToLambdaBox.erases_uniform_closed
+--
+-- (d) WHERE THE `NoProj` WENT. `DeltaHyps.esrc_shape` now reads `NoProjBinders`; the
+--     strong predicate reappears as the second conjunct of `BlockHyps.block_lam`
+--     ("a block source is a projection-free λ"), keyed on the recursive exit's own
+--     fragment. NOTHING IS NEWLY ASSUMED: it is the same condition `esrc_shape` demanded
+--     of every fragment body before this slice, now demanded only of the recursive ones,
+--     and lifting it is a follow-on slice whose price is exactly the axiom movement (c)
+--     avoids. `BlockHyps.sibling_scope` is where the two bundles' division of labour is
+--     machine-checked, and it is the line that would break.
+#print axioms LeanToLambdaBox.BlockHyps.of_bot
+#print axioms LeanToLambdaBox.BlockHyps.sibling_scope
+#print axioms LeanToLambdaBox.gBlockHyps
+#print axioms LeanToLambdaBox.gBlockLam_nonvacuous
+#print axioms LeanToLambdaBox.gRecEsrcShape
+--
+-- (e) NON-VACUITY, BOTH POLARITIES AND BOTH LEVELS — the S1d/S1e discipline, applied to a
+--     WEAKENING rather than to a new premise. A weakened scope condition is worthless if
+--     it admits nothing new, so the guard is the term the slice exists for:
+--       * SYNTACTIC, at the design's full `fun α x self => self.1`:
+--         `noProjBinders_ofNatBody` holds and `noProj_ofNatBody_refuted` refutes the old
+--         predicate on the same term;
+--       * ENVIRONMENT-LEVEL, in `esrc_shape`'s own shape and at the EMPTY context:
+--         `gEsrcShapeProj` discharges both conjuncts for `MyOfNat.ofNat`'s body over P3's
+--         type-class fixture — a real `TrExprS` through a real `TrProj` — and
+--         `gEsrcShapeProj_noProj_refuted` is the other half.
+--     Without the second, the field would be satisfiable only where the translation
+--     conjunct is vacuous, which is exactly the failure the `envFO` version of
+--     `gRecEsrcShape` was caught in (Γ-W4(e)).
+#print axioms LeanToLambdaBox.noProjBinders_ofNatBody
+#print axioms LeanToLambdaBox.noProj_ofNatBody_refuted
+#print axioms LeanToLambdaBox.trExprSQ_ofNatBody
+#print axioms LeanToLambdaBox.gEsrcShapeProj
+#print axioms LeanToLambdaBox.gEsrcShapeProj_noProj_refuted
+--
+-- (f) THE RESIDUAL CUT, NAMED. `NoProjBinders` still excludes `let y := self.1; …`: the
+--     `letE` clauses stay `NoProj` because `Erases.letE` records BOTH components of the
+--     `.vlet` entry and the body's IH runs at a context mentioning them. Lifting that needs
+--     the depth-indexed `.vlet` surgery `ErasesUniform`'s section note prices and rejects.
+--     It is not a blocker: a prepared class-method body is a λ telescope over a projection,
+--     not a `let` over one. And it cannot be lifted by a re-pin either — equational
+--     uniqueness at `.proj` is FALSE, not unproved, so the binder clauses are permanent.
+--
+-- (g) THE CROWN, UNMOVED. Both capstones keep their eight, the bridge its seven,
+--     `rec_exit_refines_erases` its six. A slice that admits a whole new class of source
+--     terms and changes no axiom set is the outcome (c) was designed for.
 #print axioms LeanToLambdaBox.visitExpr_refines_erases
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
