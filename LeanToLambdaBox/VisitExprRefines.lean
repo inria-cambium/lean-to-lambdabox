@@ -1068,6 +1068,17 @@ theorem ErasureCtx.coh_natPeano {Γ Γ₀ : ErasureCtx}
     (hΓ : Γ = Γ₀.withFixvars Γ.fixvars) : Γ.natPeano = Γ₀.natPeano := by
   rw [hΓ]; rfl
 
+/-- **A step's own `Γ` and the ambient `Γ₀` install the same block** (recursion wall,
+slice Γ-W3): `withFixvars` is idempotent in its argument, so a block entered from a
+motive-local `Γ` lands at exactly the context the ambient premises speak about. This is
+what lets the recursive exit's per-sibling invariant, rebuilt by `BridgeInv.withFixvars`
+from the step's `Γ`, be handed to the erasure IH at `Γ₀.withFixvars fv` — the
+instantiation guard (i''') exhibits. -/
+theorem ErasureCtx.coh_withFixvars {Γ Γ₀ : ErasureCtx}
+    (hΓ : Γ = Γ₀.withFixvars Γ.fixvars) (fv : Name → Option FVarId) :
+    Γ.withFixvars fv = Γ₀.withFixvars fv := by
+  rw [hΓ]; rfl
+
 theorem BridgeHyps.of_coh {env : VEnv} {Us : List Name} {Γ Γ₀ : ErasureCtx}
     {gw : Void IO.RealWorld → NameGenerator} (H : BridgeHyps env Us Γ₀ gw)
     (hΓ : Γ = Γ₀.withFixvars Γ.fixvars) : BridgeHyps env Us Γ gw := by
@@ -1303,6 +1314,269 @@ theorem constantInfo_value!_of_value? {ci : ConstantInfo} {v : Expr}
     (h : ci.value? (allowOpaque := true) = some v) :
     ci.value! (allowOpaque := true) = v := by
   cases ci <;> simp [ConstantInfo.value?, ConstantInfo.value!] at h ⊢ <;> simp [h]
+
+/-! ## The recursive exit, walked
+
+`visitMutual`'s recursive exit mints one fresh fvar per sibling, erases every sibling body
+under a reader carrying the block's fixvar map, closes each result with `mkDef`, and
+registers one `.fix` entry per name. The theorem below walks all four of those loops and
+composes their outputs into the three conjuncts `visitMutual`'s motive reports, at an
+**abstract** eraser `vE` and its motive-1 refinement hypothesis — which is the form step 6
+of `visitExpr_refines_erases_core` would consume, and the form
+`visitMutual_rec_exit_refines_erases` instantiates at the shipping `Erasure.visitExpr`.
+
+What each piece supplies (recursion wall, slice Γ-W3):
+
+* **the id loop** — `Erasure.run_mkFreshFVarId_list` (Γ-W0) against `BridgeHyps.fresh_run`
+  and `BridgeInv.reserved`. `ids.Nodup` is the payoff of the chaining and is what
+  `closeFix_eq_block_fold` and `blockMap_getElem?_inv` both need;
+* **the sibling loop** — `Erasure.run_rec_exit_siblings_chained` (Γ-W0), whose invariant
+  carries the outer δ record and the generator together, so the ambient `BridgeInv` can be
+  rebuilt *at each sibling* from the one the step entered with. The rebuild is
+  `BridgeInv.withFixvars` at `Γ₀.withFixvars fv`, whose `hlp` slot is
+  `BlockHyps.block_lparams` (the exit's inner `withReader … lparams` has to land back at
+  the ambient `Us`) and whose freshness slot is the id loop's output;
+* **the erasure IH at the block-local context** — the instantiation slice Γ-W1 bought and
+  guard (i-triple-prime) exhibits. `Supported.withFixvars` carries the fragment into the
+  block; `ErasureCtx.coh_withFixvars` says the step's own `Γ` enters the same block as `Γ₀`;
+* **the context strengthening to `[]`** — the loop erases each sibling at the *call site's*
+  context (`withReader` moves `fixvars` and `lparams` and leaves the `lctx` alone), while
+  `erases_rec_block_of_run`'s `hopen` demands `[]`. `Erases.strengthen_fvlift` against
+  `BlockHyps.strengthen` is the bridge, and it is the one place the development's single
+  class-R residue enters the induction;
+* **the block's closedness** — `erases_target_lbClosed` (Γ-W3a). Not
+  `visitExpr_noFix_closed`: at an abstract eraser there is no output-shape fact to be had,
+  so closedness is read off the `Erases` derivation instead;
+* **the composition** — `RecBlockErasure.erases_rec_block_of_run`, then
+  `DeltaHyps.RunConclδ.recBlock` for the record and `Erasure.recConstState_get?` for the
+  registration conclusion.
+
+**The one premise that is not discharged here, and why.** `hreg` — "`Γ₀` records *this*
+block for each of its own names" — is `Erases.fix`'s own registration premise, and it
+cannot be derived: `Γ₀` is fixed before the run builds `defs`. It is irreducible at a
+parameter `Γ` (`ColdStartDelta`'s premise ledger says so), and every attempt to hand it to
+step 6 as a bundle field is *refuted*, not merely unproved — see
+`rec_exit_agreement_eraser_quantified_refuted` in the non-vacuity section. So it stays an
+explicit hypothesis, discharged by whoever holds a concrete run. -/
+
+set_option maxHeartbeats 1000000 in
+theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ₀ Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (H : BridgeHyps env Us Γ₀ gw)
+    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (henv : env.Ordered)
+    {vE : Expr → EraseM LBTerm}
+    (ih1 : ∀ (e : Expr) (s : ErasureState) (ctx' : ErasureContext) (w' : Void IO.RealWorld)
+        (t : LBTerm) (s' : ErasureState) (w'' : Void IO.RealWorld),
+      vE e s ctx' cctx ref w' = .ok (t, s') w'' →
+      ∀ (Γ' : ErasureCtx), Γ' = Γ₀.withFixvars Γ'.fixvars →
+      ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' (gw w') ctx' s Δ' → Supported known Γ' e →
+      (∃ ve, TrExprS env Us Δ' e ve) →
+      Erases env Us Γ' Δ' e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w' ≤ gw w'')
+    (hΓ : Γ = Γ₀.withFixvars Γ.fixvars)
+    {names : List Name} {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
+    {w w₁ : Void IO.RealWorld} {u₀ : Unit} {n : Name}
+    (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
+    (hnd : (names.map remove_unsafe_rec).Nodup)
+    (hnmem : n ∈ names.map remove_unsafe_rec)
+    (hinv : BridgeInv env Us known Γ (gw w) ctx s₀ Δ)
+    (hreg : ∀ {ids : List FVarId} {defs : List (@FixDef LBTerm)} {sd : ErasureState}
+        {wi wd : Void IO.RealWorld},
+      ((names.mapM (fun m => do
+          let cim ← getConstInfo m
+          let t ← withReader (fun e => { e with lparams := cim.levelParams })
+            (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); vE pe)
+          mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)) :
+          EraseM (List (@FixDef LBTerm)))
+        s₀ (blockReader (names.map remove_unsafe_rec) ids ctx) cctx ref wi = .ok (defs, sd) wd →
+      ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
+        Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j))
+    (hrun : (do
+        let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
+        withReader
+            (fun e => { e with
+              fixvars := some (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids)) }) (do
+          let defs ← names.mapM (fun m => do
+            let cim ← getConstInfo m
+            let t ← withReader (fun e => { e with lparams := cim.levelParams })
+              (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); vE pe)
+            mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)
+          for p in (names.map remove_unsafe_rec).zipIdx do
+            modify (fun st => { st with
+                constants := st.constants.insert p.1 (toKername p.1),
+                gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls })
+          pure ()) : EraseM Unit) s₀ ctx cctx ref w = .ok (u₀, s₁) w₁) :
+    RunConclδ env Us Γ₀ Esrc s₀ s₁ ∧ gw w ≤ gw w₁ ∧ (s₁.constants.get? n).isSome := by
+  classical
+  -- (1) the id-minting loop: the block's fvars come back `Nodup`, at an unchanged state,
+  -- reserved by the generator and outside the ambient context.
+  rw [run_bind_ok] at hrun
+  obtain ⟨ids, sid, wid, hids, hrun⟩ := hrun
+  obtain ⟨hidlen, hidnd, rfl, hleid, hidres⟩ :=
+    run_mkFreshFVarId_list (gw := gw) (kgen := kernelNGen) (fvs := Δ.fvars)
+      (fun s' ctx' cctx' ref' w' x s'' w'' hf => H.fresh_run s' ctx' cctx' ref' w' x s'' w'' hf)
+      (fun x hx => hinv.reserved x hx) hids
+  have hflen : (names.map remove_unsafe_rec).length = ids.length := by
+    rw [List.length_map, hidlen]
+  -- (2) the sibling loop, then (3) the registration `forIn` and the tail
+  rw [run_withReader, run_bind_ok] at hrun
+  obtain ⟨defs, sd, wd, hdefs, hrun⟩ := hrun
+  rw [run_bind_ok] at hrun
+  obtain ⟨u4, sf, wf, hloop, hrun⟩ := hrun
+  obtain ⟨hsf, rfl⟩ := run_modify_forIn_ok hloop
+  rw [run_pure] at hrun
+  cases hrun
+  -- the fragment pins the ambient context's fixvar map at ⊥ …
+  have hnfv : Γ₀.fixvars = fun _ => none := by
+    obtain ⟨m, hm, rfl⟩ := List.mem_map.mp hnmem
+    exact Hδ.nofixvars (hkn m hm)
+  -- … and the step's own `Γ` enters the same block as `Γ₀` does
+  have hcoh := ErasureCtx.coh_withFixvars (Γ₀ := Γ₀) hΓ
+    (fun nm => (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)
+  -- the block's ids are fresh for the ambient context, at every later world
+  have hfresh : ∀ (w' : Void IO.RealWorld), gw wid ≤ gw w' → ∀ (nm : Name) (x : FVarId),
+      (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]? = some x →
+      (gw w').Reserves x ∧ x ∉ Δ.fvars := by
+    intro w' hle' nm x hx
+    obtain ⟨k, hk, -, rfl⟩ := blockMap_getElem?_inv hnd hflen hx
+    exact ⟨((hidres _ (List.getElem_mem _)).1).mono hle',
+      (hidres _ (List.getElem_mem _)).2.1⟩
+  -- the sibling loop, with the caller's invariant threaded through state and world
+  obtain ⟨hdlen, ⟨hrcd, hled⟩, hpkg⟩ :=
+    run_rec_exit_siblings_chained (vE := vE) (names := names)
+      (fixnames := names.map remove_unsafe_rec)
+      (g := fun ci c => { c with lparams := ci.levelParams })
+      (val := fun ci => ci.value! (allowOpaque := true))
+      (ctx := blockReader (names.map remove_unsafe_rec) ids ctx)
+      (P := fun s' w' => RunConclδ env Us Γ₀ Esrc sid s' ∧ gw wid ≤ gw w')
+      (R := fun m d => ∃ (pe : Expr) (t : LBTerm),
+        Esrc (remove_unsafe_rec m) = some pe ∧ d.body = closeFix ids 0 t ∧
+          d.principalArgIdx = 0 ∧ LBClosed t 0 ∧
+          Erases env Us (Γ₀.withFixvars
+            (fun nm => (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)) [] pe t)
+      (fun hmem hP hci hpr hvis hmk => by
+        obtain ⟨hrcP, hleP⟩ := hP
+        have hknm := hkn _ hmem
+        obtain rfl := run_getConstInfo_state _ _ _ _ _ hci
+        have hleci := Hδ.ci_run hci
+        obtain ⟨hlepr, rfl⟩ := Hδ.prep_run hpr
+        obtain ⟨hlink, hsupp, htr, hlam, hclpe, hfvpe, hnp, ve, hve⟩ :=
+          Hβ.sibling_scope Hδ hknm hci hpr
+        have hlp := Hβ.block_lparams hknm hci
+        have hlewc := NameGenerator.LE.trans hleP (NameGenerator.LE.trans hleci hlepr)
+        -- the invariant travels to the block's reader, at the block-local context
+        have hinvj := ((hinv.mono_state hrcP.rc).mono
+            (NameGenerator.LE.trans hleid hlewc)).withFixvars
+          (known' := known)
+          (fvmap := Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))
+          (ctx' := { blockReader (names.map remove_unsafe_rec) ids ctx with
+            lparams := ‹ConstantInfo›.levelParams })
+          rfl hlp rfl rfl (fun nm x => Iff.rfl) (hfresh _ hlewc)
+        rw [hcoh] at hinvj
+        obtain ⟨her, hrcv, hlev⟩ := ih1 _ _ _ _ _ _ _ hvis _ rfl Δ hinvj
+          (Supported.withFixvars hnfv hsupp _) (htr Δ)
+        -- the sibling body is erased at the call site's `Δ`; the block needs it at `[]`
+        have heropen : Erases env Us (Γ₀.withFixvars
+            (fun nm => (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)) [] _ _ :=
+          Erases.strengthen_fvlift henv Hβ.strengthen her
+            (VLCtx.FVLift.from_nil hinv.noBV) hinv.vlctx_wf.fvwf hnp hve
+        have hclt := erases_target_lbClosed heropen hclpe
+        obtain ⟨-, hdbody, rfl, rfl⟩ := run_mkDef_ok hmk
+        refine ⟨⟨hrcP.trans hrcv, NameGenerator.LE.trans hlewc hlev⟩,
+          _, _, hlink, ?_, run_mkDef_rarg hmk, hclt, heropen⟩
+        rw [hdbody]
+        exact closeFix_eq_block_fold hnd hflen _)
+      ⟨RunConclδ.rfl' _, NameGenerator.LE.rfl⟩ hdefs
+  -- (4) the per-sibling packages, as the lists `erases_rec_block_of_run` consumes
+  have hsel : ∀ (j : Nat) (hj : j < defs.length), ∃ (pe : Expr) (t : LBTerm),
+      Esrc ((names.map remove_unsafe_rec)[j]'(by
+        rw [List.length_map, ← hdlen]; exact hj)) = some pe ∧
+      (defs[j]'hj).body = closeFix ids 0 t ∧ (defs[j]'hj).principalArgIdx = 0 ∧
+      LBClosed t 0 ∧
+      Erases env Us (Γ₀.withFixvars (fun nm =>
+        (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)) [] pe t := by
+    intro j hj
+    obtain ⟨d, hd, hR⟩ := hpkg j (by omega)
+    obtain rfl : d = defs[j]'hj := by
+      rw [List.getElem?_eq_getElem hj] at hd; exact (Option.some.inj hd).symm
+    rw [List.getElem_map]
+    exact hR
+  obtain ⟨srcf, objf, hspec⟩ : ∃ (srcf : ∀ (j : Nat), j < defs.length → Expr)
+      (objf : ∀ (j : Nat), j < defs.length → LBTerm),
+      ∀ (j : Nat) (hj : j < defs.length),
+        Esrc ((names.map remove_unsafe_rec)[j]'(by
+          rw [List.length_map, ← hdlen]; exact hj)) = some (srcf j hj) ∧
+        (defs[j]'hj).body = closeFix ids 0 (objf j hj) ∧
+        (defs[j]'hj).principalArgIdx = 0 ∧ LBClosed (objf j hj) 0 ∧
+        Erases env Us (Γ₀.withFixvars (fun nm =>
+          (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)) []
+          (srcf j hj) (objf j hj) :=
+    ⟨fun j hj => (hsel j hj).choose, fun j hj => ((hsel j hj).choose_spec).choose,
+      fun j hj => ((hsel j hj).choose_spec).choose_spec⟩
+  have hlinkf : ∀ (j : Nat) (hj : j < defs.length), _ := fun j hj => (hspec j hj).1
+  have hclosef : ∀ (j : Nat) (hj : j < defs.length), _ := fun j hj => (hspec j hj).2.1
+  have hrargf : ∀ (j : Nat) (hj : j < defs.length), _ := fun j hj => (hspec j hj).2.2.1
+  have hclf : ∀ (j : Nat) (hj : j < defs.length), _ := fun j hj => (hspec j hj).2.2.2.1
+  have hopenf : ∀ (j : Nat) (hj : j < defs.length), _ := fun j hj => (hspec j hj).2.2.2.2
+  have hknames : ∀ m : Name, Γ₀.constants m = toKername m := by
+    intro m; rw [← ErasureCtx.coh_constants hΓ]; exact hinv.knames m
+  have hknfix : ∀ (j : Nat) (hj : j < (names.map remove_unsafe_rec).length),
+      known ((names.map remove_unsafe_rec)[j]'hj) := by
+    intro j hj
+    rw [List.getElem_map]
+    exact hkn _ (List.getElem_mem _)
+  -- (5) the block's erasure, at the ambient context
+  have hblock := erases_rec_block_of_run (env := env) henv (Γ := Γ₀) hnfv
+    (fv := fun nm => (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids))[nm]?)
+    (fixnames := names.map remove_unsafe_rec) (ids := ids)
+    (srcs := List.ofFn (fun j : Fin defs.length => srcf j.1 j.2))
+    (obodies := List.ofFn (fun j : Fin defs.length => objf j.1 j.2))
+    (defs := defs)
+    (by rw [List.length_map, hdlen]) (by omega) (by simp) (by simp) hidnd
+    (fun j h => by obtain ⟨h', hh⟩ := hreg hdefs j h; exact hh)
+    (fun nm x hx => by
+      obtain ⟨k, hk, h1, h2⟩ := blockMap_getElem?_inv hnd hflen hx
+      rw [List.length_map] at hk
+      exact ⟨k, by omega, h1, h2⟩)
+    (fun d hd => by obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hd; exact hrargf j hj)
+    (fun j => lbClosed_fix_of_bodies (k := defs.length) rfl (fun d hd => by
+      obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hd
+      rw [hclosef i hi, closeFix, closeFixFold_eq_foldl]
+      have hcl := lbClosed_foldl_zipIdx ids (hclf i hi)
+      rw [show ids.length = defs.length from by omega] at hcl
+      exact hcl) j)
+    (fun j h => by simp only [List.getElem_ofFn]; exact hclf j h)
+    (fun j h => by simp only [List.getElem_ofFn]; exact hclosef j h)
+    (fun j h => by
+      simp only [List.getElem_ofFn]
+      exact Hβ.block_lam (hknfix j _) (hlinkf j h))
+    (fun j h => by
+      simp only [List.getElem_ofFn]
+      obtain ⟨-, ve, hve⟩ := Hδ.esrc_shape (hlinkf j h)
+      simpa [VLCtx.bvars] using hve.closed)
+    (fun j h => by
+      simp only [List.getElem_ofFn]
+      obtain ⟨-, ve, hve⟩ := Hδ.esrc_shape (hlinkf j h)
+      exact hve.fvarsIn.mono (by simp))
+    (fun j h => by simp only [List.getElem_ofFn]; exact hopenf j h)
+    Hβ.nonest
+  -- (6) the δ record grows by the whole block at once
+  have hrecδ : RunConclδ env Us Γ₀ Esrc sd
+      (Erasure.recConstState (names.map remove_unsafe_rec) defs sd) := by
+    refine RunConclδ.recBlock (fun j hj => hknames _) (fun j hj m hm hEq => ?_)
+      (fun j hj body hb => ?_)
+    · exact Hδ.kinj (Hδ.esrc_sub hm) (hknfix j hj) hEq
+    · have hj' : j < defs.length := by rw [List.length_map] at hj; omega
+      obtain rfl : body = srcf j hj' := by
+        rw [hlinkf j hj'] at hb; exact (Option.some.inj hb).symm
+      refine ⟨[], trivial, rfl, ?_⟩
+      have := hblock j hj' []
+      simpa only [List.getElem_ofFn] using this
+  refine ⟨?_, NameGenerator.LE.trans hleid hled, ?_⟩
+  · rw [hsf]; exact hrcd.trans hrecδ
+  · rw [hsf]; exact recConstState_get? hnmem
 
 /-! ## The main induction -/
 
@@ -2024,18 +2298,27 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
              case isFalse hnr =>
                -- (6c) the recursive exit is out of the fragment: `DeltaHyps.nonrecursive` says
                -- the value does not mention `n`, which forces `nonrecursive` true. That
-               -- field is now the *last* thing refuting this branch. The structural
-               -- obstruction `bridgeInv_blockReader_refuted` records — the erasure IH being
-               -- unusable at the block's own reader — is gone as of slice Γ-W1, since the
-               -- motive `ih1` above is quantified over `Γ` and can be instantiated at
-               -- `Γ₀.withFixvars fv`; the block-local scope supply is `DeltaHyps.BlockHyps`
-               -- (Γ-W2); and the *layering* obstruction is gone too, since `Γ-W2` moved
-               -- `erases_rec_block_of_run`, `blockMap_getElem?_inv` and
-               -- `closeFix_eq_block_fold` into `RecBlockErasure.lean`, below this file.
-               -- What remains is to write the walk itself — `run_mkFreshFVarId_list`,
-               -- `run_rec_exit_siblings_chained`, `erases_rec_block_of_run`,
-               -- `RunConclδ.recBlock` — and to drop `nonrecursive`. Every one of those
-               -- names is in scope here.
+               -- field is still the *last* thing refuting this branch — but what it is
+               -- standing in front of has changed, and slice Γ-W3 measured exactly what.
+               --
+               -- The walk itself is WRITTEN and machine-checked: `rec_exit_refines_erases`
+               -- above takes an abstract eraser and its motive-1 refinement hypothesis —
+               -- which is precisely what `ih1` is here — and derives all three conjuncts of
+               -- this motive from the two loops, the per-sibling `BridgeInv` rebuild at the
+               -- block-local `Γ₀.withFixvars fv` (Γ-W1's instantiation, guard (i''')), the
+               -- `Δ → []` strengthening, `erases_rec_block_of_run` and `RunConclδ.recBlock`.
+               -- Guard (iv') fires it at the shipping eraser through this very induction.
+               --
+               -- ONE premise of that theorem is not dischargeable here, and it is not a
+               -- matter of more work: `hreg`, the agreement that `Γ₀` records *this* block
+               -- for its own names, is `Erases.fix`'s own registration premise, and `Γ₀` is
+               -- fixed before the run builds `defs`. Handing it to this step as a bundle
+               -- field means quantifying it over the induction's abstract eraser, and
+               -- `rec_exit_agreement_eraser_quantified_refuted` shows every such phrasing is
+               -- *contradictory* — two erasers, two blocks, one `Γ₀.recBodies`. So the last
+               -- premise standing is a `Γ`-side agreement a caller with a concrete run
+               -- supplies, not another scope field; see the `ColdStart` ledger's `hnorec`
+               -- row for where that leaves the trade.
                exact absurd (by
                  simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
              case isTrue =>
@@ -3013,6 +3296,97 @@ theorem bridgeInv_rec_exit_reader_refuted {env : VEnv} {Us : List Name} {known :
     ¬ BridgeInv env Us known Γ gen
         { ctx with fixvars := some (Std.HashMap.ofList ([n].zip [x])) } s Δ :=
   bridgeInv_blockReader_refuted (nm := n) (x := x) hnfv rfl (by simp)
+
+/-- **(iv') The recursive exit's walk fires at the shipping eraser** (recursion wall,
+slice Γ-W3), and this is the guard that says so: `rec_exit_refines_erases` is stated at an
+abstract eraser and its motive-1 refinement hypothesis, and the induction's own conclusion
+is exactly such a hypothesis. So the walk composes with `visitExpr_refines_erases_core`
+into the three conjuncts `visitMutual`'s motive reports, with no premise left over except
+the two the file's other guards also leave hypothetical (the run, the trust bundles) and
+the one this slice found irreducible (`hreg`, below).
+
+Read together with the refutation beneath it, this is the exact statement of where the
+recursion wall now stands: everything the composition needs is *derived* — the two loops,
+the per-sibling invariant rebuild at the block-local context, the context strengthening,
+the block's closedness, the δ record's extension step — and one registration agreement is
+*assumed*, at a caller who holds a concrete run. -/
+example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env Us known Γ₀ Esrc gw cc rf)
+    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (henv : env.Ordered)
+    {names : List Name} {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
+    {w w₁ : Void IO.RealWorld} {u₀ : Unit} {n : Name}
+    (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
+    (hnd : (names.map remove_unsafe_rec).Nodup)
+    (hnmem : n ∈ names.map remove_unsafe_rec)
+    (hinv : BridgeInv env Us known Γ₀ (gw w) ctx s₀ Δ)
+    (hreg : ∀ {ids : List FVarId} {defs : List (@FixDef LBTerm)} {sd : ErasureState}
+        {wi wd : Void IO.RealWorld},
+      ((names.mapM (fun m => do
+          let cim ← getConstInfo m
+          let t ← withReader (fun e => { e with lparams := cim.levelParams })
+            (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); Erasure.visitExpr pe)
+          mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)) :
+          EraseM (List (@FixDef LBTerm)))
+        s₀ (blockReader (names.map remove_unsafe_rec) ids ctx) cctx ref wi = .ok (defs, sd) wd →
+      ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
+        Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j))
+    (hrun : (do
+        let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
+        withReader
+            (fun e => { e with
+              fixvars := some (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids)) }) (do
+          let defs ← names.mapM (fun m => do
+            let cim ← getConstInfo m
+            let t ← withReader (fun e => { e with lparams := cim.levelParams })
+              (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); Erasure.visitExpr pe)
+            mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)
+          for p in (names.map remove_unsafe_rec).zipIdx do
+            modify (fun st => { st with
+                constants := st.constants.insert p.1 (toKername p.1),
+                gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls })
+          pure ()) : EraseM Unit) s₀ ctx cctx ref w = .ok (u₀, s₁) w₁) :
+    RunConclδ env Us Γ₀ Esrc s₀ s₁ ∧ gw w ≤ gw w₁ ∧ (s₁.constants.get? n).isSome :=
+  rec_exit_refines_erases H (Hδ cctx ref) Hβ henv
+    (fun e s ctx' w' t s' w'' hr => (visitExpr_refines_erases_core H HD C Hδ henv).1
+      e s ctx' cctx ref w' t s' w'' hr)
+    (ErasureCtx.withFixvars_self Γ₀).symm hkn hnd hnmem hinv hreg hrun
+
+/-- **…and why step 6 of the induction still cannot supply `hreg` itself** (slice Γ-W3) —
+the refutation, in the house style of `bridgeInv_blockReader_refuted`.
+
+Inside `visitExpr_refines_erases_core` the eraser is the induction's *abstract* fixpoint
+argument, so a premise that pins the block the recursive exit builds must quantify over
+that argument. Any such premise is **contradictory**, not merely strong: two erasers that
+disagree on one sibling's target hand back two different blocks, and `Γ₀.recBodies` can
+record only one of them. A `BlockHyps` field of that shape would therefore be vacuously
+satisfiable exactly where the slice needs it — the failure mode slice S1e cost +776/−269
+to repair, and the reason this premise is *not* in the bundle.
+
+`P` is left abstract: the argument turns only on the agreement being a function of the
+eraser, so it refutes every phrasing at once. -/
+theorem rec_exit_agreement_eraser_quantified_refuted {Γ₀ : ErasureCtx} {n : Name}
+    {P : (Expr → EraseM LBTerm) → List (@FixDef LBTerm) → Prop}
+    (hagree : ∀ (vE : Expr → EraseM LBTerm) (d : List (@FixDef LBTerm)), P vE d →
+      Γ₀.recBodies n = some (d, 0))
+    {vE₁ vE₂ : Expr → EraseM LBTerm} {d₁ d₂ : List (@FixDef LBTerm)}
+    (h₁ : P vE₁ d₁) (h₂ : P vE₂ d₂) (hne : d₁ ≠ d₂) : False := by
+  have e₁ := hagree _ _ h₁
+  have e₂ := hagree _ _ h₂
+  rw [e₁] at e₂
+  exact hne (by simpa using Option.some.inj e₂)
+
+/-- The instance: two erasers really do give different blocks. `mkDef` copies its body
+argument through `closeFix`, and `closeFix` is the identity on the two closed leaves an
+eraser can return, so a `.box`-returning eraser and a `.const`-returning one disagree on
+the nose. -/
+theorem rec_exit_block_ne_of_body_ne (x : FVarId) (kn : Kername) :
+    closeFix [x] 0 (.box : LBTerm) ≠ closeFix [x] 0 (.const kn) := by
+  simp [closeFix, closeFixFold, toBvar]
 
 /-- **(i''') The new `Γ` binder is load-bearing** (slice Γ-W1), and this is the guard that
 says so: the core's erasure conjunct is available at an arbitrary **block-local** context

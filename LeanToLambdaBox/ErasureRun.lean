@@ -2592,6 +2592,27 @@ theorem runConcl_recConstState (names : List Name) (defs : List (@FixDef LBTerm)
     (s : ErasureState) : RunConcl s (recConstState names defs s) :=
   runConcl_foldl_recConstStep defs names.zipIdx s
 
+/-- **…and every name the *recursive* exit registers is in the registry afterwards.** The
+block's `forIn` inserts one name per sibling, under `names.map remove_unsafe_rec`, so the
+registration conclusion of `visitMutual`'s motive holds at each of them (recursion wall,
+slice Γ-W3). Stated over the `(name, index)` list the fold actually walks. -/
+theorem foldl_recConstStep_get? (defs : List (@FixDef LBTerm)) :
+    ∀ (L : List (Name × Nat)) (s : ErasureState) {m : Name}, m ∈ L.map Prod.fst →
+      ((L.foldl (recConstStep defs) s).constants.get? m).isSome
+  | [], _, _, hm => by simp at hm
+  | p :: rest, s, m, hm => by
+      simp only [List.map_cons, List.mem_cons] at hm
+      rcases hm with rfl | hm'
+      · exact (runConcl_foldl_recConstStep defs rest _).le.consts
+          (nonrecConstState_get? _ _ _)
+      · exact foldl_recConstStep_get? defs rest _ hm'
+
+theorem recConstState_get? {names : List Name} {defs : List (@FixDef LBTerm)}
+    {s : ErasureState} {m : Name} (hm : m ∈ names) :
+    ((recConstState names defs s).constants.get? m).isSome := by
+  rw [recConstState_eq]
+  exact foldl_recConstStep_get? defs names.zipIdx s (by simpa using hm)
+
 /-! #### The two block loops, chained
 
 `run_rec_exit_ok'` above propagates a predicate through the recursive exit and hands back

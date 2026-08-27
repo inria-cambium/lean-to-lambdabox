@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Erases
+import LeanToLambdaBox.Abstract
 
 /-!
 # `LBClosed` + the de-Bruijn commutation kit for `LBTerm`
@@ -728,3 +729,143 @@ theorem LBTerm.substList_reverse_subst (f : LBTerm) :
         ih hrest (d + 1) u]
       simp only [LBTerm.subst1]
       rw [LBTerm.subst_subst f g _ d, hg.subst_eq (Nat.zero_le d) f]
+
+/-! ## Part 5 — `LBClosed` under `toBvar` and the binder-closing folds
+
+`Erasure.mkAlt` and `Erasure.mkDef` close a body over free variables by folding `toBvar`
+at successive levels, and `closeFix` is the `mkDef` fold in de-Bruijn form
+(`FixMetatheory.closeFixFold_eq_foldl`). The closedness arithmetic of that fold is the
+last thing the recursive exit's `Erases.fix` composition needs of the block it built:
+`hoclosed` is about one opened body, `hfclosed` about the closed `.fix` node, and the
+step between them is `lbClosed_foldl_zipIdx`.
+
+**Relocated here at slice Γ-W3**, verbatim, from `OutputShape.lean`. That file sits below
+`ErasesCorrectData` and is imported only by `ColdStartInduction`, i.e. strictly downstream
+of the bridge — the same layering objection slice Γ-W2c met, answered the same way. These
+are pure `LBTerm` facts about `toBvar`; they need only `Closed` and `Abstract`, and
+`OutputShape` re-acquires them transitively, so no consumer moves. -/
+
+theorem lbClosed_toBvar {t : LBTerm} (x : FVarId) :
+    ∀ (k : Nat), LBClosed t k → LBClosed (toBvar x k t) (k + 1) := by
+  induction t using LBTerm.recData with
+  | hbox => intro k _; simp [toBvar]
+  | hbvar i => intro k h; simp only [toBvar]; simp only [LBClosed_bvar] at h ⊢; omega
+  | hfvar y =>
+    intro k _
+    simp only [toBvar]
+    split
+    · simp
+    · simp
+  | hconst kn => intro k _; simp [toBvar]
+  | hprim p => intro k _; simp [toBvar]
+  | hlam nm b ih => intro k h; simpa [toBvar] using ih (k + 1) h
+  | hletIn nm v b ihv ihb =>
+    intro k h
+    obtain ⟨hv, hb⟩ := h
+    exact ⟨ihv k hv, ihb (k + 1) hb⟩
+  | happ f a ihf iha =>
+    intro k h
+    obtain ⟨hf, ha⟩ := h
+    exact ⟨ihf k hf, iha k ha⟩
+  | hconstruct iid c args ih =>
+    intro k h
+    rw [LBClosed_construct, LBClosedArgs_iff] at h
+    rw [toBvar, toBvarArgs_eq_map, LBClosed_construct, LBClosedArgs_iff]
+    intro a hmem
+    simp only [List.mem_map] at hmem
+    obtain ⟨a', hmem', rfl⟩ := hmem
+    exact ih a' hmem' k (h a' hmem')
+  | hcase info discr alts ihd iha =>
+    intro k h
+    obtain ⟨hd, ha⟩ := h
+    rw [LBClosedAlts_iff] at ha
+    obtain ⟨iid, np⟩ := info
+    refine ⟨ihd k hd, ?_⟩
+    rw [toBvarAlts_eq_map, LBClosedAlts_iff]
+    intro a hmem
+    simp only [List.mem_map] at hmem
+    obtain ⟨a', hmem', rfl⟩ := hmem
+    have hcl := iha a' hmem' (k + a'.1.length) (ha a' hmem')
+    have heq : k + 1 + a'.1.length = k + a'.1.length + 1 := by omega
+    rw [heq]
+    exact hcl
+  | hproj p e ih => intro k h; exact ih k h
+  | hfix defs i ih =>
+    intro k h
+    rw [LBClosed_fix, LBClosedDefs_iff] at h
+    rw [toBvar, LBClosed_fix, LBClosedDefs_iff, toBvarDefs_length]
+    intro d hmem
+    rw [toBvarDefs_eq_map] at hmem
+    simp only [List.mem_map] at hmem
+    obtain ⟨d', hmem', rfl⟩ := hmem
+    have := ih d' hmem' (k + defs.length) (h d' hmem')
+    simpa [Nat.add_right_comm] using this
+
+theorem lbClosed_foldl_toBvar :
+    ∀ (L : List (FVarId × Nat)) {t : LBTerm} (k : Nat),
+      (∀ (j : Nat) (h : j < L.length), (L[j]'h).2 = k + j) → LBClosed t k →
+      LBClosed (L.foldl (fun b p => toBvar p.1 p.2 b) t) (k + L.length)
+  | [], t, k, _, h => by simpa using h
+  | p :: rest, t, k, hidx, h => by
+    have hp : p.2 = k := by
+      have h0 := hidx 0 (by simp)
+      simp only [List.getElem_cons_zero, Nat.add_zero] at h0
+      exact h0
+    have hstep : LBClosed (toBvar p.1 p.2 t) (k + 1) := by
+      rw [hp]; exact lbClosed_toBvar p.1 k h
+    have hrest : ∀ (j : Nat) (hj : j < rest.length), (rest[j]'hj).2 = (k + 1) + j := by
+      intro j hj
+      have := hidx (j + 1) (by simpa using Nat.succ_lt_succ hj)
+      simpa [Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+    have := lbClosed_foldl_toBvar rest (k + 1) hrest hstep
+    simpa [List.foldl_cons, Nat.add_assoc, Nat.add_comm, Nat.add_left_comm] using this
+
+/-- The instance the erasure family actually uses: closing over `xs.reverse.zipIdx`
+takes a body closed at `0` to one closed at `xs.length`. -/
+theorem lbClosed_foldl_zipIdx {t : LBTerm} (xs : List FVarId) (h : LBClosed t 0) :
+    LBClosed (xs.reverse.zipIdx.foldl (fun b p => toBvar p.1 p.2 b) t) xs.length := by
+  have hidx : ∀ (j : Nat) (hj : j < xs.reverse.zipIdx.length),
+      (xs.reverse.zipIdx[j]'hj).2 = 0 + j := by
+    intro j hj
+    simp only [List.length_zipIdx] at hj
+    rw [List.getElem_zipIdx]
+  have := lbClosed_foldl_toBvar xs.reverse.zipIdx 0 hidx h
+  simpa using this
+
+/-- The `mkDef` instance: the block-closing fold indexes its binders by *name* and looks
+each one up in the reader's fixvar map (`Erasure.mkDef` folds
+`toBvar (ctx.fixvars.get![n]!) i`), so the closing list is a `List (Name × Nat)` seen
+through a lookup function. The closedness arithmetic is the same as
+`lbClosed_foldl_zipIdx`'s: a body closed at `0` closes at the binder count. -/
+theorem lbClosed_foldl_zipIdx_map {α : Type} {t : LBTerm} (fv : α → FVarId) (xs : List α)
+    (h : LBClosed t 0) :
+    LBClosed (xs.reverse.zipIdx.foldl (fun b p => toBvar (fv p.1) p.2 b) t) xs.length := by
+  have hmap : xs.reverse.zipIdx.foldl (fun b p => toBvar (fv p.1) p.2 b) t
+      = (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))).foldl
+          (fun b q => toBvar q.1 q.2 b) t := by
+    rw [List.foldl_map]
+  rw [hmap]
+  have hidx : ∀ (j : Nat) (hj : j < (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))).length),
+      (((xs.reverse.zipIdx.map (fun p => (fv p.1, p.2)))[j]'hj)).2 = 0 + j := by
+    intro j hj
+    rw [List.getElem_map]
+    simp only []
+    rw [List.getElem_zipIdx]
+  have := lbClosed_foldl_toBvar (xs.reverse.zipIdx.map (fun p => (fv p.1, p.2))) 0 hidx h
+  simpa using this
+
+/-! ### A `.fix` node's own closedness
+
+`LBClosed (.fix defs j) 0` is `LBClosedDefs defs defs.length`: each definition's body is
+closed *below the block's own binders*, one per definition. It is therefore **not** a
+property of an arbitrary `defs` — `[{ body := .bvar 5 }]` is a counterexample — but of a
+block whose bodies were closed over exactly the block's names, which is what
+`Erasure.mkDef` does. -/
+
+/-- A block of bodies closed at the block's own size is a closed `.fix` node, at every
+index (including out-of-range ones, which `LBClosed` does not constrain). -/
+theorem lbClosed_fix_of_bodies {defs : List (@FixDef LBTerm)} {k : Nat}
+    (hlen : defs.length = k) (h : ∀ d ∈ defs, LBClosed d.body k) (j : Nat) :
+    LBClosed (.fix defs j) 0 := by
+  rw [LBClosed_fix, Nat.zero_add, LBClosedDefs_iff, hlen]
+  exact h

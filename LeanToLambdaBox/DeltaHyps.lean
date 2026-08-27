@@ -235,11 +235,24 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 
   **Status.** That generalisation landed at slice Γ-W1: the motives do quantify `Γ`, and
   guard (i''') derives the core's erasure conjunct at an arbitrary block-local
-  `Γ₀.withFixvars fv`. The foundations for the walk landed at Γ-W0 and the block-local
-  scope supply at Γ-W2 (`BlockHyps`). This field is once again the *only* thing refuting
-  the exit — which is what δ-D8e split it out to be — and dropping it is now a matter of
-  writing the branch, not of another structural change. See the `ColdStart` ledger's
-  `hnorec` row. -/
+  `Γ₀.withFixvars fv`. The foundations for the walk landed at Γ-W0, the block-local scope
+  supply at Γ-W2 (`BlockHyps`), and the walk itself at Γ-W3
+  (`VisitExprRefines.rec_exit_refines_erases`, which derives all three conjuncts of motive
+  6 from an abstract eraser and its motive-1 refinement hypothesis — the shape step 6
+  holds).
+
+  **What this field is now standing in front of, and why it did not move at Γ-W3.** Not a
+  missing lemma. `rec_exit_refines_erases` leaves exactly one premise undischarged —
+  `hreg`, the agreement that `Γ` records *this* block for its own names, which is
+  `Erases.fix`'s own registration premise. `Γ` is fixed before the run builds `defs`, and
+  any premise that pins the block inside the induction must quantify over the induction's
+  *abstract* eraser; every such phrasing is **contradictory**, since two erasers hand back
+  two different blocks and `Γ.recBodies` records one
+  (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). A `BlockHyps` field of
+  that shape would be vacuously satisfiable exactly where it is needed — the S1d/S1e
+  failure mode — so it is not in the bundle, and this field keeps the branch closed until
+  the agreement is staged somewhere a caller with a concrete run can discharge it. See the
+  `ColdStart` ledger's `hnorec` row. -/
   nonrecursive : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v : Expr}
       {w w₁ : Void IO.RealWorld},
     known n →

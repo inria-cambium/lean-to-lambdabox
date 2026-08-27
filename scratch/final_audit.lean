@@ -2608,3 +2608,53 @@ open LeanToLambdaBox
 -- conjuncts and three destructuring call sites; the fifth fact is stated apart so those are
 -- untouched.
 #print axioms Erasure.run_mkDef_rarg
+
+-- (b) THE WALK ITSELF. `rec_exit_refines_erases` takes the recursive exit's run at an
+-- ABSTRACT eraser together with that eraser's motive-1 refinement hypothesis — which is
+-- exactly the shape step 6 of `visitExpr_refines_erases_core` holds — and derives all
+-- three conjuncts of `visitMutual`'s motive. Everything the design listed as W3 content is
+-- discharged: the id loop (`run_mkFreshFVarId_list`, whose `Nodup` output feeds both block
+-- lookups), the chained sibling loop (`run_rec_exit_siblings_chained`), the per-sibling
+-- `BridgeInv` rebuild at the block-local `Γ₀.withFixvars fv` (`BridgeInv.withFixvars` +
+-- `ErasureCtx.coh_withFixvars` + `BlockHyps.block_lparams`), the erasure IH invoked THERE
+-- (Γ-W1's instantiation, guard (i''')), `Supported.withFixvars`, the `Δ → []`
+-- strengthening (`Erases.strengthen_fvlift` against `BlockHyps.strengthen`),
+-- `erases_rec_block_of_run`, `RunConclδ.recBlock`, and the registration conclusion
+-- (`Erasure.recConstState_get?`).
+--
+-- Its axiom set is a SUBSET of the core theorem's: no `sorryAx`, and the three
+-- `Persistent*` modeling axioms it inherits are the ones every run-lemma consumer carries.
+#print axioms LeanToLambdaBox.ErasureCtx.coh_withFixvars
+#print axioms Erasure.recConstState_get?
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+
+-- (c) AND THE ONE PREMISE THAT DID NOT FALL, with its refutation.
+--
+-- `hreg` — "`Γ₀` records *this* block for each of its own names" — is `Erases.fix`'s own
+-- registration premise. `Γ₀` is fixed before the run builds `defs`, which
+-- `ColdStartDelta`'s ledger already called irreducible AT A PARAMETER `Γ`; Γ-W3 confirms
+-- it one level further in. Inside the induction the eraser is the abstract fixpoint
+-- argument, so any premise pinning the block must quantify over it — and every such
+-- phrasing is CONTRADICTORY, not merely strong: two erasers hand back two different
+-- blocks and `Γ₀.recBodies` records one. A `BlockHyps` field of that shape would be
+-- vacuously satisfiable exactly where the slice needs it, which is the S1d/S1e failure
+-- mode the repo priced at +776/−269. So it stays an explicit hypothesis of the walk,
+-- discharged by a caller who holds a concrete run.
+--
+-- TWO DESIGN ROWS FALSIFIED on the way, both about where a fact comes from:
+--   * `hoclosed` was routed to `ColdStartInduction.visitExpr_noFix_closed`, "no
+--     hypotheses". Unavailable twice over inside the induction — wrong layer, and no
+--     motive carries an output shape. Replaced by `erases_target_lbClosed` (Γ-W3a);
+--   * `hrarg` was assumed to come from `Erasure.run_mkDef_ok`, which does not state it.
+--     `Erasure.run_mkDef_rarg` does (Γ-W3a).
+#print axioms LeanToLambdaBox.rec_exit_agreement_eraser_quantified_refuted
+#print axioms LeanToLambdaBox.rec_exit_block_ne_of_body_ne
+
+-- (d) THE MOVE. `lbClosed_toBvar` and the binder-closing folds lived in `OutputShape.lean`,
+-- which sits below `ErasesCorrectData` and is imported only by `ColdStartInduction` — i.e.
+-- strictly downstream of the bridge, the same layering objection Γ-W2c met. Relocated
+-- verbatim into `Closed.lean` (which gains one import, `Abstract`, already in the bridge's
+-- closure), so `OutputShape` re-acquires them transitively and no consumer moves.
+#print axioms LeanToLambdaBox.lbClosed_toBvar
+#print axioms LeanToLambdaBox.lbClosed_foldl_zipIdx
+#print axioms LeanToLambdaBox.lbClosed_fix_of_bodies

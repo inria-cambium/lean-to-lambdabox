@@ -207,7 +207,32 @@ below, three ways.
    §H benchmarks need, which is the opposite of a restriction. And one item the list did
    not have at all: the four block results lived **downstream** of `VisitExprRefines`, so
    step 6 could not call them; Γ-W2 moved their cone into `RecBlockErasure.lean`, verbatim,
-   below the bridge. What is left is the branch itself.
+   below the bridge.
+
+   **And the branch itself, after Γ-W3 — the walk is written, and one premise is not
+   dischargeable inside the induction.** `VisitExprRefines.rec_exit_refines_erases` walks
+   the exit at an *abstract* eraser and its motive-1 refinement hypothesis, which is
+   exactly the shape step 6 holds, and derives all three conjuncts of `visitMutual`'s
+   motive: the two loops, the per-sibling `BridgeInv` rebuild at the block-local
+   `Γ₀.withFixvars fv`, the `Δ → []` strengthening, `erases_rec_block_of_run` and
+   `RunConclδ.recBlock`. Guard (iv') fires it at the shipping eraser through the induction
+   itself. Two rows of the list above were *wrong* about where facts come from, and both
+   were repaired in `RecBlockErasure`/`Closed`: the block bodies' de-Bruijn closedness is
+   **not** `ColdStartInduction.visitExpr_noFix_closed` — at an abstract eraser no output
+   shape exists, and no motive carries one — but `erases_target_lbClosed`, read off the
+   `Erases` derivation; and `Erases.fix`'s `hrarg` needed `Erasure.run_mkDef_rarg`, which
+   `run_mkDef_ok` did not state.
+
+   What is left is **one premise, and it is irreducible rather than unproved**: `hreg`,
+   the agreement that `Γ` records *this* block for its own names. `Γ` is fixed before the
+   run builds `defs`, so no `Γ`-side or run-side premise inside the induction can pin it,
+   and every phrasing that quantifies it over the induction's abstract eraser is
+   *contradictory* — two erasers, two blocks, one `Γ.recBodies`
+   (`VisitExprRefines.rec_exit_agreement_eraser_quantified_refuted`). That is why the
+   branch is still refuted by `DeltaHyps.nonrecursive`, and it is a different reason from
+   every earlier one: not a missing lemma, a missing generalisation or a layering
+   accident, but the same irreducibility `ColdStartDelta`'s ledger already names for
+   `hreg` at a parameter `Γ`, met one level further in.
 
    The capstone half cannot be landed ahead of that producer either, and for a reason that
    is not effort: it would replace a named scope restriction with an *uninhabited* premise.
