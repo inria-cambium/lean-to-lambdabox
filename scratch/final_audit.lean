@@ -6,13 +6,16 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown nine times since:
+reported the same 648 entries it did at `fee3ada`. It has grown ten times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
-proj-P2, to 800 at slices proj-P5/P6/P7 and to 818 at slice proj-P8, with every earlier
-entry's output byte-identical at each step — at proj-P8 the whole 800-entry prefix is,
+proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8 and to 850 at slice
+proj-P9, with every earlier
+entry's output byte-identical at each step — at proj-P8 and proj-P9 the whole inherited
+prefix is (800 and 818 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
-a premise to 33 signatures had to earn. The projection round's model-layer entries are **all
+a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
+The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
 same `TrProj.uniq` item `erases_strengthen_closed` has carried since `fee3ada`; that slice
@@ -3474,3 +3477,134 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE proj-P9 — THE REGISTRY COMPOSITION, AND `hnoprojs` DIES
+-- ============================================================================
+--
+-- The round's last slice, and the only one whose subject is the cold start rather than
+-- the model. P5/P6/P7 gave the ι simulation three projection premises; P8 gave the bridge
+-- the fourth bundle; both landed with the cold-start ι capstone stated at a
+-- STRUCTURE-FREE Γ, because the registry invariant had no `Γ.projs` column and two of the
+-- three premises are environment records that have to come off it. This slice grows the
+-- column and deletes the restriction.
+--
+-- (a) THE INVARIANT'S NEW ROW. Two scoped records, `RegisteredProjsOn` and
+--     `RegisteredProjCtorFieldsOn`, keyed on `Γ.projs` where `cases`/`fields` are keyed on
+--     `Γ.casesOns`, scoped by the same `BlockRegistered s.gdecls`. NOT consequences of the
+--     `casesOns` rows: a structure nothing pattern-matches on has `Γ.casesOns = none`
+--     everywhere, so those rows are silent about the very block `visitProj` registers —
+--     which is the whole reason `ProjFieldsCoherent` is a twin of `CtorFieldsCoherent`
+--     rather than an instance of it (slice P0's finding, cashed in here).
+#print axioms LeanToLambdaBox.RegisteredProjsOn
+#print axioms LeanToLambdaBox.RegisteredProjCtorFieldsOn
+#print axioms LeanToLambdaBox.registeredProjs_of_on
+#print axioms LeanToLambdaBox.registeredProjCtorFields_of_on
+#print axioms LeanToLambdaBox.RegInvShape
+--
+-- (b) PRESERVATION, MECHANICALLY. Every registration primitive carries the row for the
+--     reason the ctor/`casesOn` rows are carried: a `.constantDecl` cons can neither
+--     create nor disturb a block registration (`blockRegistered_cons_constantDecl` reads
+--     the key inequality OFF the scoping), and an `.inductiveDecl` cons that is not this
+--     block passes through `envLookup_cons_of_ne`. No freshness side condition appears,
+--     exactly as at S1e. The cold `register_inductive` gains two Γ-agreement premises,
+--     `hnewP`/`hnewPF`, in the one place the file already isolates them.
+#print axioms LeanToLambdaBox.RegInvShape.empty
+#print axioms LeanToLambdaBox.RegInvShape.addAxiom
+#print axioms LeanToLambdaBox.RegInvShape.constExt
+#print axioms LeanToLambdaBox.RegInvShape.registerInd
+#print axioms LeanToLambdaBox.RegInvShape.register_inductive_run
+#print axioms LeanToLambdaBox.RegInvShape.constCons
+#print axioms LeanToLambdaBox.RegInvShape.recConst
+#print axioms LeanToLambdaBox.RegInvShape.registeredProjs
+#print axioms LeanToLambdaBox.RegInvShape.registeredProjCtorFields
+--
+-- (c) THE BUNDLE GROWS THREE FIELDS AND THE SHAPE INDUCTION NONE. `RegBridgeHyps` gains
+--     `regProjs`/`regProjFields` — the `regCases`/`regFields` statements transposed onto
+--     `Γ.projs`, cold-branch-guarded like their twins, so `regShapeHyps_regCtors_refuted`'s
+--     hit-branch instantiation has nowhere to live — and ONE `satProjs`, not two: both new
+--     rows are keyed on the same `Γ.projs` lookup, so one completeness fact collapses both.
+--     `RunClosed.regInvShape` threads them; `visitExpr_regInvShape` is unchanged AS A
+--     STATEMENT, so every consumer of the shape induction picks the column up for free.
+--     That is the coverage-field precedent from S1e repeating exactly.
+#print axioms LeanToLambdaBox.RegBridgeHyps
+#print axioms LeanToLambdaBox.RunClosed.regInvShape
+#print axioms LeanToLambdaBox.visitExpr_regInvShape
+#print axioms LeanToLambdaBox.visitMutual_regInvShape
+#print axioms LeanToLambdaBox.gRegBridgeHyps
+#print axioms LeanToLambdaBox.gVisitExpr_regInvShape
+--
+-- (d) THE COMPOSITION. At the run's final state the two P0 discharges fire on the walked
+--     registry: `ErasesEnvProjs` by `erasesEnvProjs_of_registeredProjs`, and
+--     `ProjFieldsCoherent` by `projFieldsCoherent_of_registered` — which needs the
+--     CONSTRUCTOR record too, so the ι capstone's projection half consumes three of the
+--     five columns jointly, the same way its `CtorFieldsCoherent` half consumes three.
+--     `hnoprojs : Γ.projs = ⊥` is DELETED from `shipping_erase_correct_firstorderι_coldstart`.
+#print axioms LeanToLambdaBox.erasesEnvProjs_of_registeredProjs
+#print axioms LeanToLambdaBox.projFieldsCoherent_of_registered
+--
+-- (e) WHAT SURVIVES AS A PREMISE, AND WHY IT IS NOT AN ENVIRONMENT RECORD. One:
+--     `hproj : ProjConsistent env Us Γ`, sitting where `hiota` sits and for the same
+--     reason — it is a statement about `env`, so no amount of registry bookkeeping can
+--     produce it. Its discharge is `projConsistent_of_coh` on the `ProjFieldsCoherent`
+--     the capstone now DERIVES, leaving the two upstream-gated items the round has named
+--     since P4/P5: `ProjDefeqSpec` (upstream's `TrEnv.proj_defeq`, a real statement with a
+--     deferred proof — commission item A2) and `ProjCtorAgree` (the `env.pats`↔`Γ.ctors`
+--     agreement `ProjShape` provably CANNOT supply). Both are `Prop` hypotheses; neither
+--     is an axiom, and neither became one here.
+#print axioms LeanToLambdaBox.ProjConsistent
+#print axioms LeanToLambdaBox.ProjCtorAgree
+#print axioms LeanToLambdaBox.projConsistent_of_coh
+#print axioms LeanToLambdaBox.projConsistent_of_noProjs
+--
+-- (f) BOTH POLARITIES AT THE CAPSTONE. Negative: at `ΓprojQ` the deleted premise is
+--     REFUTED, not merely unused — the `ΓFOrec_norec_refuted` pattern transposed, and what
+--     makes the widening real rather than a re-phrasing. Positive: `ProjFieldsCoherent`
+--     holds there NON-DEGENERATELY (`MyOfNat.mk`'s arity 3 = 2 params + 1 field, so a proof
+--     confusing `paramCount` with `fieldIdx` would not close), and it is the Γ-side input
+--     the `ProjConsistent` discharge runs on. Two premises stop being free at that Γ, which
+--     is why the guard is worth running there: `ProjBridgeHyps` can no longer be
+--     `of_bot`-instantiated, and `satProjs`'s gate is inhabited (`ΓprojQ_projs`) — the
+--     S1d/S1e "satisfiable only vacuously" failure mode, checked for the new column.
+#print axioms LeanToLambdaBox.ΓprojQ_noprojs_refuted
+#print axioms LeanToLambdaBox.ΓprojQ_projFieldsCoherent
+#print axioms LeanToLambdaBox.ΓprojQ_cc
+--
+-- (g) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. As at P8, the entire inherited prefix
+--     is byte-identical after this slice: a structure field added to the registry
+--     invariant, three fields added to its bundle, a scope restriction deleted from a
+--     capstone, and not one axiom set in the audit changed. The capstones keep their eight,
+--     the bridge its seven.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+--
+-- ============================================================================
+-- THE PROJECTION ROUND, CLOSED — WHAT TEN SLICES BOUGHT
+-- ============================================================================
+--
+-- P0 → P9, measured in this file: the round's six audit landings added 135 entries
+-- (+12 at P3, +23 at P0/P1/P4, +22 at P2, +28 at P5/P6/P7, +18 at P8, +32 here), and at
+-- every one of them the inherited prefix came back byte-identical.
+--
+-- What the round bought, in one line each:
+--
+--   P0  `Γ` grew a projection column; `ProjFieldsCoherent` and the two registration
+--       records were stated and discharged at a real fixture.
+--   P1  `Erases.proj` — the target rule, and eleven inversion arms that were free.
+--   P2  `NoProjBinders` — the typeclass layer stopped being excluded by `esrc_shape`.
+--   P3  the λ□ side: `WcbvEval.proj` and its metatheory.
+--   P4  `ProjDefeqSpec` — the projection-reduction interface, and the hypothesis upstream
+--       is missing.
+--   P5/P6/P7  the source rule, its subject reduction, and its simulation — plus the
+--       finding that `ProjShape` cannot supply the constructor agreement, hence
+--       `ProjCtorAgree`.
+--   P8  the bridge: the fourth bundle, motive 10 with content, and `Supported.proj`.
+--   P9  the registry composition — and `hnoprojs` dies.
+--
+-- SO: the whole typeclass-dispatch layer — `Expr.proj` in the source, `.proj` in the
+-- target, and the structure registration that links them — is inside the cold-start ι
+-- capstone's statement, MODULO exactly two named `Prop` hypotheses, both upstream's and
+-- both already on the commission: `TrEnv.proj_defeq` (A2, deferred) reaching us as
+-- `ProjDefeqSpec`, and `ProjCtorAgree`, the `env`-side half of the same statement
+-- correction. No axiom of ours, no `sorry` of ours, and not a byte of the shipping eraser.
