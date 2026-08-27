@@ -73,6 +73,10 @@ import LeanToLambdaBox.DataBridgeHyps
 -- The ι-fragment trust bundle (`casesOn` classifier / inductive registration /
 -- `inferType` specs), beside `BridgeHyps`; consumed by the ι-widened bridge.
 import LeanToLambdaBox.CasesBridgeHyps
+-- The projection-fragment trust bundle (structure-info fetch / inductive registration
+-- specs tying `argmasks`/`numParams` to `Γ.projs`), beside `BridgeHyps`; consumed by the
+-- projection-widened bridge (slice P8).
+import LeanToLambdaBox.ProjBridgeHyps
 -- The δ-fragment scope bundle (δ-inclusion, slice D3): fragment closure under
 -- dependency, decl-fetch/`Esrc` agreement, prepared dependency bodies `Supported` and
 -- translatable, `axiom_free`, and the generator bookkeeping for the primitives only
