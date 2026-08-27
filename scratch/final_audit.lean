@@ -8,8 +8,8 @@ and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
 reported the same 648 entries it did at `fee3ada`. It has grown five times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
-slice Γ-W3.6b and to 729 at slices proj-P0/P1/P4, with every earlier entry's output
-byte-identical at each step. The projection round's twenty-two new entries are **all
+slice Γ-W3.6b and to 730 at slices proj-P0/P1/P4, with every earlier entry's output
+byte-identical at each step. The projection round's twenty-three new entries are **all
 `sorryAx`-free**, and the crown four did not move.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
@@ -2961,14 +2961,18 @@ open LeanToLambdaBox
 --     The env records are `ErasesEnvCases`' transposes, and `ProjFieldsCoherent` is
 --     `CtorFieldsCoherent`'s twin keyed on `projs` — a twin rather than a widened
 --     hypothesis, so the original's six call sites stay byte-identical. All discharged
---     from registration and guarded at `AC`, which is literally the `is_struct` shape.
+--     from registration and guarded at `AC`, which is literally the `is_struct` shape —
+--     and guarded on the SAME `Γproj` the model-side rule guards use, so `projInd`
+--     (the `InductiveId` in the emitted `ProjectionInfo`) and `acIid` (the one `acΓ`
+--     registers) are demonstrably one inductive, by `rfl`.
 #print axioms LeanToLambdaBox.ErasesEnvProjs.nonProp
 #print axioms LeanToLambdaBox.erasesEnvProjs_of_registeredProjs
 #print axioms LeanToLambdaBox.projFieldsCoherent_of_registered
-#print axioms LeanToLambdaBox.gΓproj_registeredProjs
-#print axioms LeanToLambdaBox.gΓproj_erasesEnvProjs
-#print axioms LeanToLambdaBox.gΓproj_nonProp
-#print axioms LeanToLambdaBox.gΓproj_projFieldsCoherent
+#print axioms LeanToLambdaBox.Γproj_projInd_eq_acIid
+#print axioms LeanToLambdaBox.Γproj_registeredProjs
+#print axioms LeanToLambdaBox.Γproj_erasesEnvProjs
+#print axioms LeanToLambdaBox.Γproj_nonProp
+#print axioms LeanToLambdaBox.Γproj_projFieldsCoherent
 --
 -- (b) P1 — THE RULE. `Erases.proj` reads `visitProj` back off `Γ`, carries ONE
 --     sub-derivation, and — deliberately — NO `TrExprS` premise. `box`/`lam`/`letE`

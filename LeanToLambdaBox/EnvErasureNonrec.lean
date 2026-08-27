@@ -328,78 +328,72 @@ theorem gΓcases_erasesEnvCases : ErasesEnvCases gΓcases acΓ :=
 /-! ### Non-vacuity for the projection column (slice P0)
 
 `AC` is *exactly* a structure in the sense `register_inductive`'s `is_struct` gate uses —
-one body, one constructor `mk`, not recursive, one parameter, one field
-(`Semantics/Metatheory.lean`) — so it is the right fixture for the projection records,
-and the same one `Erases.proj`'s own guards use. `gΓproj` registers it under **all three**
-keys the projection layer reads: `projs` (the structure name), `ctors`/`ctorArities` (the
-single constructor) and `ctorFields`. -/
+one body, one constructor, not recursive, one parameter, one field
+(`Semantics/Metatheory.lean`) — so it is the right fixture for the projection records.
 
-/-- A concrete `Γ` registering the structure `AC` at `(acIid, 1)` — one parameter — with
-its single constructor `mk` at index `0`, arity `2 = 1 param + 1 field`, and the field
-list `[1]`. -/
-private def gΓproj : ErasureCtx where
-  inductives := fun _ => none
-  constants := fun _ => default
-  ctors := fun n => if n = `mk then some (acIid, 0) else none
-  ctorArities := fun n => if n = `mk then some 2 else none
-  casesOns := fun _ => none
-  ctorFields := fun _ => some [1]
-  projs := fun n => if n = `AC then some (acIid, 1) else none
+The guards below run on **`Γproj`** (`Erases.lean`), the same context at which
+`erases_proj_fvar`/`erases_proj_ctor` derive the erasure, rather than on a private twin.
+That is deliberate, and it is what makes the pair worth more than either half: the
+`ProjectionInfo` the *model* emits names `projInd`, the environment `acΓ` registers
+`acIid`, and `projInd = acIid` by `rfl`. So the model-side derivation and the target-side
+environment are demonstrably about one inductive, and the premises `WcbvEval.proj` will
+need are the ones registration actually supplies. -/
 
-theorem gΓproj_projs : gΓproj.projs `AC = some (acIid, 1) := rfl
-theorem gΓproj_ctorFields : gΓproj.ctorFields acIid = some [1] := rfl
-theorem gΓproj_ctors : gΓproj.ctors `mk = some (acIid, 0) := rfl
+/-- The `Erases`-side fixture and the target-side one name the **same** inductive. Both
+are `AC` — `Γproj` reaches it through `toKername`, `acΓ` through `acKn` — and the two
+computations agree on the nose. -/
+theorem Γproj_projInd_eq_acIid : projInd = acIid := rfl
 
-/-- Non-vacuity: `RegisteredProjs` holds at `(gΓproj, acΓ)` — the inductive is registered
+/-- Non-vacuity: `RegisteredProjs` holds at `(Γproj, acΓ)` — the inductive is registered
 with `npars = 1` and is not propositional, which is what `WcbvEval.proj` needs. -/
-theorem gΓproj_registeredProjs : RegisteredProjs gΓproj acΓ := by
+theorem Γproj_registeredProjs : RegisteredProjs Γproj acΓ := by
   intro S iid np hS
   by_cases h : S = `AC
   · subst h
-    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
+    simp only [Γproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
     obtain ⟨rfl, rfl⟩ := hS
     exact ⟨_, acOIB, rfl, rfl, rfl, rfl⟩
-  · simp [gΓproj, h] at hS
+  · simp [Γproj, h] at hS
 
-/-- Non-vacuity: `ErasesEnvProjs gΓproj acΓ` is *derived*, not assumed. -/
-theorem gΓproj_erasesEnvProjs : ErasesEnvProjs gΓproj acΓ :=
-  erasesEnvProjs_of_registeredProjs gΓproj_registeredProjs
+/-- Non-vacuity: `ErasesEnvProjs Γproj acΓ` is *derived*, not assumed. -/
+theorem Γproj_erasesEnvProjs : ErasesEnvProjs Γproj acΓ :=
+  erasesEnvProjs_of_registeredProjs Γproj_registeredProjs
 
 /-- …and it genuinely fires: the target-side non-propositionality premise of
-`WcbvEval.proj` comes out of the record by computation. -/
-theorem gΓproj_nonProp : isPropositionalInductive acΓ acIid = false :=
-  gΓproj_erasesEnvProjs.nonProp gΓproj_projs
+`WcbvEval.proj` comes out of the record by computation, at the very `InductiveId` the
+model's `.proj ⟨projInd, 1, 0⟩` node carries. -/
+theorem Γproj_nonProp : isPropositionalInductive acΓ projInd = false :=
+  Γproj_erasesEnvProjs.nonProp Γproj_projs
 
-theorem gΓproj_registeredCtors : RegisteredCtors gΓproj acΓ := by
+theorem Γproj_registeredCtors : RegisteredCtors Γproj acΓ := by
   intro cn iid cidx hc
-  by_cases h : cn = `mk
+  by_cases h : cn = `AC.mk
   · subst h
-    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hc
+    simp only [Γproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hc
     obtain ⟨rfl, rfl⟩ := hc
     exact ⟨_, acOIB, { name := "mk", nargs := 1 }, rfl, rfl, rfl, rfl⟩
-  · simp [gΓproj, h] at hc
+  · simp [Γproj, h] at hc
 
-theorem gΓproj_registeredProjCtorFields : RegisteredProjCtorFields gΓproj acΓ := by
+theorem Γproj_registeredProjCtorFields : RegisteredProjCtorFields Γproj acΓ := by
   intro S iid np hS
   by_cases h : S = `AC
   · subst h
-    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
+    simp only [Γproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
     obtain ⟨rfl, rfl⟩ := hS
     exact ⟨_, acOIB, rfl, rfl, rfl⟩
-  · simp [gΓproj, h] at hS
+  · simp [Γproj, h] at hS
 
-/-- Non-vacuity: `ProjFieldsCoherent gΓproj` is *derived*, and non-degenerately — `AC`'s
+/-- Non-vacuity: `ProjFieldsCoherent Γproj` is *derived*, and non-degenerately — `AC`'s
 arity `2` decomposes as `1 + 1`, so a proof that confused parameters with fields would
 not close. -/
-theorem gΓproj_projFieldsCoherent : ProjFieldsCoherent gΓproj :=
-  projFieldsCoherent_of_registered gΓproj_registeredCtors gΓproj_registeredProjs
-    gΓproj_registeredProjCtorFields
+theorem Γproj_projFieldsCoherent : ProjFieldsCoherent Γproj :=
+  projFieldsCoherent_of_registered Γproj_registeredCtors Γproj_registeredProjs
+    Γproj_registeredProjCtorFields
 
 /-- …and the arithmetic it delivers is the one the target selection needs: the field sits
-at spine position `np + 0 = 1`, and the spine has `2` entries. -/
-example : gΓproj.ctorArities `mk = some 2 :=
-  (gΓproj_projFieldsCoherent gΓproj_projs gΓproj_ctorFields gΓproj_ctors).elim
-    fun _ h => h
+at spine position `np + i = 1 + 0`, in a spine of `2`. -/
+example : Γproj.ctorArities `AC.mk = some 2 :=
+  (Γproj_projFieldsCoherent Γproj_projs Γproj_ctorFields Γproj_ctors).elim fun _ h => h
 
 /-! ### Non-vacuity for the ι coherence predicates (ι Task 3)
 
