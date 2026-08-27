@@ -42,6 +42,12 @@ lemma in this file and should be used by all bridge motives.
   the canonical "on a successful run, `Q` holds" motive is
   `Lean.Order.admissible` for every function signature in the erasure family,
   as required by `partial_fixpoint`'s fixpoint induction.
+* **Approximation toolkit** (`run_ok_of_le`, `fix_step_le`, `mutual_le_of` and the
+  eighteen `_eq_mutual` slot equations): the second motive conjunct the bridge
+  carries — "this abstract eraser is below the shipping one" — together with the
+  plumbing that discharges its step obligations off
+  `Erasure.visitExpr.mutual._proof_1`, the monotonicity proof `partial_fixpoint`
+  generated for the erasure family itself.
 * **Hoare-style loop rules** for `List.forIn'`/`forIn`, `Array.forIn`,
   `List.foldlM`/`Array.foldlM` and `List.mapM`: if an invariant holds
   initially and is preserved by every loop-body run, it holds of the result
@@ -435,6 +441,194 @@ theorem eraseM_admissible_ok₅ {γ₁ γ₂ γ₃ γ₄ γ₅ τ : Type}
   exact eraseM_admissible_ok₄ (Q a₁)
 
 end Admissibility
+
+/-! ## Approximation toolkit (`partial_fixpoint`'s own order)
+
+The eighteen motives of the bridge induction are proved at an **abstract** eraser —
+`Lean.Order.fix_induct` hands each step an arbitrary point of the CCPO, not an
+approximation of the fixpoint. For most of the bridge that is exactly right: the
+conclusions are Hoare-style, "if *this* function's run succeeded then …", and nothing
+about `Erasure.visitExpr` is needed. `visitMutual`'s recursive exit is the exception
+(slice Γ-W3): the block it builds has to be *the* block, the one a `Γ₀` fixed before
+the run can have recorded, and at an abstract eraser it is not (see
+`rec_exit_agreement_eraser_quantified_refuted`).
+
+The gap closes by carrying one more conjunct through the induction — `f ⊑ visitXxx`,
+the fixpoint's own order — and this section is its plumbing. Three facts do all the
+work:
+
+* `run_ok_of_le` — `⊑` is pointwise `FlatOrder` at the `EST` leaf, so below the
+  fixpoint a *successful* run is the fixpoint's run, verbatim (state, world and
+  result). This is the direction the bridge consumes; the converse is false, which is
+  why the conjunct cannot be stated in the `= .ok` form directly and still be provable
+  by the induction: `EST.bot` is an `.error`, so "run-ok agreement" is strictly weaker
+  than `⊑` and is not preserved by the erasure functional's step.
+* `fix_step_le` — one step of a monotone functional lands below the fixpoint again.
+  This is `Lean.Order.fix_eq` read as an inequality, and it is what makes the new
+  conjunct's eighteen step obligations *free*.
+* `mutual_le_of` — the eighteen conjuncts, packed into the single `PProd` chain
+  `Erasure.visitExpr.mutual` lives in. Composed with `fix_step_le` at
+  `Erasure.visitExpr.mutual._proof_1`, the monotonicity proof `partial_fixpoint`
+  generated for the erasure family itself, it discharges every step obligation of the
+  new conjunct with one projection.
+
+The eighteen `_eq_mutual` equations exist because `partial_fixpoint` seals each member
+(`@[irreducible] def visitExpr := visitExpr.mutual.1`), so the named constants and the
+tuple's slots are not interchangeable by `rfl` at the call sites. -/
+
+section Approximation
+
+open Lean.Order
+
+/-- `⊑`-reflexivity, spelled short: most of `mutual_le_of`'s eighteen slots are filled
+with the shipping function itself. -/
+theorem approx_rfl {α : Sort u} [PartialOrder α] {x : α} : x ⊑ x :=
+  PartialOrder.rel_refl
+
+/-- **Below the fixpoint, a successful run is the fixpoint's run.** `⊑` on `EraseM τ`
+is pointwise down to `FlatOrder (EST.bot w)`, whose only nontrivial relation is
+"bottom below anything"; bottom is an `.error`, so a run that reached `.ok` was already
+the larger computation's run — same result, same state, same world. -/
+theorem run_ok_of_le {τ : Type} {x y : EraseM τ} (h : x ⊑ y)
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : τ} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hx : x s ctx cctx ref w = .ok (r, s') w') :
+    y s ctx cctx ref w = .ok (r, s') w' := by
+  have h' : FlatOrder.rel (b := EST.bot w) (x s ctx cctx ref w) (y s ctx cctx ref w) :=
+    h s ctx cctx ref w
+  revert hx
+  generalize x s ctx cctx ref w = X at h'
+  generalize y s ctx cctx ref w = Y at h'
+  cases h' with
+  | bot => intro hx; simp [EST.bot] at hx
+  | refl => exact id
+
+/-- `run_ok_of_le` at a one-argument family member. -/
+theorem run_ok_of_le₁ {γ τ : Type} {f g : γ → EraseM τ} (h : f ⊑ g) {a : γ}
+    {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
+    {r : τ} {s' : ErasureState} {w' : Void IO.RealWorld}
+    (hf : f a s ctx cctx ref w = .ok (r, s') w') :
+    g a s ctx cctx ref w = .ok (r, s') w' :=
+  run_ok_of_le (h a) hf
+
+/-- **A monotone functional's step stays below its fixpoint.** `fix_eq`, read as an
+inequality. -/
+theorem fix_step_le {α : Sort u} [CCPO α] {F : α → α} (hF : monotone F) {x : α}
+    (h : x ⊑ fix F hF) : F x ⊑ fix F hF :=
+  PartialOrder.rel_trans (hF _ _ h) (PartialOrder.rel_of_eq (fix_eq hF).symm)
+
+/-! ### The erasure family's eighteen slots
+
+`partial_fixpoint` packs the mutual block into one `PProd` chain
+`Erasure.visitExpr.mutual` and seals each projection behind an `@[irreducible] def`.
+The equations below unseal them, one declaration at a time. -/
+
+unseal visitExpr in
+theorem visitExpr_eq_mutual : visitExpr = visitExpr.mutual.1 := rfl
+
+unseal visitLiteral in
+theorem visitLiteral_eq_mutual : visitLiteral = visitExpr.mutual.2.1 := rfl
+
+unseal visitConstructor in
+theorem visitConstructor_eq_mutual : visitConstructor = visitExpr.mutual.2.2.1 := rfl
+
+unseal visitConst in
+theorem visitConst_eq_mutual : visitConst = visitExpr.mutual.2.2.2.1 := rfl
+
+unseal get_constant_kername in
+theorem get_constant_kername_eq_mutual : get_constant_kername = visitExpr.mutual.2.2.2.2.1 := rfl
+
+unseal visitMutual in
+theorem visitMutual_eq_mutual : visitMutual = visitExpr.mutual.2.2.2.2.2.1 := rfl
+
+unseal visitAppArgs in
+theorem visitAppArgs_eq_mutual : visitAppArgs = visitExpr.mutual.2.2.2.2.2.2.1 := rfl
+
+unseal visitLet in
+theorem visitLet_eq_mutual : visitLet = visitExpr.mutual.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitLambda in
+theorem visitLambda_eq_mutual : visitLambda = visitExpr.mutual.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitProj in
+theorem visitProj_eq_mutual : visitProj = visitExpr.mutual.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitApp in
+theorem visitApp_eq_mutual : visitApp = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitConstApp in
+theorem visitConstApp_eq_mutual : visitConstApp = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitCtorEta in
+theorem visitCtorEta_eq_mutual : visitCtorEta = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitCtorEtaGo in
+theorem visitCtorEtaGo_eq_mutual : visitCtorEtaGo = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitCasesEta in
+theorem visitCasesEta_eq_mutual : visitCasesEta = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitCasesEtaGo in
+theorem visitCasesEtaGo_eq_mutual : visitCasesEtaGo = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitCases in
+theorem visitCases_eq_mutual : visitCases = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.1 := rfl
+
+unseal visitAlt in
+theorem visitAlt_eq_mutual : visitAlt = visitExpr.mutual.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2.2 := rfl
+
+set_option synthInstance.maxSize 4000 in
+/-- **The eighteen conjuncts, packed.** The `PProd` order is componentwise, so this is
+`And.intro` eighteen deep — modulo the `_eq_mutual` equations, which is the only thing
+the seals cost.
+
+The instance budget is the eighteen-slot `PProd`: `PartialOrder (EraseM τ)` is five
+transformer layers deep, so the default `synthInstance.maxSize` is exhausted long before
+the last slot. -/
+theorem mutual_le_of
+    {f₁ : Expr → EraseM LBTerm}
+    {f₂ : Literal → EraseM LBTerm}
+    {f₃ : Name → Array Expr → EraseM LBTerm}
+    {f₄ : Expr → EraseM LBTerm}
+    {f₅ : Name → EraseM Kername}
+    {f₆ : Name → EraseM Unit}
+    {f₇ : LBTerm → Array Expr → EraseM LBTerm}
+    {f₈ : Expr → EraseM LBTerm}
+    {f₉ : Expr → EraseM LBTerm}
+    {f₁₀ : Name → Nat → Expr → EraseM LBTerm}
+    {f₁₁ : Expr → EraseM LBTerm}
+    {f₁₂ : Expr → EraseM LBTerm}
+    {f₁₃ : Name → Nat → Expr → EraseM LBTerm}
+    {f₁₄ : Name → Nat → Expr → Expr → Array Expr → EraseM LBTerm}
+    {f₁₅ : CasesInfo → Expr → EraseM LBTerm}
+    {f₁₆ : CasesInfo → Expr → Expr → Array Expr → EraseM LBTerm}
+    {f₁₇ : CasesInfo → Array Expr → EraseM LBTerm}
+    {f₁₈ : Nat → ConstructorArgMask → Expr → EraseM (List BinderName × LBTerm)}
+    (h₁ : f₁ ⊑ visitExpr)
+    (h₂ : f₂ ⊑ visitLiteral)
+    (h₃ : f₃ ⊑ visitConstructor)
+    (h₄ : f₄ ⊑ visitConst)
+    (h₅ : f₅ ⊑ get_constant_kername)
+    (h₆ : f₆ ⊑ visitMutual)
+    (h₇ : f₇ ⊑ visitAppArgs)
+    (h₈ : f₈ ⊑ visitLet)
+    (h₉ : f₉ ⊑ visitLambda)
+    (h₁₀ : f₁₀ ⊑ visitProj)
+    (h₁₁ : f₁₁ ⊑ visitApp)
+    (h₁₂ : f₁₂ ⊑ visitConstApp)
+    (h₁₃ : f₁₃ ⊑ visitCtorEta)
+    (h₁₄ : f₁₄ ⊑ visitCtorEtaGo)
+    (h₁₅ : f₁₅ ⊑ visitCasesEta)
+    (h₁₆ : f₁₆ ⊑ visitCasesEtaGo)
+    (h₁₇ : f₁₇ ⊑ visitCases)
+    (h₁₈ : f₁₈ ⊑ visitAlt)
+    : (⟨f₁, f₂, f₃, f₄, f₅, f₆, f₇, f₈, f₉, f₁₀, f₁₁, f₁₂, f₁₃, f₁₄, f₁₅, f₁₆, f₁₇, f₁₈⟩ :
+      (Expr → EraseM LBTerm) ×' _) ⊑ Erasure.visitExpr.mutual :=
+  ⟨visitExpr_eq_mutual ▸ h₁, visitLiteral_eq_mutual ▸ h₂, visitConstructor_eq_mutual ▸ h₃, visitConst_eq_mutual ▸ h₄, get_constant_kername_eq_mutual ▸ h₅, visitMutual_eq_mutual ▸ h₆, visitAppArgs_eq_mutual ▸ h₇, visitLet_eq_mutual ▸ h₈, visitLambda_eq_mutual ▸ h₉, visitProj_eq_mutual ▸ h₁₀, visitApp_eq_mutual ▸ h₁₁, visitConstApp_eq_mutual ▸ h₁₂, visitCtorEta_eq_mutual ▸ h₁₃, visitCtorEtaGo_eq_mutual ▸ h₁₄, visitCasesEta_eq_mutual ▸ h₁₅, visitCasesEtaGo_eq_mutual ▸ h₁₆, visitCases_eq_mutual ▸ h₁₇, visitAlt_eq_mutual ▸ h₁₈⟩
+
+end Approximation
 
 /-! ## Hoare-style loop rules -/
 
