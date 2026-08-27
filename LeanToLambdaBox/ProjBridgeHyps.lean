@@ -57,6 +57,14 @@ clause, because the projection path never η-expands. So nothing here is of
 discharged in practice by the same DAG cold-start that discharges
 `RegisteredCases`/`RegisteredCtors`/`RegisteredProjs` (`EnvErasureNonrec.lean`), and
 both are `env`/`Us`-free: **the projection bridge adds no typing assumption.**
+
+Since slice P9 that cold start is not a plan but a theorem: `RegInvShape`
+(`ColdStartShape.lean`) carries a `Γ.projs`-keyed column along the walk, and the ι
+cold-start capstone derives `ErasesEnvProjs` and `ProjFieldsCoherent` from it rather
+than assuming them. This bundle is what stays: the run-keyed half of the same
+agreement, at the two calls `visitProj` makes. Note the split — the registry
+invariant answers "the block is registered, and its data is `Γ`'s", this bundle
+answers "*this call* returned it".
 Because they quantify over opaque runtime primitives their global satisfiability is
 not in-logic decidable — the documented trust boundary, exactly as for the other
 three bundles. The arithmetic auxiliary `count_keep_take_replicate` *is* checked

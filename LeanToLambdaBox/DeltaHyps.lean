@@ -28,7 +28,11 @@ here, Hoare-shaped, one clause per real runtime call.
 `BridgeHyps` (`VisitExprRefines`) and `RegBridgeHyps` (`ColdStartInduction`): every field is
 either a Hoare spec for one *real* call on the `visitMutual` registration path — never an
 axiom, never a statement about an entire environment — or a scope statement about the
-fragment `known`. All the primitives specced here (`Compiler.LCNF.getDeclInfo?`, `getEnv`,
+fragment `known`. `RegBridgeHyps` grew three fields at slice proj-P9
+(`regProjs`/`regProjFields`, the cold `register_inductive` agreement keyed on `Γ.projs`,
+and `satProjs`, its completeness twin) and they are of exactly those two classes — the
+first two run-keyed and cold-branch-guarded like `regCases`/`regFields`, the third the
+`Γ`-side saturation fact nothing about a run can supply. All the primitives specced here (`Compiler.LCNF.getDeclInfo?`, `getEnv`,
 `logInfo`, `Meta.isInstance`, `getConstInfo`, `prepare_erasure`, `addAxiom`) are **real**:
 none of them belongs to the `visitExpr` mutual block, so their specs are usable directly
 inside `Erasure.visitExpr.mutual_fixpoint_induct`. Because they quantify over opaque

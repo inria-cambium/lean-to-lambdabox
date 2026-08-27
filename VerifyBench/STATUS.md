@@ -109,7 +109,7 @@ Resolved for all five by the landed work and by this directory:
 
 What remains, measured from the erased output rather than asserted:
 
-| Program | Class projections (`tProj`) — hard blocker | Recursive deps (`tFix`) | Peano tower (`Nat.succ` nodes) | Axioms | Program-specific residue |
+| Program | Class projections (`tProj`) — in the relation since round P0–P9 | Recursive deps (`tFix`) — in the capstones since Γ-W4 | Peano tower (`Nat.succ` nodes) | Axioms | Program-specific residue |
 |---|---|---|---|---|---|
 | Arith | 10: `OfNat.ofNat`, `HAdd.hAdd`/`Add.add`, `HSub.hSub`/`Sub.sub`, `HMul.hMul`/`Mul.mul`, `HPow.hPow`/`Pow.pow`/`NatPow.pow` | 4 | 19 | — | no `match` in the source, but `Nat.add/sub/mul/pow` bring four fixpoints and the whole `HAdd`-class tower |
 | Sieve | 8: `OfNat.ofNat`, `HAdd`/`Add`, `HSub`/`Sub`, `HAppend`/`Append`, `BEq.beq` | 10 | 9 | — | higher-order: `List.filter` applied to a source lambda; `Decidable`/`Bool` dispatch through `instBEqOfDecidableEq` |
@@ -119,21 +119,32 @@ What remains, measured from the erased output rather than asserted:
 
 Reading the table:
 
-- **The projection layer is the concrete, universal blocker.** Every `tProj` node in all
-  five programs is a typeclass field projection, and `Erases` is projection-free by design
-  (lean4lean's `TrProj` is a `sorry`). Six to ten of them per program, and no config
-  removes them: a source numeral elaborates to `@OfNat.ofNat Nat (lit n) (instOfNatNat …)`,
-  and every `+`, `-`, `*`, `^`, `++`, `max` goes through its class projection.
+- **The projection layer was the concrete, universal blocker; it is now inside the
+  relation.** Every `tProj` node in all five programs is a typeclass field projection —
+  six to ten per program, and no config removes them: a source numeral elaborates to
+  `@OfNat.ofNat Nat (lit n) (instOfNatNat …)`, and every `+`, `-`, `*`, `^`, `++`, `max`
+  goes through its class projection. When this table was first measured `Erases` had no
+  projection rule, because lean4lean's `TrProj` was a `sorry`-valued definition. The
+  `trproj` pin fixed the definition and the **projection round P0–P9** built the layer out:
+  `Erases.proj` (P1), `WcbvEval.proj` (P3), the source rule and its simulation (P5/P6/P7),
+  the bridge arm and fourth trust bundle (P8), and the cold-start registry composition
+  (P9), which deleted the ι capstone's `Γ.projs = ⊥`. What the layer costs now is two
+  named `Prop` hypotheses, both upstream's and both on the commission: `ProjDefeqSpec`
+  (`TrEnv.proj_defeq`, a real statement with a deferred proof) and `ProjCtorAgree`.
 - **`@[extern]` arithmetic is *not* a blocker at these programs' own config.** With
   `extern := .preferLogical` the eraser reports `Nat.add is tagged @[extern] but has a
   value, using value` and erases the logical body; four of the five erased environments
   contain zero axioms. §H's reading — that the arithmetic leaves the fragment through
   `addAxiom` — holds only under `extern := .preferAxiom`. The single axiom anywhere in the
   five is `Eq.rec`, in Fannkuch.
-- **Recursive dependencies at cold start (D8) still gate all five**, including Arith: even
-  a program with no source-level recursion drags in four fixpoints through `Nat`
-  arithmetic. §H's cold-start capstones still pin `Γ.recBodies = ⊥`; closing that is the
-  `Γ`-inside-the-motives slice (§W3.2/D8).
+- **Recursive dependencies at cold start no longer gate them.** Every one of the five
+  drags in fixpoints — even Arith, with no source-level recursion, brings four through
+  `Nat` arithmetic — and until Γ-W4 the cold-start capstones pinned `Γ.recBodies = ⊥`,
+  which excluded all five outright. The Γ-XL wave took that down: the bridge walks
+  `visitMutual`'s recursive exit (Γ-W3.6b) and the capstones take the coverage agreement
+  `hcov` and the block-local bundle `Hβ` instead. The restriction that remains is *inside*
+  a block rather than about the program: a walked block's bodies call only its own
+  siblings, registered constructors and registered `casesOn`s.
 - **Nothing exotic is in the way.** No program touches `String`, `Int`, `Array`, `Float`,
   `UInt*`, well-founded recursion, `brecOn` residue or `sorry`. The *data* inductives in the
   erased environments are `Nat`, `List`, `Prod`, `Option`, `Bool`, `Decidable`, `PUnit`,
@@ -145,12 +156,16 @@ Reading the table:
   seen from the environment side: the classes are registered, and every class method erases
   to a projection out of one.
 
-Priority order, re-read from these measurements (2026-08-26) and matching §H's: (1) the
-**class-projection route**, which is what every one of the five actually trips over and
-which waits on the commissioned `TrProj` round (`../lean4lean/trproj-commission.md`);
-(2) §W3.2/D8, the `Γ`-inside-the-motives generalisation, which also gates all five and is
-priced in `ColdStart.lean`'s residue 1; (3) the `visitCases` sparse-`casesOn` bug, which
-blocks `Quicksort` outright and is cheap only for the panic, not for the wrong output.
+Priority order, re-read after the Γ-XL wave and the projection round (2026-08-27). The two
+items that headed the 2026-08-26 list are **done**: the class-projection route landed as
+P0–P9, and the `Γ`-inside-the-motives generalisation as Γ-W0–Γ-W4. What is left, in order:
+(1) `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, the one deferred proof the projection
+layer rests on (`../lean4lean/trproj-commission.md`), with `ProjCtorAgree` beside it;
+(2) the `visitCases` sparse-`casesOn` bug, which blocks `Quicksort` outright and is cheap
+only for the panic, not for the wrong output; (3) the per-program residue in the table —
+Fannkuch's `Eq.rec` axiom, and the fragment-scope bundles each program's dependency cone
+has to satisfy (`DeltaHyps`/`BlockHyps`), which is where "measured, not argued" has to be
+re-run program by program rather than claimed from this table.
 
 ## Refreshing
 
