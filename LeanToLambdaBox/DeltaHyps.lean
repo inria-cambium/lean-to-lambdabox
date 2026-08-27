@@ -73,8 +73,9 @@ siblings, registered constructors and registered `casesOn`s.
    `Us`, while `visitMutual` erases a dependency's body under
    `withReader (… lparams := ci.levelParams)`. `decl_run` therefore demands
    `ci.levelParams = Us`: realistically `Us = []` and every dependency monomorphic. A
-   polymorphic dependency does not make any theorem *false*; it makes `DeltaHyps`
-   uninhabited.
+   polymorphic dependency makes `DeltaHyps` uninhabited. It was once recorded here that it
+   "does not make any theorem *false*"; that is true of *this* bundle and false of the
+   development — see the Γ-U analysis below, which is the correction.
 2. **No block-local fixvar map, on the fragment.** `Erasure.ErasureContext.fixvars` is
    installed per block while `Γ.fixvars` is a single global map, so one `Γ` cannot be both
    "outside every block" (what a top-level subject needs) and "inside this block" (what a
@@ -92,6 +93,81 @@ siblings, registered constructors and registered `casesOn`s.
 4. **Fragment names are distinguished by their kernames.** `Erasure.toKername` is not
    injective, so without `kinj` the δ *record* below is false whenever two fragment names
    collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
+
+## Γ-U — what lifting scope restriction 1 would actually cost (analysis, 2026-08-27)
+
+Restriction 1 is the second uncosted blocker between the fragment and the benchmarks:
+every typeclass method is universe-polymorphic (`OfNat.ofNat.{u}`, `HAdd.hAdd.{u,v,w}`,
+`Add.add.{u}`, …) while the subjects are `Us = []`, so the projection round's
+`Erases.proj` admits `OfNat.ofNat`'s *body* while this field keeps its *declaration*
+out. The sketch on record proposed a slice of `Erases`-signature size: state `decl_run`
+and `prepared` at `ci.levelParams` and let the consumer transport by `TrExprS.instL`.
+**That estimate is wrong, and the reason is worth writing down rather than rediscovering.**
+Five findings, in the order a reader will hit them.
+
+**(a) The λ□ side really is level-free, so the transport is entirely `VExpr`-side.**
+`Erases env Us Γ Δ e t` mentions `Us` at exactly three constructors — `box`'s
+`TrExprS env Us Δ e ve` + `Erasable env Us.length Δ.toCtx ve`, and `lam`/`letE`'s binder
+`TrExprS`. Every other premise is a `Γ` lookup, a length side condition or an LBTerm
+equation, and `t` never mentions `Us`. The design's guess is confirmed: nothing on the
+target side moves.
+
+**(b) Two more fields pin the same restriction, so relaxing `decl_run` alone is a
+no-op.** `prepared` demands `∀ Δ, ∃ ve, TrExprS env Us Δ pe ve` and `esrc_shape` demands
+`TrExprS env Us [] pe ve` — both at the *ambient* `Us`, both false for a body that
+mentions `u` when `Us = []`. A Γ-U bundle has to be indexed by a per-constant map
+`Ups : Name → List Name` (with `decl_run` pinning `ci.levelParams = Ups n`), not by a
+single relaxed equation.
+
+**(c) There is no composition point outside the induction.** `Us` is a *parameter* of
+`VisitExprRefines.visitExpr_refines_erases_core`, not a motive binder, and the
+dependency's body is erased by a sub-run **inside** `visitExpr.mutual_fixpoint_induct`
+whose result is fed straight to motive 1's own IH (the `BridgeInv` rebuild at
+`{ ctx with fixvars := none, lparams := ci.levelParams }`, where `decl_run`'s
+`ci.levelParams = Us` fills the `lparams` slot). So the S3/ColdStartDelta
+external-composition trick does not apply: the only route is `∀ Us` inside all eighteen
+motives, gated by `BridgeInv env Us …`. That gating makes the generalisation *contentless*
+— `BridgeInv.lparams : ctx.lparams = Us` determines `Us` from the reader, so at most one
+`Us` satisfies the hypothesis — which is the good news; the bad news is 343 occurrences of
+`Us` in a 4452-line file plus `BridgeHyps`/`RecBlockAgreement` at `∀ Us`. That is the Γ-W1
+pattern at Γ-W1 scale.
+
+**(d) The record composes transitively, so it cannot stay `Us`-indexed.** `DeltaMem`
+(below) and `RunConclδ` carry `Us` as a parameter and are chained by `.trans` along the
+walk; under a `∀ Us` motive a sub-run at `Us'` cannot hand back a record at the outer
+`Us`. `DeltaMem.erase` would have to record at `Ups n` per entry, rippling through
+`ErasesEnvDelta`, `ErasesEnvDeltaData`, `RecEnvConsistent`, the three `RegisteredClosure*`
+records and `ColdStartDelta`'s six conversions.
+
+**(e) The model's δ step is universe-blind, so this is a change of semantics, not of
+scope — and this is the finding that decides the slice.** Every δ rule discards its `us`
+and unfolds to the *uninstantiated* body (`SEvalDataι.delta_level_blind`), and subject
+reduction discharges the resulting defeq from `SEnvConsistent`, which quantifies `us` and
+never mentions it. A real `VEnv` does not supply that: `VEnv.IsDefEq.extra` instantiates
+**both** sides of a defining equation, so what it gives is `.const n us ≡ ⟦body⟧.instL us`.
+`SEnvConsistent` is therefore the kernel fact only at `instL = id`, and for a polymorphic
+constant it is a *stronger*, false demand — it collapses the constant's instantiations
+(`SEnvConsistent.levels_collapse`). Relaxing this bundle without repairing that premise
+would not widen the fragment: it would move the vacuity from a named, documented field
+here into an unnamed premise of the capstones. That is a regression in legibility, and
+the reason the slice stopped at analysis rather than landing its cheap half.
+
+**And the repair `TrExprS.instL` offers does not compose with `Erases`.** Upstream's
+`TrExprS.instL` lands in `TrExpr`, not `TrExprS` — level *substitution* re-derives sort
+and const levels only up to `≈` — while `Erases.box`/`lam`/`letE` record **strict**
+`TrExprS` witnesses, and at `lam`/`letE` a defeq-loose binder type breaks the context
+chain the sub-derivation runs in. The ι-era `TrExprS.instL_weak` (`IotaPattern`) survives
+this only because it transports a *closed* rhs at `Δ = []` and composes the residual defeq
+away with `IsDefEqU.mkApps_congr_head`; inside an induction over contexts there is no such
+composition point. So `Erases.instL` is not a corollary — it is the wall.
+
+**Plan of record, if the wall is taken.** Four slices, and Γ-U2 must not ship alone:
+Γ-U1, a *strict* `TrExprS` scope-weakening along `ci.levelParams <+: Us` (indices are
+preserved under a prefix extension, which is why this one can stay strict where `instL`
+cannot); Γ-U2, `BridgeInv.lparams` / `decl_run` / `block_lparams` / the oracle premise
+relaxed to that prefix, leaving the motives untouched; Γ-U3, `Erases.instL`; Γ-U4, the δ
+rule instantiating and `SEnvConsistent` restated at
+`body.instantiateLevelParams (Ups n) us`. Γ-U3 is the risk and Γ-U4 is the content.
 
 ## Two environments, deliberately: the fragment and the evaluation's
 

@@ -6,15 +6,18 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown ten times since:
+reported the same 648 entries it did at `fee3ada`. It has grown eleven times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
-proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8 and to 850 at slice
-proj-P9, with every earlier
-entry's output byte-identical at each step — at proj-P8 and proj-P9 the whole inherited
-prefix is (800 and 818 entries respectively),
+proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
+proj-P9 and to 856 at slice Γ-U, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9 and Γ-U the whole
+inherited prefix is (800, 818 and 850 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
+Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
+added only two guard theorems, because its finding is that the relaxation it was
+commissioned to make would move the fragment's vacuity rather than remove it.
 The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
@@ -3608,3 +3611,76 @@ open LeanToLambdaBox
 -- both already on the commission: `TrEnv.proj_defeq` (A2, deferred) reaching us as
 -- `ProjDefeqSpec`, and `ProjCtorAgree`, the `env`-side half of the same statement
 -- correction. No axiom of ours, no `sorry` of ours, and not a byte of the shipping eraser.
+
+-- ============================================================================
+-- SLICE Γ-U — THE UNIVERSE BLOCKER, COSTED AND NOT TAKEN
+-- ============================================================================
+--
+-- The projection round removed §H's first leverage item and made `DeltaHyps.prepared`
+-- satisfiable for the class-method BODIES. It did not make `DeltaHyps` inhabitable for
+-- the class-method DECLARATIONS: every one of them is universe-polymorphic
+-- (`OfNat.ofNat.{u}`, `HAdd.hAdd.{u,v,w}`, `Add.add.{u}`, …) while `decl_run` pins
+-- `ci.levelParams = Us` and the capstones run at `Us = []`. This slice was commissioned
+-- to relax that pin. It lands NO relaxation — two of its five findings say the relaxation
+-- is not the cheap half of a bigger job but the WRONG half — and it lands instead the two
+-- facts that make the cost measurable, plus the docstring corrections they force.
+--
+-- Everything below is analysis carried in `DeltaHyps`' module docstring (the five
+-- findings), `SubjectReductionFull`'s `SEnvConsistent` docstring (the provenance
+-- correction), and `ColdStart`'s `hUs`/`hcon` ledger rows. Two declarations are new.
+--
+-- (a) THE MODEL'S δ STEP IS UNIVERSE-BLIND — and this is the finding that decided the
+--     slice. Every δ rule in the development binds the call site's levels `us` and then
+--     DISCARDS them, unfolding `.const n us` to the UNINSTANTIATED body; the kernel
+--     unfolds to `body.instantiateLevelParams ci.levelParams us`. The two agree exactly
+--     when the instantiation is the identity, i.e. under the pin this slice was asked to
+--     remove. The theorem states "discarded" as a theorem: ONE body evaluation serves
+--     EVERY level instantiation of the same constant. `sorryAx`-free, and the cheapest
+--     entry in this file.
+#print axioms LeanToLambdaBox.SEvalDataι.delta_level_blind
+--
+-- (b) `SEnvConsistent` COLLAPSES A CONSTANT'S INSTANTIATIONS — the same fact one layer
+--     up, and the one that was NOT written down anywhere. The premise quantifies `us` and
+--     its conclusion never mentions it, so it forces any two level instantiations of a
+--     fragment constant definitionally equal. A well-formed `VEnv` does not supply that:
+--     `VEnv.IsDefEq.extra` instantiates BOTH sides of a defining equation, so what a
+--     `VEnv` gives is `.const n us ≡ ⟦body⟧.instL us`, never two `instL`s to each other.
+--     `SEnvConsistent`'s docstring claimed the un-instantiated form; that claim is
+--     corrected in place, and this is its refutation.
+--
+--     AXIOM ACCOUNTING: it inherits `sorryAx` and inherits it from ONE place —
+--     `TrExprS.uniq`, whose set is byte-identical and which `erases_correct_data` and its
+--     siblings have consumed since long before this slice. Nothing new enters the
+--     development's frontier; the guard is a consumer of an item already paid for.
+#print axioms Lean4Lean.TrExprS.uniq
+#print axioms LeanToLambdaBox.SEnvConsistent.levels_collapse
+--
+-- (c) WHY THE RELAXATION IS THE WRONG HALF. Three further findings, none of them
+--     axiom-visible, all of them in `DeltaHyps`' Γ-U section: `prepared` and `esrc_shape`
+--     pin the same monomorphism independently of `decl_run`, so relaxing one clause is a
+--     no-op; `Us` is a PARAMETER of `visitExpr_refines_erases_core` rather than a motive
+--     binder, and the dependency's sub-run is fed to motive 1's own IH, so there is no
+--     composition point outside the induction at which an `instL` could be inserted (the
+--     Γ-W1 pattern, at Γ-W1 scale — 343 occurrences of `Us` in a 4452-line file); and
+--     `DeltaMem`/`RunConclδ` are `Us`-indexed and chained by `.trans`, so the record
+--     cannot stay as it is under a `∀ Us` motive. On top of which `TrExprS.instL` lands
+--     in `TrExpr`, not `TrExprS`, while `Erases.box`/`lam`/`letE` record STRICT witnesses
+--     — so `Erases.instL`, the lemma the whole plan rests on, is the wall and not a
+--     corollary. The ι-era `TrExprS.instL_weak` escapes this only by transporting a
+--     closed rhs at `Δ = []`; inside an induction over contexts there is no such escape.
+--
+-- (d) THE FAILURE MODE, WHICH IS THE POINT. Relaxing `decl_run` and `block_lparams`
+--     alone would make `DeltaHyps` inhabitable at a polymorphic dependency and leave the
+--     capstones with `hcon : SEnvConsistent` false at exactly those constants. Both are
+--     vacuity, so no theorem would become unsound — but one is a named, documented scope
+--     restriction and the other is an unnamed premise, and trading the first for the
+--     second is a regression in legibility of precisely the kind this ledger exists to
+--     prevent. That is why the slice stops here.
+--
+-- (e) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. No signature changed, no premise
+--     moved, no fixture was touched; the slice is two theorems and four docstrings. The
+--     capstones keep their eight and the bridge its seven, and the entire inherited
+--     850-entry prefix comes back byte-identical.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
