@@ -2672,3 +2672,59 @@ open LeanToLambdaBox
 -- `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …` — is a second Γ-W1-shaped
 -- pass plus order-theoretic plumbing. Priced in `ColdStart`'s residue-1 row; not attempted
 -- here.
+
+-- ============================================================================
+-- Projection round, slice P3: the first constructed `TrProj` (`ProjPattern.lean`).
+--
+-- Nobody — upstream or downstream — had ever CONSTRUCTED a `TrProj env U Γ S i e e'`.
+-- Every downstream statement about projections was therefore possibly vacuous, and the
+-- nine-slice projection round is staked on the answer. It is now settled in the
+-- affirmative, at two shapes and both polarities.
+--
+-- These are CONSTRUCTED guards on a synthetic `VEnv` built with `VEnv.addPat`, so — as
+-- for `envι_iota_fires` — they must be **sorryAx-free**, and they are: `[propext,
+-- Classical.choice, Quot.sound]`, the ambient set of the `simp` calls in the
+-- `constants`-lookup lemmas. No `VEnv.WF` is claimed; `VEnv.Ordered` has no `addPat`
+-- clause and `addInduct_WF` is `sorry` upstream, which is why these are `addPat`-built
+-- and not `addInduct`-built.
+--
+-- WHAT THE CONSTRUCTION COST, i.e. the recipe for slices P4-P7: five of `TrProj`'s six
+-- conjuncts are `rfl`, `VEnv.addPat_self` and `by simp`. The whole cost is
+-- `∃ A, env.HasType U Γ e' A`, and inside it the whole cost is ONE conversion — the
+-- recursor's minor premise wants `∀ f̄, motive (mk params f̄)` while the field selector
+-- naturally has `∀ f̄, fieldTys[i]`, and a CONSTANT motive makes the two definitionally
+-- equal by a single β step under `forallEDF` congruences (`hconvP`/`hconvQ`).
+--
+-- AND THE LINE IT DRAWS (survey item R2, answered): the constant motive works iff
+-- `fieldTys[i]` does not mention the field binders `f₀ … f_{i-1}`. So field 0 of ANY
+-- structure — dependent or not — is as easy as this file, and so is every typeclass
+-- method; a field i > 0 whose type genuinely depends on an earlier field (`Sigma.snd`)
+-- needs the motive `fun p => β p.0`, i.e. β PLUS a firing of the ι rule. That case is
+-- inhabitable by the same kit and is NOT attempted here — the round's one residue on
+-- this axis, and a narrow one.
+-- ============================================================================
+-- Positive, at `MyProd` (np = 1, one ctor, TWO fields, no indices): both fields, at a
+-- variable discriminant and at a saturated constructor spine. Two fields so that
+-- `VExpr.fieldSelector`'s `Fs.length - 1 - i` convention is exercised rather than
+-- degenerate (`selP_zero`/`selP_one` pin it by `rfl`).
+#print axioms LeanToLambdaBox.selP_zero
+#print axioms LeanToLambdaBox.selP_one
+#print axioms LeanToLambdaBox.trProjP_bvar0
+#print axioms LeanToLambdaBox.trProjP_bvar1
+#print axioms LeanToLambdaBox.trProjP_ctor0
+#print axioms LeanToLambdaBox.trProjP_ctor1
+-- The second half of the kill-check: `TrExprS` at a real `Expr.proj`, over those
+-- witnesses — `DeltaHyps.prepared`'s second conjunct in miniature, the conjunct the
+-- projection round exists to make satisfiable. `_ctor` has a compound discriminant, so
+-- `TrExprS.proj`'s first premise is doing work rather than being a variable lookup.
+#print axioms LeanToLambdaBox.trExprSP_proj_bvar
+#print axioms LeanToLambdaBox.trExprSP_proj_ctor
+-- Positive, at the PAYOFF shape `MyOfNat` (np = 2, one field): the type-class shape the
+-- design's `OfNat.ofNat` trace runs through, where `params` is a two-element list so the
+-- `params ++ [motive, selector, major]` append is not degenerate.
+#print axioms LeanToLambdaBox.trProjQ_bvar
+#print axioms LeanToLambdaBox.trExprSQ_proj
+-- Negative: at a `pats`-free environment `TrProj` is uninhabited, so the witnesses above
+-- are about the registration and not artefacts of a degenerate definition.
+#print axioms LeanToLambdaBox.trProj_refuted
+#print axioms LeanToLambdaBox.trProj_refuted_empty

@@ -177,3 +177,9 @@ import LeanToLambdaBox.ColdStartDelta
 -- refutations of slice S1d's `RegShapeHyps`. Since S1e the registry invariant is carried
 -- by the theorem `visitExpr_regInvShape` rather than by a bundle field.
 import LeanToLambdaBox.ColdStart
+-- Projection round, slice P3: the first constructed `TrProj` — a synthetic
+-- single-constructor two-field structure registered by `VEnv.addPat`, four positive
+-- `TrProj` witnesses (both fields, variable and constructor-spine discriminants), the
+-- `TrExprS.proj` witnesses over them, and the `pats`-free refutation. Answers the
+-- inhabitation question the whole projection round is staked on.
+import LeanToLambdaBox.ProjPattern
