@@ -6,11 +6,21 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown five times since:
+reported the same 648 entries it did at `fee3ada`. It has grown six times since:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
-slice Γ-W3.6b and to 730 at slices proj-P0/P1/P4, with every earlier entry's output
-byte-identical at each step. The projection round's twenty-three new entries are **all
-`sorryAx`-free**, and the crown four did not move.)
+slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4 and to 750 at slice Γ-W4, with every
+earlier entry's output byte-identical at each step. The projection round's twenty-three
+new entries are **all `sorryAx`-free**; Γ-W4's twenty are too, bar the one that restates a first-order-value
+fixture (`envRec_foC`, whose set is its `envFO`/`envδ` siblings' verbatim — the inherited
+unique-typing item, reached through `IsDefEq.uniqU`).
+The crown four did not move at either round.
+
+**The Γ-XL wave, closed.** Γ-W0 → Γ-W4 took the recursion wall down from both sides: the
+bridge walks `visitMutual`'s recursive exit (Γ-W3.6b) and the capstones no longer exclude
+recursive programs (Γ-W4). Over the wave's measured tail — Γ-W3.5 through Γ-W4, 673 → 746
+entries — the crown four moved **once, and downward**, when the `trproj` re-pin took
+`sorryAx` out of the refinement half. No slice of the wave added an axiom, a `sorry` or a
+`native_decide`, and none changed a byte of the shipping eraser.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -3053,3 +3063,103 @@ open LeanToLambdaBox
 --     will take. It is a `Prop` HYPOTHESIS, never an axiom, and — like `IotaConsistent`
 --     — it stays one even once derivable, because that is what keeps `safety`/`kenv`
 --     out of the `VEnv`-level statements.
+
+-- ============================================================================
+-- SLICE Γ-W4 — `hnorec` DIES; THE RECURSIVE COLD-START CAPSTONE
+-- ============================================================================
+--
+-- The finale of the recursion wall on the capstone side. Γ-W3.6b landed the PRODUCER —
+-- step 6 walks `visitMutual`'s recursive exit — and left the CONSUMER half: both
+-- cold-start capstones still carried `hnorec : Γ.recBodies = ⊥`, an S-class scope
+-- restriction that excluded every recursive program from the statement. It is DELETED.
+--
+-- (a) WHAT REPLACED IT. One premise, `RecCovered Γ Esrc sf`, stated about the run's final
+--     state: every constant `Γ` records as recursive is in the fragment's source
+--     environment and has ITS block stored under its kername. It is the CONVERSE of
+--     `RecBlockAgreement` — that one reads run → `Γ` (the block a run builds is the block
+--     `Γ` records, which is `Erases.fix`'s `hreg`), this one reads `Γ` → run — and neither
+--     derives the other: a `Γ` may name a block for a constant the program never calls,
+--     and then no walk registers anything for it. So it is premised, of the
+--     registration-agreement class, and at `Γ.recBodies = ⊥` it is a THEOREM
+--     (`RecCovered.of_noRec`), which is how every `known = ⊥` guard picks it up for free —
+--     the mirror of `RecBlockAgreement.of_bot`.
+#print axioms LeanToLambdaBox.RecCovered
+#print axioms LeanToLambdaBox.RecCovered.of_noRec
+--
+-- (b) THE CONVERSION, AND WHAT IT COST. `recEnvConsistent_of_deltaMem_walked` is
+--     `registeredClosureData_of_deltaMem_walked` with the applied-form conjunct dropped
+--     and the coverage agreement added: `hdisj`/`hclenv`/`huni` are the SAME THREE
+--     ARGUMENTS a capstone already assembles for its `ErasesEnvDeltaData`, so the
+--     recursive record costs exactly one new premise and no new machinery. The `Erases`
+--     conjunct is DERIVED — `DeltaMem` is keyed on the recorded entry and says nothing
+--     about its shape, so a `.fix` body was inside its statement all along, and the walked
+--     exit's `DeltaMem.recBlock` is what puts one there.
+--
+--     No single-block restriction, unlike `recEnvConsistent_of_block`: the conversion is
+--     keyed per name on `Γ.recBodies n`, so a `Γ` describing several blocks costs nothing.
+--     What stays single-declaration is the SUBJECT — `Erasure.erase` erases one term.
+#print axioms LeanToLambdaBox.recEnvConsistent_of_deltaMem_walked
+--
+-- (c) SUPPLIABILITY, ON REAL RECURSIVE DATA — the S1d/S1e test, run twice. The premise
+--     that replaces a deleted scope restriction must not be one nothing can satisfy.
+--     `gRecCoveredD8` computes it on the self-referential fixture `def f (a : Prop) := f a`
+--     at the state the walked recursive exit produces; `gDeltaMemRecD8` builds the δ record
+--     there through `DeltaMem.recBlock` (the extension step that exit fires) with the
+--     `Erases.fix` witness DERIVED by `erases_rec_block_of_run`; and
+--     `gRecEnvConsistentWalkedD8` runs the whole conversion end to end at a `Γ` that
+--     genuinely registers recursion — `hnest` the only thing left hypothetical.
+#print axioms LeanToLambdaBox.gRecCoveredD8
+#print axioms LeanToLambdaBox.gDeltaMemRecD8
+#print axioms LeanToLambdaBox.gRecEnvConsistentWalkedD8
+--
+-- (d) THE DELIVERABLE: A COLD-START ENTRY-POINT THEOREM ON A RECURSIVE PROGRAM.
+--     `ΓFOrec` grafts the fixture's block onto `ΓFOd`'s nullary constructor, and
+--     `ΓFOrec_norec_refuted` is the measurement that makes the guard mean something: the
+--     deleted premise is FALSE there, so before this slice no cold-start capstone could
+--     speak about that `Γ` at all. The graft is forced, not cosmetic — `FirstOrderValue`
+--     has exactly one constructor (`.ctor`), so at a `Γ` registering no constructor the
+--     capstone's `hfo` premise is UNINHABITED and no conclusion can be stated.
+--
+--     `gRecCoveredFO` is the same suppliability check at the guard's own final state.
+#print axioms LeanToLambdaBox.ΓFOrec_norec_refuted
+#print axioms LeanToLambdaBox.ΓFOrec_cc
+#print axioms LeanToLambdaBox.gRecKeysFO
+#print axioms LeanToLambdaBox.gRecCoveredFO
+--
+-- (e) THE VACUITY THE GUARD NEARLY WAS. Its first version ran at `envFO` and proved
+--     NOTHING: `DeltaHyps.esrc_shape` demands a `TrExprS` translation of every body the
+--     fragment records, `fixRecSrc` mentions `.const f []`, and `envFO` does not declare
+--     `f` — so the `Hδ` bundle is UNINHABITABLE there and taking it hypothetically is
+--     taking `False`. The fix is the environment: `envRec` declares `f` as an AXIOM of
+--     type `Prop → I`, which is the honest modelling (a recursive definition has no kernel
+--     defining equation — that is why the eraser fetches `f._unsafe_rec`).
+--     `gRecEsrcShape` discharges the field that was unsatisfiable and `gRecScope` the
+--     other three fragment-scope fields, so nothing in the bundle is hypothetical because
+--     it is empty. This is the S1d/S1e discipline applied from the environment side, and
+--     it is the one design claim of this slice that failed on first contact.
+#print axioms LeanToLambdaBox.envRec_wf
+#print axioms LeanToLambdaBox.envRec_trFixRecSrc
+#print axioms LeanToLambdaBox.gRecEsrcShape
+#print axioms LeanToLambdaBox.gRecScope
+#print axioms LeanToLambdaBox.envRec_foC
+--
+-- (e') AND ONE PREMISE CAME OUT BETTER THAN PRICED. `hcon : SEnvConsistent` is
+--     DISCHARGED at the recursive fixture, by η: the source body `fun (a : Prop) => f a`
+--     is `f`'s η-expansion and `VEnv.IsDefEq.eta` is a rule of lean4lean's theory. That is
+--     a property of this fixture, not of recursion. The structural fact behind it is worth
+--     keeping: a well-formed `VEnv` cannot carry a SELF-REFERENTIAL defining equation,
+--     because `VDecl.def` types a constant's value in the environment BEFORE the constant
+--     is added. So for a general recursive constant `hcon` is never the `envδ`-style
+--     defining-equation discharge — it is a trust item about a constant whose only kernel
+--     form is `_unsafe_rec`.
+#print axioms LeanToLambdaBox.envRec_senvConsistent
+--
+-- (f) THE CROWN, ONE LAST TIME. Deleting a premise and adding one changes no axiom set:
+--     both capstones are VERBATIM the eight they have carried since the `fee3ada` re-pin
+--     (three standard + `sorryAx` + the four `Expr`/`PersistentHashMap` modelling axioms),
+--     the bridge keeps its seven and `rec_exit_refines_erases` its six. The `sorryAx` is
+--     still unique typing, inherited, and still not ours.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
