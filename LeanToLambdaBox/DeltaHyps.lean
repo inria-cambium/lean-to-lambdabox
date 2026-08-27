@@ -162,8 +162,8 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   `known = ⊥`. -/
   nofixvars : ∀ {n : Name}, known n → Γ.fixvars = fun _ => none
   /-- **The declaration fetch agrees with the fragment.** For a `known` name: the fetch is
-  generator-monotone, the block is a *single* declaration, and it is universe-monomorphic
-  at the ambient `Us` (scope restriction 1).
+  generator-monotone, the block is a *single* declaration whose name strips to the one
+  asked for, and it is universe-monomorphic at the ambient `Us` (scope restriction 1).
 
   It used to carry a fourth conjunct, `(Esrc n).isSome`. Slice D4a made it dead: naming
   *some* body is never enough at the point of use, which needs *this* run's body, and
@@ -177,12 +177,28 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   restriction on the fragment. Keeping them in one conjunction hid that, and hid which of
   the two the cold-start `hnorec` premise is waiting on.
 
+  **The single declaration is `[m]`, not `[n]`** (slice Γ-W2), and the difference is the
+  whole of what the fragment can contain. `Compiler.LCNF.getDeclInfo?` tries
+  `n._unsafe_rec` *before* `n` — it prefers the original recursive definition over the
+  elaborated one, which is `visitMutual`'s own comment ("possibly these are
+  ._unsafe_rec") — and slice Γ-W0 measured that on this toolchain the arithmetic every
+  §H benchmark drags in really does come back that way: `Nat.add`/`mul`/`sub`/`pow`,
+  `Nat.ble`/`beq`, `List.length`/`append`/`map`/`foldl` all answer with
+  `ci.all = [n._unsafe_rec]`. At `ci.all = [n]` the field was therefore *false* at exactly
+  the names the fragment has to contain, and no amount of downstream work could repair
+  that. The relaxed conjunct is what the run itself tests and what it registers under: the
+  run's own test is `ci.all.length == 1`, so the single-declaration prefix is entered
+  either way, and the recursive exit registers under `ci.all.map remove_unsafe_rec`, which
+  the equation `remove_unsafe_rec m = n` identifies with the name the caller asked for.
+  See `rec_exit_registers_stripped_name` and its positive companion below.
+
   Stated at the `CoreM` layer, which is the layer `ColdStartRun.run_visitMutual_decomp`
   hands the fetch back at. -/
   decl_run : ∀ {n : Name} {w w₁ : Void IO.RealWorld} {r : Option ConstantInfo},
     known n →
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
-    gw w ≤ gw w₁ ∧ ∃ ci, r = some ci ∧ ci.all = [n] ∧ ci.levelParams = Us
+    gw w ≤ gw w₁ ∧ ∃ (ci : ConstantInfo) (m : Name),
+      r = some ci ∧ ci.all = [m] ∧ remove_unsafe_rec m = n ∧ ci.levelParams = Us
   /-- **No fragment constant is recursive** — scope restriction 5, split out of `decl_run`
   by slice δ-D8e and stated on the two runs its consumer holds (the fetch, which ties the
   value to the name, and the `value?` hit), in the keying style of `prep_esrc`.
@@ -667,22 +683,29 @@ theorem gNofixvars_blocklocal (x : FVarId) :
         = fun _ => none :=
   fun h => h.elim
 
-/-- **The second scope restriction the recursive exit would cost, on real data**
-(slice δ-D8e).
+/-- **The recursive exit registers under the *stripped* name, on real data**
+(slice δ-D8e; re-read at Γ-W2).
 
 `visitMutual`'s recursive exit registers under `names.map remove_unsafe_rec`, not under
 `names`: the loop is `for (n, i) in fixvarnames.zipIdx do … constants.insert n (toKername n)`
 with `fixvarnames := names.map remove_unsafe_rec` (`Erasure.lean`). Motive 6's conclusion
-is `(s'.constants.get? n).isSome` at the name the *caller* asked for, and for an
-`._unsafe_rec` name those two are different names — so the conclusion is **false** on the
-run, not merely unproved.
+is `(s'.constants.get? n).isSome` at the name the *caller* asked for, so the two names have
+to be the same one — and this theorem is the check that they are genuinely different names
+when the fetch answers with an `._unsafe_rec` declaration, which is the shape
+`Compiler.LCNF.getDeclInfo?` hands back whenever it prefers the original recursive
+definition over the elaborated one (`Erasure.visitMutual`'s own comment, "possibly these
+are ._unsafe_rec").
 
-The instance below is the real one: `f._unsafe_rec` is exactly the shape
-`Compiler.LCNF.getDeclInfo?` hands back when it prefers the original recursive definition
-over the elaborated one (`Erasure.visitMutual`'s own comment, "possibly these are
-._unsafe_rec"). So trading `DeltaHyps.nonrecursive` costs a further fragment restriction —
-`remove_unsafe_rec n = n` for every `known n` — and that is a restriction on which
-*declarations* may be reached, not a new trust item. -/
+**What slice δ-D8e concluded from it was wrong in its direction** (corrected at Γ-W2). It
+read this as a further *fragment* restriction — `remove_unsafe_rec n = n` for every
+`known n`, to be paid as a new field — and that reading has the arrow backwards. The
+caller's `n` is the plain name; what carries the `._unsafe_rec` suffix is the *fetched*
+declaration's `ci.all`, which the old `decl_run` conjunct `ci.all = [n]` wrongly pinned to
+the caller's name. Under the relaxed conjunct `ci.all = [m] ∧ remove_unsafe_rec m = n` the
+registration happens under `remove_unsafe_rec m`, which *is* `n`: no fragment restriction
+is bought, and the fragment gains every name whose declaration comes back suffixed — which
+slice Γ-W0 measured to be all of the §H benchmarks' arithmetic. `rec_exit_registers_name`
+below is that reading, on the same data. -/
 theorem rec_exit_registers_stripped_name (defs : List (@FixDef LBTerm)) :
     remove_unsafe_rec (`f ++ `_unsafe_rec) = `f ∧
       ((recConstState [remove_unsafe_rec (`f ++ `_unsafe_rec)] defs {}).constants.get?
@@ -691,11 +714,21 @@ theorem rec_exit_registers_stripped_name (defs : List (@FixDef LBTerm)) :
   simp [recConstState,
     show ¬ remove_unsafe_rec (`f ++ `_unsafe_rec) = `f ++ `_unsafe_rec by decide]
 
-/-- **The fragment's constant is `Supported`** — the derivation that was unreachable at
-`known = ⊥` (`Supported.const` needs `known n`, and `Γ.fixvars = ⊥` kills the other
-disjunct). This is what δ-inclusion is *for*. -/
-theorem gDeltaSupported : Supported (fun n => n = `f) gΓδ (.const `f []) :=
-  .const `f [] (Or.inl rfl) rfl rfl
+/-- **…and the same run registers exactly the name the caller asked for** (slice Γ-W2) —
+the positive half, and the reason the relaxed `DeltaHyps.decl_run` costs the fragment
+nothing.
+
+`visitMutual f` fetches `ci` with `ci.all = [f._unsafe_rec]` (the measured shape), enters
+the single-declaration prefix because the run's own test is `ci.all.length == 1`, and
+registers under `ci.all.map remove_unsafe_rec = [f]`. So motive 6's registration
+conclusion at the caller's `f` holds on the nose. Both halves of that sentence are checked
+here: the length test the run performs, and the registry hit at `f`. -/
+theorem rec_exit_registers_name (defs : List (@FixDef LBTerm)) :
+    ([`f ++ `_unsafe_rec].length == 1) = true ∧
+      ((recConstState ([`f ++ `_unsafe_rec].map remove_unsafe_rec) defs {}).constants.get?
+        `f).isSome := by
+  refine ⟨by decide, ?_⟩
+  simp [recConstState, show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide]
 
 /-- **Why the registry domain is load-bearing in `get_constant_kername`'s motive.**
 

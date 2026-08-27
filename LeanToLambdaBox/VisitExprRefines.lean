@@ -1960,7 +1960,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       _ _ cctx ref _ hdi
     subst sa
     have hdiC := ((run_liftCoreM_ok _ _ cctx ref _).mp hdi).1
-    obtain ⟨hled, ci, hci, hall, hlp⟩ := (Hδ cctx ref).decl_run hkn hdiC
+    obtain ⟨hled, ci, mn, hci, hall, hstrip, hlp⟩ := (Hδ cctx ref).decl_run hkn hdiC
     have hdg : di.get! = ci := by rw [hci]; rfl
     rw [hdg] at hrun
     -- (2) getEnv, for the `@[inline]` attribute lookup.
@@ -1972,7 +1972,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       NameGenerator.LE.trans hled ((Hδ cctx ref).env_run henv0)
     have hrc : RunConclδ env Us Γ₀ Esrc s s := RunConclδ.rfl' _
     clear hdi henv0
-    -- (3) the block is a single declaration (`decl_run`), so the prefix is entered.
+    -- (3) the block is a single declaration (`decl_run`), so the prefix is entered. The
+    -- run's own test is `ci.all.length == 1`, which is why `decl_run` may name the
+    -- declaration `[mn]` rather than `[n]` (slice Γ-W2): the prefix does not care which
+    -- name it is, and the recursive exit's registration is under `remove_unsafe_rec mn`,
+    -- which `hstrip` identifies with the `n` the caller asked for.
     split at hrun
     case isFalse hns => exact absurd (by simp [hall]) hns
     case isTrue =>
