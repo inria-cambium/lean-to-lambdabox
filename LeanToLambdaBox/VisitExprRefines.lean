@@ -1726,7 +1726,7 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
     (fun j h => by simp only [List.getElem_ofFn]; exact hclosef j h)
     (fun j h => by
       simp only [List.getElem_ofFn]
-      exact Hβ.block_lam (hknfix j _) (hlinkf j h))
+      exact (Hβ.block_lam (hknfix j _) (hlinkf j h)).2)
     (fun j h => by
       simp only [List.getElem_ofFn]
       obtain ⟨-, ve, hve⟩ := Hδ.esrc_shape (hlinkf j h)

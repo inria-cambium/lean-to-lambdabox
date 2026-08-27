@@ -1,6 +1,7 @@
 import Lean4Lean.Verify.Environment.Lemmas
 import Lean4Lean.Verify.Typing.Lemmas
 import LeanToLambdaBox.Erases
+import LeanToLambdaBox.ErasesUniform
 
 /-!
 # The projection pattern interface: the first constructed `TrProj`
@@ -593,6 +594,48 @@ def ΔqV : VLCtx := [(none, .vlam QN)]
 theorem trExprSQ_proj :
     TrExprS envQ [] ΔqV (.proj `MyOfNat 0 (.bvar 0)) (eProjQ (.bvar 0)) :=
   .proj (.bvar (by rfl)) trProjQ_bvar
+
+/-! ### The fragment guard: a class method's body, at the empty context (slice P2)
+
+`DeltaHyps.esrc_shape` asks two things of every body the fragment records:
+`NoProjBinders` and a translation at the **empty** `VLCtx`. Until slice P2 its predicate
+was `NoProj`, and no projection body could satisfy it at all. This is the check that the
+weakened field is not merely weaker but *satisfiable on the intended data*: `MyOfNat.ofNat`'s
+prepared body, closed, at `[]`, with the projection where the payoff needs it — the class's
+parameters instantiated (`N`, `n0`) rather than abstracted, which is the one respect in
+which it is smaller than the real `fun α x self => self.1`. The binder-type half of the
+predicate is the interesting one: it holds because `MyOfNat N n0` is a constant
+application, and it would *fail* for a body binding at a projection type — which is exactly
+the boundary `NoProjBinders` was cut at. -/
+
+/-- `fun (self : MyOfNat N n0) => self.ofNat`, as a source `Expr`. -/
+def ofNatBodyQ : Expr :=
+  .lam `self (.app (.app (.const `MyOfNat []) (.const `N [])) (.const `n0 []))
+    (.proj `MyOfNat 0 (.bvar 0)) .instImplicit
+
+/-- The binder type `MyOfNat N n0` translates to `QN`. -/
+theorem trExprSQ_ofNatTy :
+    TrExprS envQ [] [] (.app (.app (.const `MyOfNat []) (.const `N [])) (.const `n0 [])) QN :=
+  .app (hQCc.app hNtyQ) hn0c
+    (.app hQCc hNtyQ (.const envQ_QC (by simp) (by simp)) (.const envQ_N (by simp) (by simp)))
+    (.const envQ_n0 (by simp) (by simp))
+
+/-- …and so does the whole body, at the **empty** context. -/
+theorem trExprSQ_ofNatBody :
+    TrExprS envQ [] [] ofNatBodyQ (.lam QN (eProjQ (.bvar 0))) :=
+  .lam ⟨_, hQN⟩ trExprSQ_ofNatTy trExprSQ_proj
+
+/-- **`DeltaHyps.esrc_shape` is satisfiable at a genuine projection body** — the guard the
+P2 weakening exists for, in the field's own shape. -/
+theorem gEsrcShapeProj :
+    NoProjBinders ofNatBodyQ ∧ ∃ ve, TrExprS envQ [] [] ofNatBodyQ ve :=
+  ⟨⟨⟨⟨⟨⟩, ⟨⟩⟩, ⟨⟩⟩, ⟨⟩⟩, _, trExprSQ_ofNatBody⟩
+
+/-- …and the field's **old** predicate refutes the same body, so the relaxation is what
+admitted it. Together with `gEsrcShapeProj` this is the whole non-vacuity story for slice
+P2 at the environment level; `ErasesUniform.noProjBinders_ofNatBody` is the syntactic half,
+at the full three-binder `fun α x self => self.1`. -/
+theorem gEsrcShapeProj_noProj_refuted : ¬ NoProj ofNatBodyQ := fun h => h.2
 
 /-! ## The projection-reduction interface (slice P4)
 

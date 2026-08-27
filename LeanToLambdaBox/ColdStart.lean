@@ -100,8 +100,8 @@ Four classes, and nothing falls outside them:
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec` |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
-| `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe |
-| `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is λ-headed) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues. Its scope restriction is named at `RecBlockErasure.erases_rec_block_of_run`: **a block's bodies call only its own siblings, registered constructors and registered `casesOn`s** — the block's inner runs are taken at `known = ⊥`, so an external call is out of scope. That is the one restriction the recursion feature genuinely still makes, and it is *inside* a block rather than about the program |
+| `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe, and `esrc_shape` was weakened at proj-P2 from `NoProj` to `NoProjBinders` — the typeclass layer's prepared bodies are projections, so the strong predicate made the field uninhabitable for all of them; the strong one now sits on `BlockHyps.block_lam`, for the sibling bodies only |
+| `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is a projection-free λ — the `NoProj` half arrived at proj-P2, out of `DeltaHyps.esrc_shape`, and keeps this path on the `sorryAx`-free strengthening) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues. Its scope restriction is named at `RecBlockErasure.erases_rec_block_of_run`: **a block's bodies call only its own siblings, registered constructors and registered `casesOn`s** — the block's inner runs are taken at `known = ⊥`, so an external call is out of scope. That is the one restriction the recursion feature genuinely still makes, and it is *inside* a block rather than about the program |
 | `Hreg : RecBlockAgreement` | H | **the walk's registration agreement** (Γ-W3.6b): `Γ` records the block the recursive exit stores, at the readers and states the bridge's induction quantifies. `Erases.fix`'s own premise, and irreducible at a parameter `Γ` fixed before the run builds the block. Its quantifiers are *gated* — on the fragment, and on `BridgeInv`, whose `cfg` field pins the config (Γ-W3.6a) and whose `consts`/`knames` pin the registry — so the two refutations that could be written are closed, and what is left free (`ctx.lctx`, `s.inductives`, the world) is the class every run-keyed field already carries. At `known = ⊥` it is a **theorem** (`RecBlockAgreement.of_bot`). `gRecAgreement` is the suppliability guard; residue 1 records the route that would make it a theorem outright (read `Γ.recBodies` off the run's final `gdecls`, priced at "re-index the erasure relation") |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
@@ -336,9 +336,11 @@ below, three ways.
    premise `hstr : ErasableStrengthen env Us`, a three-line statement at the `VExpr`
    level and the only R-class row in the table above. Two things the bundle owes it are
    S-class and now written down: `DeltaHyps.esrc_shape` (a fragment body is
-   projection-free and translates at `[]` — `NoProj` is what makes lean4lean's
-   `TrExprS.unique`, which is `sorry`-free, applicable, and the supported fragment
-   excludes `.proj` anyway), and the context data `DeltaMem` now carries (δ-D7b(i)).
+   projection-free *at its binders* and translates at `[]` — since slice P2 the predicate
+   is `NoProjBinders`, which admits the typeclass layer's `fun α x self => self.1` and
+   pays for the boxed positions with `TrExprS.uniq` instead of `TrExprS.unique`; the
+   recursive exit keeps the strong `NoProj` for its siblings, `BlockHyps.block_lam`), and
+   the context data `DeltaMem` now carries (δ-D7b(i)).
 
    Honest note on the upstream side, established while proving this: lean4lean does
    **not** have `HasType.weakN_inv` even for the stratified theories — those statements
@@ -423,7 +425,14 @@ unchanged, and the `sorryAx` in it is **unique typing**, not projections:
   `.uniq` downstream — 31 in `ErasesCorrectData.lean`, then `ErasesCorrect.lean` (11),
   `ErasesCorrectIota.lean` (7), `ErasesUniform.lean` (4), `FirstOrder.lean` (2),
   `ErasesStrengthen.lean` (2), `SubjectReductionFull.lean` (1). The densest single line of
-  inherited debt we carry.
+  inherited debt we carry. Slice proj-P2 added one more call site, deliberately and
+  *without* widening the reach: admitting projections into the fragment means the
+  `Δ → []` strengthening can no longer use the `sorry`-free `TrExprS.unique` (uniqueness
+  at `.proj` is false, not unproved), so the weak-predicate lemma
+  `Erases.strengthen_fvlift_binders` uses `.uniq` — while the equational lemma is **kept**
+  for the recursive exit, which is what leaves `visitExpr_refines_erases` and
+  `rec_exit_refines_erases` `sorryAx`-free. The 750-entry audit prefix is byte-identical
+  across that slice.
 * `Lean4Lean.VEnv.IsDefEq.uniqU`, sorried through `IsDefEqU.weakN_iff` (= C1, see residue
   2) and through the ι fork's `pat` cases. It reaches us via `TrProj.defeqDFC`,
   `TrExpr.app`/`TrExpr.proj` and `TrExprS.instL`.
@@ -1474,15 +1483,19 @@ theorem envRec_trFixRecSrc (Δ : VLCtx) :
 
 /-- **`DeltaHyps.esrc_shape` is satisfiable at this fixture** — the field whose failure at
 `envFO` made the first version of this guard vacuous, discharged here for every name the
-fragment records. -/
+fragment records. At slice P2 the field's predicate weakened from `NoProj` to
+`NoProjBinders`, so the guard is stated at the weak one (which is what has to match); the
+strong conjunct is kept beside it because this fixture is a *recursive* source and the
+recursive exit still asks for it (`BlockHyps.block_lam`, discharged at `gBlockHyps`). -/
 theorem gRecEsrcShape {n : Name} {pe : Expr} (h : EsrcRec n = some pe) :
-    NoProj pe ∧ ∃ ve, TrExprS envRec [] [] pe ve := by
+    NoProjBinders pe ∧ NoProj pe ∧ ∃ ve, TrExprS envRec [] [] pe ve := by
   obtain rfl : n = `f := by
     by_cases hn : n = `f
     · exact hn
     · simp [EsrcRec, hn] at h
   obtain rfl : pe = fixRecSrc := by simpa using h.symm
-  exact ⟨by simp [NoProj, fixRecSrc], _, envRec_trFixRecSrc []⟩
+  have hnp : NoProj fixRecSrc := by simp [NoProj, fixRecSrc]
+  exact ⟨hnp.toNoProjBinders, hnp, _, envRec_trFixRecSrc []⟩
 
 /-- **The bundle's fragment-scope fields, at this fixture** — `esrc_sub`, `disj` and
 `nofixvars`, in `DeltaHyps.gDeltaScope`'s house style: none of them is true merely because

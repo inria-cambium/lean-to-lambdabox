@@ -27,9 +27,9 @@ The **weakening** half (`[] → Δ'`) is done and lives in `ErasesStrengthen.lea
 proved, and the only thing its results cost is the ambient lean4lean trust boundary. The
 strengthening direction is not free — it needs an inverse of `HasType.weakN` that lean4lean
 does not have (`ErasableStrengthen`, commissioned below) and a source-side scope predicate
-(`NoProj`). Keeping the two apart keeps the trust ledger legible: a reader who wants to
-know what *weakening* costs should not have to page past a commissioned `Prop` to find out
-that the answer is "nothing".
+(`NoProj`, or since slice P2 the weaker `NoProjBinders`). Keeping the two apart keeps the
+trust ledger legible: a reader who wants to know what *weakening* costs should not have to
+page past a commissioned `Prop` to find out that the answer is "nothing".
 
 ## Trust boundary: inherited `sorryAx`
 
@@ -46,16 +46,28 @@ true, and the difference is visible in `#print axioms`:
   `Erases.strengthen_fvlift` and `erases_uniform_of_nil`. The only cost A0 imposed
   downstream was an `Ordered env` premise, which `ErasesStrengthen.lean` supplies at its
   two `proj` arms.
-* What still carries `sorryAx` in this file is `erases_strengthen_closed` and
-  `erases_uniform_closed`, and they earn it honestly: they are genuine consumers of
-  `TrExprS.uniq`, which bottoms out in `TrProj.uniq` — still `PROJ-TODO` — and in
-  `IsDefEq.uniqU`.
+* What still carries `sorryAx` in this file is `Erases.strengthen_fvlift_binders`,
+  `erases_strengthen_closed` and `erases_uniform_closed`, and they earn it honestly: they
+  are genuine consumers of `TrExprS.uniq`, which bottoms out in `TrProj.uniq` — still
+  `PROJ-TODO` — and in `IsDefEq.uniqU`.
 
 So the old caveat "**even though every source term in scope here is projection-free**" no
 longer applies to the transport lemmas at all; for the strengthening lemmas the source
 being projection-free is exactly what `NoProj` cashes in, via lean4lean's `sorry`-free
 `TrExprS.unique`. Nothing new is trusted either way, but the boundary is narrower and
 worth stating rather than discovering from an `#print axioms`.
+
+**The P2 split (2026-08-27).** Slice P2 admits *projections* into the fragment, and it
+cannot do so through `TrExprS.unique`: uniqueness at `.proj` is false, not unproved. So
+this file now carries **two** strengthening inductions rather than one —
+`Erases.strengthen_fvlift` at `NoProj`, `sorryAx`-free, `Ordered`+`FVWF`, and
+`Erases.strengthen_fvlift_binders` at `NoProjBinders`, which trades the equation for a
+definitional equality (`TrExprS.uniq` + `Erasable.defeq`) and therefore for the `TrProj.uniq`
+`sorryAx`, and asks `WF`+`VLCtx.WF` for it. Keeping both is what makes the slice cost
+*nothing*: the consumers of the weak one (`erases_strengthen_closed` downwards) carried
+that `sorryAx` already, and the consumer of the strong one — the bridge's recursive exit,
+via `DeltaHyps.BlockHyps.block_lam` — stays clean. The whole 750-entry audit is
+byte-identical across the slice.
 
 ## Shape of the strengthening argument, and why it is not lean4lean's `weakFV_inv`
 
@@ -87,6 +99,18 @@ gives **equality on the nose**, at the price of a projection-freeness side condi
 source (`NoProj` below; `TrExprS.IsUnique` upstream). With the equation in hand every arm is
 structural, no `VLCtx.WF` is needed anywhere in the induction, and the only genuinely
 missing fact is the `VExpr`-level one: `ErasableStrengthen`.
+
+**And where the `weakFV_inv` route was blocked, the P2 route is not.** The paragraph above
+rejects recovering `ty'₀` existentially; `Erases.strengthen_fvlift_binders` does something
+else: it keeps `hwt` as the source of the small-context witness — so the binder arms still
+get their equation from `TrExprS.unique`, and the `lam` obstruction never arises — and
+spends the definitional equality *only* in `box`, where the module's own verdict
+("survivable, `Erasable.defeq` transports along it") applies. That is also where the
+`VLCtx.WF` it asks for comes from: not from an `Erases` premise, which indeed has no
+`IsType`, but from `hwt`, because lean4lean's `TrExprS.lam`/`TrExprS.letE` *do* record the
+binder's `IsType`/`HasType`. So the "cannot survive this induction" verdict
+`erases_weakFV` records for `VLCtx.WF` is about *that* induction; with a translation
+premise in hand it does survive.
 -/
 
 namespace LeanToLambdaBox
@@ -278,6 +302,123 @@ theorem noProj_foldl_app {args : List Expr} {f : Expr}
     · exact hfa.2
     · exact has _ hb
 
+/-! ## `NoProjBinders`: the same condition, at the three positions that spend it
+
+`NoProj` is **too strong for the payoff**. `NoProj (.proj ..) = False`, so a body with a
+projection anywhere at all is outside it — and every typeclass method's prepared body is
+exactly such a term (`OfNat.ofNat` is `fun α x self => self.1`). Since slice P1 `Erases`
+has a `proj` rule, so the erasure *relation* covers those bodies; what still excluded them
+was this predicate, through `DeltaHyps.esrc_shape`.
+
+Reading `Erases.strengthen_fvlift` shows `NoProj` is *threaded* everywhere but *consumed*
+at exactly three places — a boxed subterm (whole), a λ binder's type, and a `let`'s type
+and value: the three positions at which `Erases` records a `VExpr` witness that an
+`FVLift` has to match **on the nose**. `NoProjBinders` keeps the condition at the
+binder-shaped ones and drops it everywhere computational.
+
+The boxed-subterm position is the one that cannot simply be dropped; it is *paid for*
+instead, in `Erases.strengthen_fvlift_binders`' box arm, which replaces the equation
+`TrExprS.unique` gives by the definitional equality `TrExprS.uniq` gives and transports the
+erasability witness along it (`Erasable.defeq`, the "box survives defeq" move this file's
+module note already names). That trade is what costs the weaker lemma a `sorryAx` —
+`TrExprS.uniq` bottoms out in `TrProj.uniq`, still `PROJ-TODO` — and it is why **both**
+lemmas are kept rather than one: the equational lemma stays `sorryAx`-free and is what the
+bridge's recursive exit runs on, and the defeq one is consumed only by
+`erases_strengthen_closed`, which carries that `sorryAx` already. No declaration in the
+development changes its axiom set on account of this section.
+
+**Why the relaxation cannot go further.** Equational uniqueness at `.proj` is *false*, not
+merely unproved: `TrProj` pins `params`/`fieldTys`/the motive only up to definitional
+equality, which is why `TrProj.uniq` claims `IsDefEqU` and why upstream's `TrExprS.unique'`
+refutes its `proj` arm outright (`| proj => cases H`). No re-pin can make the `lam`/`letE`
+clauses below go away: under a binder the strengthening needs the equation, and at a
+projection the equation does not exist. `NoProjBinders` is that boundary, exactly.
+
+**The scope cut it leaves.** The `letE` clauses are the residue: `let y := self.1; …` is
+still outside, because `Erases.letE` records *both* components of the `.vlet` entry and the
+body's induction hypothesis runs at a context mentioning them. Lifting that needs the
+depth-indexed `.vlet` surgery the `NoProj` section note above prices and rejects, and it is
+a later slice rather than a blocker — a prepared class-method body is a λ telescope over a
+projection, not a `let` over one. -/
+
+/-- **Projection-freeness at the positions the strengthening lemma spends uniqueness on**:
+a λ/∀ binder's type, and a `let`'s type and bound value. Projections are permitted
+everywhere computational — λ and `let` bodies, application heads and arguments,
+constructor arguments, `casesOn` minors, and under a projection.
+
+Strictly weaker than `NoProj` (`NoProj.toNoProjBinders`), and — unlike `NoProj` —
+satisfied by a typeclass method's prepared body (`noProjBinders_ofNatBody`, with the
+companion refutation `noProj_ofNatBody_refuted`). -/
+def NoProjBinders : Expr → Prop
+  | .bvar _ | .fvar _ | .sort _ | .const .. | .mvar .. | .lit _ => True
+  | .app f a => NoProjBinders f ∧ NoProjBinders a
+  | .lam _ t b _ => NoProj t ∧ NoProjBinders b
+  | .forallE _ t b _ => NoProj t ∧ NoProjBinders b
+  | .letE _ t v b _ => NoProj t ∧ NoProj v ∧ NoProjBinders b
+  | .mdata _ e => NoProjBinders e
+  | .proj _ _ e => NoProjBinders e
+
+/-- The weakening, so that every existing `NoProj` producer still discharges the new
+predicate and no call site has to be re-proved. -/
+theorem NoProj.toNoProjBinders : ∀ {e : Expr}, NoProj e → NoProjBinders e
+  | .bvar _, _ | .fvar _, _ | .sort _, _ | .const .., _ | .mvar .., _ | .lit _, _ => ⟨⟩
+  | .app .., h => ⟨h.1.toNoProjBinders, h.2.toNoProjBinders⟩
+  | .lam .., h => ⟨h.1, h.2.toNoProjBinders⟩
+  | .forallE .., h => ⟨h.1, h.2.toNoProjBinders⟩
+  | .letE .., h => ⟨h.1, h.2.1, h.2.2.toNoProjBinders⟩
+  | .mdata _ e, h => NoProj.toNoProjBinders (e := e) h
+  | .proj .., h => h.elim
+
+/-- Every literal's one-step constructor unfolding satisfies the weak predicate too — the
+`Erases.lit` arm's induction hypothesis, as `NoProj.toConstructor` supplies it for the
+strong one. -/
+theorem NoProjBinders.toConstructor {l : Literal} : NoProjBinders l.toConstructor :=
+  NoProj.toConstructor.toNoProjBinders
+
+/-- `NoProjBinders` along an application spine — the `noProj_foldl_app` analogue the
+`ctor`/`cases` arms need, same proof skeleton. -/
+theorem noProjBinders_foldl_app {args : List Expr} {f : Expr}
+    (h : NoProjBinders (args.foldl Expr.app f)) :
+    NoProjBinders f ∧ ∀ a ∈ args, NoProjBinders a := by
+  induction args generalizing f with
+  | nil => exact ⟨h, nofun⟩
+  | cons a as ih =>
+    have ⟨hfa, has⟩ := ih h
+    refine ⟨hfa.1, fun b hb => ?_⟩
+    rcases List.mem_cons.1 hb with rfl | hb
+    · exact hfa.2
+    · exact has _ hb
+
+/-! ### Non-vacuity of the relaxation
+
+The point of the weakening is a single term shape, so the guard is that term: a class
+method's prepared body, in the `OfNat.ofNat` shape the projection round is aimed at.
+`NoProjBinders` holds of it and `NoProj` is *refuted* on it — the two halves together are
+what say the relaxation buys the thing it was built for rather than restating the old
+predicate under a new name. (A genuine `TrExprS` witness for a body of this shape — the
+other conjunct `DeltaHyps.esrc_shape` demands — is `ProjPattern.gEsrcShapeProj`.) -/
+
+/-- `fun (α : Type) (x : Nat) (self : OfNat α x) => self.1` — `OfNat.ofNat`'s prepared
+body, as a source `Expr`. -/
+def ofNatBody : Expr :=
+  .lam `α (.sort (.succ .zero))
+    (.lam `x (.const `Nat [])
+      (.lam `self (.app (.app (.const `OfNat []) (.bvar 1)) (.bvar 0))
+        (.proj `OfNat 0 (.bvar 0)) .instImplicit)
+      .default)
+    .implicit
+
+/-- The class method's body **satisfies** the weakened predicate: its three binder types
+are `Type`, `Nat` and `OfNat α x`, all projection-free, and its projection sits in the
+body. -/
+theorem noProjBinders_ofNatBody : NoProjBinders ofNatBody :=
+  ⟨⟨⟩, ⟨⟩, ⟨⟨⟨⟩, ⟨⟩⟩, ⟨⟩⟩, ⟨⟩⟩
+
+/-- …and **fails** the old one, at the projection in its body. This is the wall slice P2
+takes down: with `NoProj` in `DeltaHyps.esrc_shape` the entire typeclass-dispatch layer is
+outside the fragment, no matter what `Erases` can derive. -/
+theorem noProj_ofNatBody_refuted : ¬ NoProj ofNatBody := fun h => h.2.2.2
+
 /-- Spine inversion for `TrExprS`, in the weak "each piece is translatable" form the
 strengthening needs. `Erases.ctor`/`Erases.cases` relate a *source spine* to a single
 target node, so their induction hypotheses are about the individual arguments; this
@@ -321,7 +462,10 @@ Read the three premises as one package:
   closed, fvar-free definition body.
 * **`hnp : NoProj e`** is what `TrExprS.unique` charges for the equation, plus one clause
   for `letE` types (see the `NoProj` section note). It is the development's documented
-  scope, not a new restriction.
+  scope, not a new restriction — and since slice P2 it is the *narrower* of the two
+  scopes this file offers: `Erases.strengthen_fvlift_binders` runs at `NoProjBinders`,
+  which admits projections, and pays for them. This lemma is the one that stays
+  `sorryAx`-free, and it is what the recursive exit runs on.
 * **`hΔ' : Δ'.FVWF`** is `TrExprS.weakFV_fvwf`'s premise and nothing more. Note what is
   *absent*: no `VLCtx.WF`, no `env.WF`, no closedness or fvar-freeness of `e` — closedness
   and fvar-freeness are consequences of `hwt` (`TrExprS.closed`, `TrExprS.fvarsIn`), and
@@ -359,16 +503,14 @@ theorem Erases.strengthen_fvlift {env : VEnv} (henv : env.Ordered) {Us : List Na
       cases hwt with
       | lit _ h2 => exact .lit hcl (ih W hΔ' NoProj.toConstructor h2)
   | proj S i iid np nf hs hnfs hi _ _ =>
-      -- **Vacuous, and deliberately so** (projection round, slice P1). The scope
-      -- predicate is `NoProj`, and `NoProj (.proj ..) = False`, so this arm is
-      -- unreachable — which is exactly the wall §3.4 of the design names: the lemma's
+      -- **Vacuous, and deliberately so.** The scope predicate here is `NoProj`, and
+      -- `NoProj (.proj ..) = False`, so this arm is unreachable — because the lemma's
       -- engine is `TrExprS.unique`, whose `proj` arm upstream is `cases H`, and
-      -- equational uniqueness at `.proj` is *false*, not merely unproved (`TrProj`
-      -- pins `params`/`fieldTys` only up to defeq). Relaxing `NoProj` to
-      -- `NoProjBinders` — projection-free at the three positions the lemma actually
-      -- spends `unique` on (a λ binder type, a `let`'s type and value) — is slice P2;
-      -- it is what makes `DeltaHyps.esrc_shape` inhabitable for the typeclass layer,
-      -- and it is not this slice.
+      -- equational uniqueness at `.proj` is *false*, not merely unproved (`TrProj` pins
+      -- `params`/`fieldTys` only up to defeq). The **real** arm is
+      -- `Erases.strengthen_fvlift_binders`' (slice P2), which runs at `NoProjBinders`
+      -- and pays for the box arm with a definitional equality instead. This lemma stays
+      -- because it stays `sorryAx`-free; see that one's docstring for the division.
       intro _ _ _ _ _ _ _ hnp _; exact absurd hnp id
   | bvar i => intro _ _ _ _ _ _ _ _ _; exact .bvar i
   | fvar x => intro _ _ _ _ _ _ _ _ _; exact .fvar x
@@ -429,6 +571,119 @@ theorem Erases.strengthen_fvlift {env : VEnv} (henv : env.Ordered) {Us : List Na
         hbodies
 
 /--
+**Strengthening for `Erases`, with projections allowed** (slice P2) — the same statement
+at `NoProjBinders`, which is what makes the typeclass-dispatch layer reachable.
+
+Three premises move, and each move is forced by the box arm:
+
+* **`NoProj e` becomes `NoProjBinders e`.** That is the point; see the section note.
+* **`Δ'.FVWF` becomes `VLCtx.WF env Us.length Δ'`.** `TrExprS.uniq` needs a
+  `VLCtx.IsDefEq env Us.length Δ' Δ'` and `Erasable.defeq` an
+  `OnCtx Δ'.toCtx (env.IsType Us.length)`; both are `VLCtx.WF` and neither is `FVWF`. The
+  induction can carry it — which is *not* obvious, since `erases_weakFV`'s docstring
+  records that `VLCtx.WF` "cannot survive this induction" — because this lemma also carries
+  `hwt`, and lean4lean's `TrExprS.lam`/`TrExprS.letE` *do* record the binder's
+  `IsType`/`HasType`. Weakening that witness along `W.toCtx` is exactly the `VLocalDecl.WF`
+  the extended context needs. So the typing half is available here for a reason
+  `erases_weakFV` has no analogue of: the small-context translation is a premise.
+* **`env.Ordered` becomes `env.WF`.** `TrExprS.uniq` and `Erasable.defeq` both want it,
+  and both consumers (`erases_strengthen_closed` and its callers) hold it already.
+
+**Trust.** The box arm consumes `TrExprS.uniq`, hence `TrProj.uniq`, hence `sorryAx` —
+the same single upstream `PROJ-TODO` channel `erases_strengthen_closed` and
+`erases_uniform_closed` have carried since the `fee3ada` re-pin. Nothing else is added and
+nothing else moves: the equational `Erases.strengthen_fvlift` above stays `sorryAx`-free
+and keeps its consumer (the bridge's recursive exit), so no declaration that was clean
+before this slice is clean no longer.
+-/
+theorem Erases.strengthen_fvlift_binders {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Γ : ErasureCtx} (hstr : ErasableStrengthen env Us)
+    {Δ' : VLCtx} {e : Expr} {t : LBTerm} (h : Erases env Us Γ Δ' e t) :
+    ∀ {Δ : VLCtx} {dk n k : Nat} {ve : VExpr}, VLCtx.FVLift Δ Δ' dk n k →
+      VLCtx.WF env Us.length Δ' →
+      NoProjBinders e → TrExprS env Us Δ e ve → Erases env Us Γ Δ e t := by
+  induction h with
+  | @box _ _ _ htr her =>
+      -- The arm that pays for the relaxation. `TrExprS.unique` is unavailable (the boxed
+      -- subterm may itself be a projection), so `TrExprS.uniq` supplies a definitional
+      -- equality instead and `Erasable.defeq` transports the irrelevance witness along
+      -- it — the "survivable in `box`, fatal in `lam`" split the module note describes.
+      intro _ _ _ _ _ W hΔ' _ hwt
+      refine .box hwt (hstr W.toCtx (her.defeq henv hΔ'.toCtx ?_))
+      exact TrExprS.uniq henv (.refl henv.ordered hΔ') htr
+        (TrExprS.weakFV_fvwf henv.ordered W hΔ'.fvwf hwt)
+  | lit hcl _ ih =>
+      intro _ _ _ _ _ W hΔ' _ hwt
+      cases hwt with
+      | lit _ h2 => exact .lit hcl (ih W hΔ' NoProjBinders.toConstructor h2)
+  | proj S i iid np nf hs hnfs hi _ ih =>
+      -- The arm slice P1 could only leave vacuous, and it is free: a projection records
+      -- no `VExpr` witness of its own (`Erases.proj` has no `TrExprS` premise), so there
+      -- is nothing for an `FVLift` to pin and the discriminant's IH is the whole proof.
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      cases hwt with
+      | proj hd _ => exact .proj S i iid np nf hs hnfs hi (ih W hΔ' hnp hd)
+  | bvar i => intro _ _ _ _ _ _ _ _ _; exact .bvar i
+  | fvar x => intro _ _ _ _ _ _ _ _ _; exact .fvar x
+  | const n us kn h hctor hcases =>
+      intro _ _ _ _ _ _ _ _ _; exact .const n us kn h hctor hcases
+  | app _ _ ihf iha =>
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      cases hwt with
+      | app _ _ hf ha => exact .app (ihf W hΔ' hnp.1 hf) (iha W hΔ' hnp.2 ha)
+  | @lam _ _ _ _ _ _ ty' hty _ ihb =>
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      cases hwt with
+      | lam hty₀ty hty₀ hb₀ =>
+        -- Unchanged from the equational lemma: the binder type is projection-free by
+        -- `hnp.1`, so `TrExprS.unique` still applies here. What is new is the third
+        -- component of the extended `VLCtx.WF`, and `TrExprS.lam` is carrying it.
+        cases TrExprS.unique hnp.1.toIsUnique hty
+          (TrExprS.weakFV_fvwf henv.ordered W hΔ'.fvwf hty₀)
+        exact .lam hty₀ (ihb (W.cons_bvar (.vlam _))
+          ⟨hΔ', nofun, hty₀ty.weakN henv.ordered W.toCtx⟩ hnp.2 hb₀)
+  | @letE _ _ _ _ _ _ _ _ ty' val' hty hval _ _ ihv ihb =>
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      cases hwt with
+      | letE hval₀ty hty₀ hval₀ hb₀ =>
+        cases TrExprS.unique hnp.1.toIsUnique hty
+          (TrExprS.weakFV_fvwf henv.ordered W hΔ'.fvwf hty₀)
+        cases TrExprS.unique hnp.2.1.toIsUnique hval
+          (TrExprS.weakFV_fvwf henv.ordered W hΔ'.fvwf hval₀)
+        exact .letE hty₀ hval₀ (ihv W hΔ' hnp.2.1.toNoProjBinders hval₀)
+          (ihb (W.cons_bvar (.vlet ..))
+            ⟨hΔ', nofun, hval₀ty.weakN henv.ordered W.toCtx⟩ hnp.2.2 hb₀)
+  | ctor cn us iid cidx hc hlen _ ihargs =>
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      have ⟨_, hallnp⟩ := noProjBinders_foldl_app hnp
+      have ⟨_, hallwt⟩ := trExprS_foldl_app hwt
+      refine .ctor cn us iid cidx hc hlen fun i hi => ?_
+      obtain ⟨_, hva⟩ := hallwt _ (List.getElem_mem hi)
+      exact ihargs i hi W hΔ' (hallnp _ (List.getElem_mem hi)) hva
+  | ctor_head cn us iid cidx hc =>
+      intro _ _ _ _ _ _ _ _ _; exact .ctor_head cn us iid cidx hc
+  | cases con us iid numParams pre hc hpre hnfs _ hlen hnlen harity _ ihd ihalts =>
+      intro _ _ _ _ _ W hΔ' hnp hwt
+      have ⟨_, hallnp⟩ := noProjBinders_foldl_app hnp
+      have ⟨_, hallwt⟩ := trExprS_foldl_app hwt
+      obtain ⟨_, hvd⟩ := hallwt _ (.head _)
+      refine .cases con us iid numParams pre hc hpre hnfs
+        (ihd W hΔ' (hallnp _ (.head _)) hvd) hlen hnlen harity fun j hj => ?_
+      obtain ⟨_, hvm⟩ := hallwt _ (.tail _ (List.getElem_mem hj))
+      exact ihalts j hj W hΔ' (hallnp _ (.tail _ (List.getElem_mem hj))) hvm
+  | fixvar nm us x hfx hctor hcases hfresh =>
+      intro _ _ _ _ _ W _ _ _
+      exact .fixvar nm us x hfx hctor hcases fun hm => hfresh (W.fvars_suffix.subset hm)
+  | const_fix nm us hrec hctor hcases hshift hsubst htobv =>
+      intro _ _ _ _ _ _ _ _ _
+      exact .const_fix nm us hrec hctor hcases hshift hsubst htobv
+  | @fix Δc idx nm tty tb tbi nms srcs defs hidx hnlen hslen hsrc hreg hrarg
+      hlift hinst habsl hshift hsubst htobv hbodies _ihb =>
+      intro _ _ _ _ _ _ _ _ _
+      exact .fix idx hidx hnlen hslen hsrc hreg hrarg hlift hinst habsl hshift hsubst htobv
+        hbodies
+
+/--
 **Strengthening to the empty context** (the consumable form): an `Erases` derivation
 produced at a run's fvar context `Δ` holds at `[]`.
 
@@ -438,9 +693,11 @@ of `FVLift [] Δ dk n k` can only use `refl` and `skip_fvar`; hence `dk = 0`, `k
 `Δ.NoBV`. That is exactly the situation the eraser is in: `visitMutual` erases a top-level
 constant body under a context of opened fvars, never of bvars.
 
-`hΔ : VLCtx.WF env Us.length Δ` and `henv : env.WF` are consumed only as `hΔ.fvwf` and
-`henv.ordered` — the proof never touches the typing half of either (see
-`Erases.strengthen_fvlift`). They are kept in this shape because that is what callers hold.
+`hΔ : VLCtx.WF env Us.length Δ` and `henv : env.WF` are consumed in full since slice P2:
+the scope predicate is `NoProjBinders`, so the route is
+`Erases.strengthen_fvlift_binders`, whose box arm needs the typing half of both. (Before
+P2 this lemma ran at `NoProj` and weakened them to `hΔ.fvwf`/`henv.ordered`. Callers are
+unaffected — they held the strong forms all along and were throwing them away.)
 
 `hcl`/`hfvf` are *not* premises: `hwt` implies both (`TrExprS.closed`, `TrExprS.fvarsIn`),
 which is one of the ways the `hwt`-driven route pays for itself.
@@ -450,10 +707,10 @@ theorem erases_strengthen_closed {env : VEnv} (henv : env.WF) {Us : List Name}
     {Δ : VLCtx} {n k : Nat} (W : VLCtx.FVLift [] Δ 0 n k)
     (hΔ : VLCtx.WF env Us.length Δ)
     {e : Expr} {t : LBTerm} {ve : VExpr}
-    (hnp : NoProj e) (hwt : TrExprS env Us [] e ve)
+    (hnp : NoProjBinders e) (hwt : TrExprS env Us [] e ve)
     (h : Erases env Us Γ Δ e t) :
     Erases env Us Γ [] e t :=
-  h.strengthen_fvlift henv.ordered hstr W hΔ.fvwf hnp hwt
+  h.strengthen_fvlift_binders henv hstr W hΔ hnp hwt
 
 /-! ## The two-sided composition -/
 
@@ -482,7 +739,7 @@ theorem erases_uniform_closed {env : VEnv} (henv : env.WF) {Us : List Name} {Γ 
     {Δ : VLCtx} {n k : Nat}
     (W : VLCtx.FVLift [] Δ 0 n k) (hΔ : VLCtx.WF env Us.length Δ)
     {e : Expr} {t : LBTerm} {ve : VExpr}
-    (hnp : NoProj e) (hwt : TrExprS env Us [] e ve) (hlb : LBClosed t 0)
+    (hnp : NoProjBinders e) (hwt : TrExprS env Us [] e ve) (hlb : LBClosed t 0)
     (h : Erases env Us Γ Δ e t) (Δ' : VLCtx) : Erases env Us Γ Δ' e t :=
   erases_weak_any henv.ordered hnfv hwt.closed
     (hwt.fvarsIn.mono fun _ h => (by simp at h : False))
@@ -535,7 +792,7 @@ example (env : VEnv) (henv : env.WF) (Us : List Name) (Γ : ErasureCtx)
   have hwt : TrExprS env Us [] (.lam name (.sort .zero) (.bvar 0) bi)
       (.lam (.sort .zero) (.bvar 0)) :=
     .lam ⟨_, .sort trivial⟩ (.sort rfl) (.bvar rfl)
-  have hnp : NoProj (.lam name (.sort .zero) (.bvar 0) bi) := ⟨trivial, trivial⟩
+  have hnp : NoProjBinders (.lam name (.sort .zero) (.bvar 0) bi) := ⟨trivial, trivial⟩
   erases_strengthen_closed henv hstr (VLCtx.FVLift.from_nil rfl) hΔ hnp hwt H
 
 /-- Non-vacuity (two-sided): the same derivation, moved from the one-fvar context to a
@@ -555,7 +812,7 @@ example (env : VEnv) (henv : env.WF) (Us : List Name) (Γ : ErasureCtx)
   have hwt : TrExprS env Us [] (.lam name (.sort .zero) (.bvar 0) bi)
       (.lam (.sort .zero) (.bvar 0)) :=
     .lam ⟨_, .sort trivial⟩ (.sort rfl) (.bvar rfl)
-  have hnp : NoProj (.lam name (.sort .zero) (.bvar 0) bi) := ⟨trivial, trivial⟩
+  have hnp : NoProjBinders (.lam name (.sort .zero) (.bvar 0) bi) := ⟨trivial, trivial⟩
   have hlb : LBClosed (.lambda (nameToBinder name) (.bvar 0)) 0 := Nat.zero_lt_one
   erases_uniform_closed henv rfl hstr (VLCtx.FVLift.from_nil rfl) hΔ hnp hwt hlb H _
 

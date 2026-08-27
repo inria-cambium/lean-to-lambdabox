@@ -315,17 +315,30 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   prep_run : ∀ {e pe : Expr} {s s' : ErasureState} {ctx : ErasureContext}
       {w w' : Void IO.RealWorld},
     prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s
-  /-- **A fragment body is projection-free and translates at the empty context** — scope
-  restriction 6, and an S-class fact about a *prepared top-level constant body*, which
-  every one of them is. Closedness and fvar-freeness are not separate demands: both follow
-  from the `TrExprS` witness (`TrExprS.closed`/`TrExprS.fvarsIn`). `NoProj` is what pins
-  that witness to a *unique* `VExpr`: the `proj` arm of `TrExprS` uniqueness is
-  unavailable — and the supported fragment excludes `.proj` anyway. [Provenance corrected
-  at the `fee3ada` re-pin, 2026-08-27: this used to read "lean4lean's `TrProj` is `sorry`
-  upstream". `TrProj` now has a real definition; what is still `sorry` is `TrProj.uniq`
-  specifically, one of the two remaining `PROJ-TODO`s. The field is unaffected — it is
-  `TrExprS.unique`, gated on `IsUnique`, that this pays for, and that route was always
-  `sorry`-free.]
+  /-- **A fragment body is projection-free *at its binders* and translates at the empty
+  context** — scope restriction 6, and an S-class fact about a *prepared top-level constant
+  body*, which every one of them is. Closedness and fvar-freeness are not separate demands:
+  both follow from the `TrExprS` witness (`TrExprS.closed`/`TrExprS.fvarsIn`).
+  `NoProjBinders` is what pins that witness where the context transport needs it pinned:
+  at a λ/∀ binder's type and a `let`'s type and value, the three positions
+  `Erases.strengthen_fvlift_binders` spends uniqueness on.
+
+  **Weakened from `NoProj` at slice P2, and that is the point of the slice.** `NoProj`
+  excluded `.proj` *anywhere*, so the entire typeclass-dispatch layer was outside the
+  fragment — `OfNat.ofNat`'s prepared body is `fun α x self => self.1` — no matter what
+  `Erases` could derive for it (slice P1 gave it a `proj` rule). `NoProjBinders` admits
+  exactly those bodies and nothing whose *binders* mention a projection, which is the
+  boundary equational uniqueness draws: uniqueness at `.proj` is false, not unproved.
+  See `ErasesUniform.NoProjBinders`, and `ErasesUniform.noProjBinders_ofNatBody` /
+  `noProj_ofNatBody_refuted` for the two halves of the guard. The residual cut is
+  `let y := self.1; …`, still outside; the recursive exit keeps the strong predicate for
+  its own siblings (`BlockHyps.block_lam`).
+
+  [Provenance corrected at the `fee3ada` re-pin, 2026-08-27: this used to read
+  "lean4lean's `TrProj` is `sorry` upstream". `TrProj` now has a real definition; what is
+  still `sorry` is `TrProj.uniq` specifically, one of the two remaining `PROJ-TODO`s. That
+  is the route the weakened field pays for — `erases_strengthen_closed` consumed it
+  already, so no axiom set moved at P2.]
 
   This field replaces the old `uniform` residue (slice δ-D7b). Context-uniformity is now a
   theorem (`ErasesUniform.erases_strengthen_closed` composed with
@@ -335,7 +348,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   premise of the *capstones*, not a field here, because it speaks about `env` alone and is
   commissioned upstream. -/
   esrc_shape : ∀ {n : Name} {pe : Expr}, Esrc n = some pe →
-    NoProj pe ∧ ∃ ve, TrExprS env Us [] pe ve
+    NoProjBinders pe ∧ ∃ ve, TrExprS env Us [] pe ve
 
 /-- **What the bundle costs at the empty fragment** — the honest accounting for every
 consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
@@ -430,15 +443,18 @@ of what the walk already carries, and are proved rather than assumed
 * `block_shape`'s closedness and fvar-freeness — consequences of the `TrExprS` witness
   (`TrExprS.closed`, `TrExprS.fvarsIn`), which is what `DeltaHyps.esrc_shape` already
   supplies, keyed on `Esrc n = some pe` alone;
-* `block_shape`'s `NoProj` and empty-context translation — `DeltaHyps.esrc_shape`, verbatim;
+* `block_shape`'s empty-context translation — `DeltaHyps.esrc_shape`, verbatim. Its
+  `NoProj` came from there too until slice P2 weakened that field to `NoProjBinders`; it is
+  now the second conjunct of `block_lam`, for the trust reason spelled out there;
 * `stripped` (`known n → remove_unsafe_rec n = n`) — the fragment restriction slice δ-D8e
   predicted the recursive exit would cost. It does not: the relaxed `decl_run` supplies
   `remove_unsafe_rec m = n` for the *fetched* name, which is the equation the registration
   actually needs, and it is true where `stripped` plus the old `decl_run` was jointly
   unsatisfiable. See `rec_exit_registers_name`.
 
-So one genuine scope field survives — the sibling body is λ-headed, which no `TrExprS`
-witness implies — beside two run-keyed clauses and two residues. -/
+So one genuine scope field survives — the sibling body is a projection-free λ, neither
+half of which any `TrExprS` witness implies — beside two run-keyed clauses and two
+residues. -/
 
 /-- **What the recursive exit's siblings cost.** Two Hoare clauses for the block loop's own
 runs, one scope fact, and the two residues recursion drags in.
@@ -482,13 +498,28 @@ structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀
     prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w = .ok (pe, s₁) w₁ →
     ctx.config = cfg₀ →
     Esrc (remove_unsafe_rec m) = some pe
-  /-- **A block source is λ-headed.** `erases_rec_block_of_run`'s `hsrc`, and the one shape
-  fact no `TrExprS` witness gives: a prepared top-level *recursive definition* body is a λ
-  telescope, which is what makes the block's `mkDef` fold meaningful. Everything else that
-  premise list asks of the sources — closedness, fvar-freeness, `NoProj`, the empty-context
-  translation — follows from `DeltaHyps.esrc_shape` (`BlockHyps.sibling_scope`). -/
+  /-- **A block source is a projection-free λ.** `erases_rec_block_of_run`'s `hsrc`, and
+  the shape facts no `TrExprS` witness gives. Closedness, fvar-freeness and the
+  empty-context translation still come from `DeltaHyps.esrc_shape`
+  (`BlockHyps.sibling_scope`); the two conjuncts here are:
+
+  * **λ-headedness** — a prepared top-level *recursive definition* body is a λ telescope,
+    which is what makes the block's `mkDef` fold meaningful;
+  * **`NoProj`** — projection-freeness *everywhere*, which slice P2 moved here out of
+    `DeltaHyps.esrc_shape` when that field weakened to `NoProjBinders`. The sibling loop
+    strengthens each body from the call site's `Δ` to `[]` inside the bridge induction, and
+    the strengthening that runs at the weak predicate
+    (`ErasesUniform.Erases.strengthen_fvlift_binders`) buys the relaxation with
+    `TrProj.uniq`'s `sorryAx`, while the equational one
+    (`ErasesUniform.Erases.strengthen_fvlift`) is `sorryAx`-free. Keeping the strong
+    predicate on this path is what keeps `VisitExprRefines.rec_exit_refines_erases` — and
+    with it the bridge — clean: the projection round's trust cost lands on
+    `erases_strengthen_closed`, which carried that `sorryAx` already, and nowhere else.
+    Nothing is newly assumed either: this is the *same* condition `esrc_shape` demanded of
+    every fragment body before P2, now demanded only of the recursive ones. Lifting it is
+    the natural follow-on slice — it costs exactly the axiom movement described above. -/
   block_lam : ∀ {m : Name} {pe : Expr}, known m → Esrc m = some pe →
-    ∃ n ty b bi, pe = .lam n ty b bi
+    NoProj pe ∧ ∃ n ty b bi, pe = .lam n ty b bi
   /-- **The `Δ → []` strengthening the block needs.** The loop erases each sibling at the
   *call site's* `Δ` — `visitMutual`'s `withReader` moves `fixvars` and `lparams` and leaves
   the `lctx` alone — while `erases_rec_block_of_run`'s `hopen` demands the erasure at `[]`.
@@ -533,11 +564,13 @@ theorem BlockHyps.of_bot {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx}
 loop hands back.
 
 This is where the design's `block_prepared` and `block_shape` went. Only the λ-headedness
-comes from `BlockHyps`; `Supported`, the `∀ Δ` translatability, `NoProj` and the
-empty-context witness are `DeltaHyps`' existing `prepared`/`esrc_shape`, and closedness and
-fvar-freeness are read off that witness (`TrExprS.closed`, `TrExprS.fvarsIn`) rather than
-assumed. Stating it as one theorem is what keeps the two bundles' division of labour
-checkable: if a conjunct here ever stops being derivable, this is the line that breaks. -/
+and `NoProj` come from `BlockHyps` (`block_lam`; the second of the two moved there at slice
+P2, when `esrc_shape` weakened to `NoProjBinders`); `Supported`, the `∀ Δ` translatability
+and the empty-context witness are `DeltaHyps`' existing `prepared`/`esrc_shape`, and
+closedness and fvar-freeness are read off that witness (`TrExprS.closed`,
+`TrExprS.fvarsIn`) rather than assumed. Stating it as one theorem is what keeps the two
+bundles' division of labour checkable: if a conjunct here ever stops being derivable, this
+is the line that breaks. -/
 theorem BlockHyps.sibling_scope {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ₀ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
@@ -559,8 +592,9 @@ theorem BlockHyps.sibling_scope {env : VEnv} {Us : List Name} {known : Name → 
       NoProj pe ∧ (∃ ve, TrExprS env Us [] pe ve) := by
   have hlink : Esrc (remove_unsafe_rec m) = some pe := Hβ.block_esrc hkn hci hpr hcfg
   obtain ⟨hsupp, htr⟩ := Hδ.prepared hkn hlink hpr
-  obtain ⟨hnp, ve, hve⟩ := Hδ.esrc_shape hlink
-  refine ⟨hlink, hsupp, htr, Hβ.block_lam hkn hlink, ?_, ?_, hnp, ve, hve⟩
+  obtain ⟨-, ve, hve⟩ := Hδ.esrc_shape hlink
+  obtain ⟨hnp, hlam⟩ := Hβ.block_lam hkn hlink
+  refine ⟨hlink, hsupp, htr, hlam, ?_, ?_, hnp, ve, hve⟩
   · simpa [VLCtx.bvars] using hve.closed
   · exact hve.fvarsIn.mono (by simp)
 
@@ -959,17 +993,20 @@ theorem gBlockHyps (env : VEnv) (Us : List Name) (cfg₀ : ErasureConfig)
   block_lam := by
     rintro m pe rfl hb
     obtain rfl : pe = fixRecSrc := (by simpa using hb : fixRecSrc = pe).symm
-    exact ⟨`a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
+    exact ⟨by simp [NoProj, fixRecSrc],
+      `a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
   strengthen := hstr
   nonest := hnest
 
 /-- **…and the field it checks is not vacuous**: the fragment really contains `f`, `Esrc`
-really records a body for it, and that body really is a λ. Read together with
-`gBlockKeying` this is the whole non-vacuity story for the scope half of `BlockHyps`. -/
+really records a body for it, and that body really is a projection-free λ. Read together
+with `gBlockKeying` this is the whole non-vacuity story for the scope half of
+`BlockHyps`. -/
 theorem gBlockLam_nonvacuous :
-    (fun n => n = `f) `f ∧ gEsrcδ fixRecSrc `f = some fixRecSrc ∧
+    (fun n => n = `f) `f ∧ gEsrcδ fixRecSrc `f = some fixRecSrc ∧ NoProj fixRecSrc ∧
       ∃ n ty b bi, fixRecSrc = Expr.lam n ty b bi :=
-  ⟨rfl, by simp, `a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
+  ⟨rfl, by simp, by simp [NoProj, fixRecSrc],
+    `a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
 
 /-- **The fragment's constant is `Supported`** — the derivation that was unreachable at
 `known = ⊥` (`Supported.const` needs `known n`, and `Γ.fixvars = ⊥` kills the other
