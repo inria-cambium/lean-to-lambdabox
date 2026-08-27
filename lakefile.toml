@@ -5,18 +5,43 @@ defaultTargets = ["LeanToLambdaBox"]
 # Grounds the verified-erasure development on lean4lean's formal Lean type theory
 # (VExpr, HasType/IsDefEq, TrExprS/VLCtx, TrEnv, inferType'.WF).
 #
-# Pinned to the `iota` branch of the barabbs/lean4lean fork, which extends
-# upstream (digama0/lean4lean) with ι-reduction support. On the v4.33.0-rc2
-# toolchain (matches lean-toolchain); pulls batteries v4.33.0-rc2 transitively.
+# Pinned to the `trproj` branch of the barabbs/lean4lean fork, which extends
+# upstream (digama0/lean4lean) with ι-reduction support and, now, a real
+# definition of `TrProj`. On the v4.33.0-rc2 toolchain (matches lean-toolchain);
+# pulls batteries v4.33.0-rc2 transitively.
 #
 # The pinned revision carries the reviewed ι interface: `TrEnv.pats_iota'` names
 # the registered rule payload (`SimplePattern.iotaRHS …, .true`) and ties it to the
 # kernel rule's reduct, which is what `PatsIotaSpec` (`IotaPattern.lean`) consumes
 # and `PatsIotaSpec.of_trEnv` discharges.
+#
+# It also carries the TrProj round (A0-A3 of the commission):
+#   A0  `TrProj` takes `(env : VEnv) (U : Nat)`; `TrExprS.proj` reads
+#       `TrProj env Us.length Δ.toCtx s i e' e''`. Downstream cost: `TrProj.weak'`
+#       gained an `Ordered env` premise, so the two re-proofs of `TrExprS.weakFV'`
+#       in `ErasesStrengthen.lean` pass `henv`.
+#   A1  `TrProj` is no longer `sorry`-valued — it is defined as a structure-recursor
+#       spine (`env.pats` membership on the ι pattern + a `HasType` conjunct). This
+#       retires the *definitional* `sorryAx` that `TrExprS`, and hence `Erases`, had
+#       carried from the start.
+#   A2  `TrEnv.proj_defeq` exists as a real statement, proof deferred (`PROJ-TODO`).
+#       Not consumed downstream yet.
+#   A3  Five of the seven `TrProj.*` structural lemmas came back proved (`weak'`,
+#       `weakN`, `defeqDFC`, `wf`, `instN`, `instL`, plus a new `mono`);
+#       `weak'_inv` and `uniq` remain `PROJ-TODO`.
+#   C1  (`IsDefEqU.weakN_iff` forward direction) was NOT discharged; the sanctioned
+#       fallback — a written analysis — was delivered instead. `ErasableStrengthen`
+#       stays a named premise downstream (see `ErasesStrengthen.lean`).
+#
+# ⚠️ `trproj` is a merge of upstream `master`, so this pin also absorbs master's
+# level-normalization rewrite, the K-target flag fix, `lazyDeltaProjReduction`, and
+# one new `axiom any_eq_any_toList` (`Verify/Axioms.lean`) plus native `bv_decide`
+# axioms reachable through `TrExprS.instL`. Recorded in the trust ledger
+# (`ColdStart.lean`) and in the audit baseline (`scratch/final_audit.lean`).
 [[require]]
 name = "lean4lean"
 git = "https://github.com/barabbs/lean4lean"
-rev = "1a1ebe8b72c22e0bf6b4a670a6787bdb70c0a3f9"
+rev = "fee3ada062a40bfeb1f9c0bb1fd322dba6ac8267"
 
 [[lean_lib]]
 name = "LeanToLambdaBox"
