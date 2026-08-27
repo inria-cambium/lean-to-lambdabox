@@ -863,10 +863,31 @@ was **not separable** from giving `visitMutual`'s motive a registration conclusi
 this induction the only handle on that call is the abstract `_vMut` and its motive, so the
 field's death and motive 6's content are one change (this slice), not two. -/
 structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
-    (Γ : ErasureCtx) (gen : NameGenerator)
+    (Γ : ErasureCtx) (cfg₀ : ErasureConfig) (gen : NameGenerator)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
   mlc : ∃ m : MLCtx, m.WF env Us ∧ m.lctx = ctx.lctx ∧ m.vlctx = Δ
   lparams : ctx.lparams = Us
+  /-- **The run's config is the bridge's config** (recursion wall, slice Γ-W3.6a).
+
+  The reader's `config` is a **run invariant**: of the five `withReader` sites in the
+  shipping eraser (`Erasure.withLocalDecl`/`withLocalDef`, `visitMutual`'s non-recursive
+  exit, its block entry and its per-sibling loop) not one touches `config`,
+  `{ … with config := … }` occurs nowhere in the eraser, and the only reader built from
+  scratch is `Erasure.run`'s own `{ config }`. The *motive*, however, quantifies the
+  reader, so without this field the induction is stated at readers whose `config` is
+  free — and `config` is what selects branches (`csimp` at `prepare_erasure`, `extern`
+  and `remove_irrel_constr_args` and `nat` inside the term path). A premise about what a
+  sub-run *builds* is then refutable by two configs, which is what kept step 6's
+  recursive branch closed until this slice (`ColdStart`'s residue-1 row).
+
+  Pinning it costs nothing: every transport below re-emits it unchanged
+  (`mkLocalDecl`/`mkLetDecl` move `lctx` only, `mono`/`mono_state` keep the reader, and
+  `withFixvars` already carried `hcfg : ctx'.config = ctx.config` as a premise, supplied
+  by `rfl` at both call sites), and every construction site is a literal reader, so the
+  field is `rfl` there. `natcfg` below becomes a corollary of it at any `cfg₀` whose
+  `nat` is pinned Γ-side, and is kept because nothing yet relates `Γ.natPeano` to
+  `cfg₀`. -/
+  cfg : ctx.config = cfg₀
   /-- **The literal fragment's config pin** (Nat-literals wall, L3). `Supported` is purely
   syntactic in `(known, Γ)` and cannot see the reader's `ctx.config`; `Supported.natLit`
   therefore states peano-mode as the `Γ`-side flag `Γ.natPeano`, and *this* field is where
@@ -904,18 +925,18 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
 /-- The `TrLCtx` correspondence, re-derived from the `mlc` witness (the old
 `BridgeInv.trlctx` field). Keeps every downstream `hinv.trlctx` use-site valid. -/
 theorem BridgeInv.trlctx {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx}
-    (h : BridgeInv env Us known Γ gen ctx s Δ) : TrLCtx env Us ctx.lctx Δ := by
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) : TrLCtx env Us ctx.lctx Δ := by
   obtain ⟨m, mwf, hlctx, hvlctx⟩ := h.mlc
   rw [← hlctx, ← hvlctx]; exact mwf.tr
 
 /-- **The bridge's context is well-formed** — `TrLCtx.wf` on `trlctx`. What
 `ErasesUniform.erases_uniform_closed` needs of the context a dependency was erased at. -/
 theorem BridgeInv.vlctx_wf {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx}
-    (h : BridgeInv env Us known Γ gen ctx s Δ) : VLCtx.WF env Us.length Δ :=
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) : VLCtx.WF env Us.length Δ :=
   h.trlctx.wf
 
 /-- **The bridge's context has no bvar entries.** Every entry the run conses is
@@ -924,21 +945,22 @@ cold-start entry is `[]` — which is `MLCtx.noBV` transported along `mlc`. It i
 turns the context into an `VLCtx.FVLift`-extension of `[]` (`VLCtx.FVLift.from_nil`),
 the other half of what context-uniformity needs. -/
 theorem BridgeInv.noBV {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx}
-    (h : BridgeInv env Us known Γ gen ctx s Δ) : Δ.NoBV := by
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) : Δ.NoBV := by
   obtain ⟨m, -, -, hvlctx⟩ := h.mlc
   rw [← hvlctx]; exact m.noBV
 
 /-- The invariant is monotone in the generator (fvar reservations survive
 generator advancement). The `MLCtx`/`lparams`/`kfresh` data is generator-free. -/
 theorem BridgeInv.mono {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx}
-    (h : BridgeInv env Us known Γ gen ctx s Δ) (hle : gen ≤ gen') :
-    BridgeInv env Us known Γ gen' ctx s Δ where
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) (hle : gen ≤ gen') :
+    BridgeInv env Us known Γ cfg₀ gen' ctx s Δ where
   mlc := h.mlc
   lparams := h.lparams
+  cfg := h.cfg
   natcfg := h.natcfg
   kfresh := h.kfresh
   fixvars := h.fixvars
@@ -957,12 +979,13 @@ for why it had to go.)
 This is what makes the widened motive conclusion usable: after a sub-run has grown the
 state, the invariant travels to the larger state and the next sub-run's IH applies. -/
 theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator} {ctx : ErasureContext}
     {s s' : ErasureState} {Δ : VLCtx}
-    (h : BridgeInv env Us known Γ gen ctx s Δ) (hrc : Erasure.RunConcl s s') :
-    BridgeInv env Us known Γ gen ctx s' Δ where
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) (hrc : Erasure.RunConcl s s') :
+    BridgeInv env Us known Γ cfg₀ gen ctx s' Δ where
   mlc := h.mlc
   lparams := h.lparams
+  cfg := h.cfg
   natcfg := h.natcfg
   kfresh := h.kfresh
   fixvars := h.fixvars
@@ -978,12 +1001,16 @@ theorem BridgeInv.mono_state {env : VEnv} {Us : List Name} {known : Name → Pro
 exit erases each sibling body under `withReader (… fixvars := some (nms.zip ids) …)`; this
 is the invariant at that reader, against the block-local `Γ.withFixvars fv`.
 
-Six of the nine fields are literally `Γ`'s — `withFixvars` moves *only* `fixvars`, so
+Seven of the ten fields are literally `Γ`'s — `withFixvars` moves *only* `fixvars`, so
 `natPeano`/`constants` are `rfl` — and `mlc`/`lparams`/`kfresh`/`reserved` never mentioned
 `Γ` at all. The two fixvar fields become claims about the block's own map: `hagree` is the
 reader-vs-`fv` agreement the `withReader` establishes by construction, and `hfresh` is
 `BridgeHyps.fresh_run` against `BridgeInv.reserved` — `visitMutual` mints the block's ids
 *before* any binder is opened, so a block id is generator-reserved and is not a `Δ` entry.
+
+The `cfg` field (Γ-W3.6a) travels on `hcfg`, which this theorem already demanded for
+`natcfg` and which both call sites supply by `rfl`: the exit's two `withReader`s move
+`fixvars` and `lparams`, never `config`.
 
 The fragment is free to change (`known'` is unconstrained): `BridgeInv` has not mentioned
 `known` since slice D4a retired `known_dom`, which is exactly what lets the block's inner
@@ -993,19 +1020,20 @@ The callee's reader is left abstract and pinned componentwise (`hlctx`/`hlp`/`hc
 rather than written as `{ ctx with … }`, because `visitMutual` installs it in *two* steps —
 the block's `withReader … fixvars` and then the per-sibling `withReader … lparams`. -/
 theorem BridgeInv.withFixvars {env : VEnv} {Us : List Name} {known known' : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx ctx' : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator} {ctx ctx' : ErasureContext}
     {s : ErasureState} {Δ : VLCtx} {fv : Name → Option FVarId}
     {fvmap : Std.HashMap Name FVarId}
-    (h : BridgeInv env Us known Γ gen ctx s Δ)
+    (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ)
     (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
     (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
     (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
     (hfresh : ∀ (nm : Name) (x : FVarId), fv nm = some x → gen.Reserves x ∧ x ∉ Δ.fvars) :
-    BridgeInv env Us known' (Γ.withFixvars fv) gen ctx' s Δ where
+    BridgeInv env Us known' (Γ.withFixvars fv) cfg₀ gen ctx' s Δ where
   mlc := by
     obtain ⟨m, mwf, hml, hmv⟩ := h.mlc
     exact ⟨m, mwf, by rw [hlctx]; exact hml, hmv⟩
   lparams := hlp
+  cfg := hcfg.trans h.cfg
   natcfg := by intro hp; rw [hcfg]; exact h.natcfg (by simpa using hp)
   kfresh := h.kfresh
   fixvars := by
@@ -1102,15 +1130,15 @@ theorem CasesBridgeHyps.of_coh {Γ Γ₀ : ErasureCtx}
 (the `visitLambda` case). Needs the fresh fvar `x` reserved both by the target
 generator (`hres`) and by the kernel generator (`hkres`, from `fresh_run`). -/
 theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx} {x : FVarId} {n : Name} {ty : Expr} {ty' : VExpr}
     {bi : BinderInfo}
-    (hinv : BridgeInv env Us known Γ gen ctx s Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hty' : env.IsType Us.length Δ.toCtx ty')
     (hx : x ∉ Δ.fvars) (hnres : ¬ gen.Reserves x)
     (hle : gen ≤ gen') (hres : gen'.Reserves x)
     (hkres : kernelNGen.Reserves x) :
-    BridgeInv env Us known Γ gen'
+    BridgeInv env Us known Γ cfg₀ gen'
       { ctx with lctx := ctx.lctx.mkLocalDecl x n ty bi } s
       ((some (x, ty.fvarsList), .vlam ty') :: Δ) where
   mlc := by
@@ -1122,6 +1150,7 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
     · show m.lctx.mkLocalDecl x n ty bi = _; rw [hlctx]
     · show (some (x, ty.fvarsList), VLocalDecl.vlam ty') :: m.vlctx = _; rw [hvlctx]
   lparams := hinv.lparams
+  cfg := hinv.cfg
   natcfg := hinv.natcfg
   kfresh := by
     intro fv hfv
@@ -1154,16 +1183,16 @@ theorem BridgeInv.mkLocalDecl {env : VEnv} {Us : List Name} {known : Name → Pr
 (the `visitLet` case). The shipping `withLocalDef` builds the let-decl with the
 default `nonDep` (`mkLetDecl x n ty v`), matching `MLCtx.vlet`'s `lctx`. -/
 theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen gen' : NameGenerator} {ctx : ErasureContext}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen gen' : NameGenerator} {ctx : ErasureContext}
     {s : ErasureState} {Δ : VLCtx} {x : FVarId} {n : Name} {ty v : Expr}
     {ty' val' : VExpr}
-    (hinv : BridgeInv env Us known Γ gen ctx s Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ gen ctx s Δ)
     (hty : TrExprS env Us Δ ty ty') (hval : TrExprS env Us Δ v val')
     (hvt : env.HasType Us.length Δ.toCtx val' ty')
     (hx : x ∉ Δ.fvars) (hnres : ¬ gen.Reserves x)
     (hle : gen ≤ gen') (hres : gen'.Reserves x)
     (hkres : kernelNGen.Reserves x) :
-    BridgeInv env Us known Γ gen'
+    BridgeInv env Us known Γ cfg₀ gen'
       { ctx with lctx := ctx.lctx.mkLetDecl x n ty v } s
       ((some (x, ty.fvarsList ++ v.fvarsList), .vlet ty' val') :: Δ) where
   mlc := by
@@ -1177,6 +1206,7 @@ theorem BridgeInv.mkLetDecl {env : VEnv} {Us : List Name} {known : Name → Prop
     · show (some (x, ty.fvarsList ++ v.fvarsList), VLocalDecl.vlet ty' val') :: m.vlctx = _
       rw [hvlctx]
   lparams := hinv.lparams
+  cfg := hinv.cfg
   natcfg := hinv.natcfg
   kfresh := by
     intro fv hfv
@@ -1225,7 +1255,8 @@ the `n` fresh fvars — plus the two facts the caller needs:
 Nothing here mentions `visitAlt` or the fixpoint approximation: `K` is arbitrary,
 so the lemma is reusable and the fixpoint step stays plumbing. -/
 theorem bridge_alt_telescope {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig}
+    {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (henv : env.Ordered)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) :
     ∀ (n : Nat) (e ty : Expr) (Δ : VLCtx)
@@ -1233,13 +1264,13 @@ theorem bridge_alt_telescope {env : VEnv} {Us : List Name} {known : Name → Pro
       (s : ErasureState) (ctx : ErasureContext) (w : Void IO.RealWorld)
       (r : List BinderName × LBTerm) (s' : ErasureState) (w' : Void IO.RealWorld),
       Erasure.lambdaOrIntroToArity e ty n K s ctx cctx ref w = .ok (r, s') w' →
-      BridgeInv env Us known Γ (gw w) ctx s Δ →
+      BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       IsLamTelescope n e → Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
       ForallMatchesLam ty e →
       ∃ (ys : List FVarId) (efin : Expr) (Δ' : VLCtx) (ctx' : ErasureContext)
         (w₁ : Void IO.RealWorld),
         ys.length = n ∧ gw w ≤ gw w₁ ∧
-        BridgeInv env Us known Γ (gw w₁) ctx' s Δ' ∧
+        BridgeInv env Us known Γ cfg₀ (gw w₁) ctx' s Δ' ∧
         Supported known Γ efin ∧ (∃ ve, TrExprS env Us Δ' efin ve) ∧
         (∀ y ∈ Δ.fvars, ctx'.lctx.fvarIdToDecl.find! y = ctx.lctx.fvarIdToDecl.find! y) ∧
         K efin ys s ctx' cctx ref w₁ = .ok (r, s') w' ∧
@@ -1404,20 +1435,52 @@ def RecBlockRegistered (Γ₀ : ErasureCtx) (cctx : Core.Context)
     ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
       Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j)
 
+/-- **The stored block carries no `FVarId`** (recursion wall, slice Γ-W3.6a) — the
+measurement that says what the `∀ ids` quantifier in `RecBlockRegistered` costs, which is
+nothing.
+
+The premise above quantifies the block's fresh ids, so it is fair to ask whether the ids
+the run happens to mint can be *read off* the block it stores. They cannot: `mkDef`
+abstracts exactly the ids the block-local reader installed, so the stored body is
+`FVarId`-free. Two machine-checked facts compose to it — `erases_target_fvars` (an
+fvar-free source erases to a target whose free variables are fixvars of the context, since
+`Erases.fvar` is the only rule that can invent one and its source-side premise is `False`)
+and `not_hasFVar_closeFix` (a term whose free variables lie in `ids` closes to one with
+none).
+
+What it does **not** give, and the reason `RecBlockRegistered` stays an assumption rather
+than becoming a theorem: fvar-freeness of the *output* is not equivariance of the
+*function*. "No id occurs in the result" does not say two runs from different generator
+states build the same `defs`, and the premise's world quantifier ranges over Core
+environments in any case. The honest reading is the narrow one: the id quantifier is
+harmless, the world one is the development's standing boundary. -/
+theorem rec_exit_block_fvar_free {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx}
+    {fvmap : Name → Option FVarId} {ids : List FVarId} {pe : Expr} {t : LBTerm}
+    {d : @FixDef LBTerm}
+    (hopen : Erases env Us (Γ₀.withFixvars fvmap) [] pe t)
+    (hclpe : FVarsIn (fun _ => False) pe)
+    (hfv : ∀ nm x, fvmap nm = some x → x ∈ ids)
+    (hbody : d.body = closeFix ids 0 t) (x : FVarId) : ¬ hasFVar x d.body := by
+  rw [hbody]
+  refine not_hasFVar_closeFix (fun z hz => ?_) 0 x
+  obtain ⟨nm, hnm⟩ := erases_target_fvars hopen hclpe hz
+  exact hfv nm z hnm
+
 set_option maxHeartbeats 1000000 in
 theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ₀ Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ₀ Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     (H : BridgeHyps env Us Γ₀ gw)
-    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
-    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (Hδ : DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us known Γ₀ cfg₀ Esrc cctx ref)
     (henv : env.Ordered)
     {vE : Expr → EraseM LBTerm}
     (ih1 : ∀ (e : Expr) (s : ErasureState) (ctx' : ErasureContext) (w' : Void IO.RealWorld)
         (t : LBTerm) (s' : ErasureState) (w'' : Void IO.RealWorld),
       vE e s ctx' cctx ref w' = .ok (t, s') w'' →
       ∀ (Γ' : ErasureCtx), Γ' = Γ₀.withFixvars Γ'.fixvars →
-      ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' (gw w') ctx' s Δ' → Supported known Γ' e →
+      ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' cfg₀ (gw w') ctx' s Δ' → Supported known Γ' e →
       (∃ ve, TrExprS env Us Δ' e ve) →
       Erases env Us Γ' Δ' e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w' ≤ gw w'')
     (hle : vE ⊑ Erasure.visitExpr)
@@ -1427,7 +1490,7 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
     (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
     (hnd : (names.map remove_unsafe_rec).Nodup)
     (hnmem : n ∈ names.map remove_unsafe_rec)
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s₀ Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s₀ Δ)
     (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
     (hrun : (do
         let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
@@ -1499,7 +1562,7 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
         have hleci := Hδ.ci_run hci
         obtain ⟨hlepr, rfl⟩ := Hδ.prep_run hpr
         obtain ⟨hlink, hsupp, htr, hlam, hclpe, hfvpe, hnp, ve, hve⟩ :=
-          Hβ.sibling_scope Hδ hknm hci hpr
+          Hβ.sibling_scope Hδ hknm hci hpr hinv.cfg
         have hlp := Hβ.block_lparams hknm hci
         have hlewc := NameGenerator.LE.trans hleP (NameGenerator.LE.trans hleci hlepr)
         -- the invariant travels to the block's reader, at the block-local context
@@ -1702,22 +1765,22 @@ succeeds satisfies it), and monotonicity gives `F x ⊑ F y` from `x ⊑ y` with
 analogue. The motives therefore carry `⊑`; `Erasure.run_ok_of_le` is the run-ok form, one
 lemma wide, and is what consumers of the conjunct actually apply. -/
 theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
+    {known : Name → Prop} {Γ₀ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+      DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
     (henv : env.Ordered) :
     ((∀ e s ctx cctx ref w t s' w', visitExpr e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       Erasure.visitExpr ⊑ Erasure.visitExpr) ∧
     ((∀ l s ctx cctx ref w r s' w', visitLiteral l s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (n : Nat) (iid : InductiveId),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         l = .natVal n → Γ.natPeano = true →
         Γ.ctors ``Nat.zero = some (iid, 0) → Γ.ctors ``Nat.succ = some (iid, 1) →
         (∃ ve, TrExprS env Us Δ (.lit l) ve) →
@@ -1727,7 +1790,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitConstructor cn args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.ctors cn = some (iid, cidx) →
         (ctx.config.nat = .peano ∨ (cn ≠ ``Nat.zero ∧ cn ≠ ``Nat.succ)) →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
@@ -1736,7 +1799,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       Erasure.visitConstructor ⊑ Erasure.visitConstructor) ∧
     ((∀ e s ctx cctx ref w t s' w', visitConst e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n us, e = .const n us → (known n ∨ Γ.fixvars n ≠ none) →
       Γ.ctors n = none → Γ.casesOns n = none →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1744,18 +1807,18 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     ((∀ n s ctx cctx ref w kn s' w',
       get_constant_kername n s ctx cctx ref w = .ok (kn, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → known n →
       kn = Γ.constants n ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       Erasure.get_constant_kername ⊑ Erasure.get_constant_kername) ∧
     ((∀ n s ctx cctx ref w r s' w', visitMutual n s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → known n →
       RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w' ∧ (s'.constants.get? n).isSome) ∧
       Erasure.visitMutual ⊑ Erasure.visitMutual) ∧
     ((∀ f' args s ctx cctx ref w t s' w',
       visitAppArgs f' args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ (hd : Expr), BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ (hd : Expr), BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       Erases env Us Γ Δ hd f' →
       (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
         ∃ ve, TrExprS env Us Δ (args[i]) ve) →
@@ -1763,14 +1826,14 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       Erasure.visitAppArgs ⊑ Erasure.visitAppArgs) ∧
     ((∀ e s ctx cctx ref w t s' w', visitLet e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n ty v b nd, e = .letE n ty v b nd → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       Erasure.visitLet ⊑ Erasure.visitLet) ∧
     ((∀ e s ctx cctx ref w t s' w', visitLambda e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n ty b bi, e = .lam n ty b bi → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1780,13 +1843,13 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       Erasure.visitProj ⊑ Erasure.visitProj) ∧
     ((∀ e s ctx cctx ref w t s' w', visitApp e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       Erasure.visitApp ⊑ Erasure.visitApp) ∧
     ((∀ e s ctx cctx ref w t s' w', visitConstApp e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       ∀ cn us, e.getAppFn = .const cn us →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1795,7 +1858,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitCtorEta cn ar e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         e.getAppFn = .const cn us → Γ.ctors cn = some (iid, cidx) →
         Γ.ctorArities cn = some ar → ar ≤ e.getAppArgs.size →
         cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
@@ -1807,7 +1870,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitCtorEtaGo cn ar ty fe args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.ctors cn = some (iid, cidx) → Γ.ctorArities cn = some ar → ar ≤ args.size →
         cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
@@ -1818,7 +1881,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitCasesEta ci e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         e.getAppFn = .const con us →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
@@ -1832,7 +1895,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitCasesEtaGo ci ty fe args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
         CasesInfoAgrees ci con dp nfs →
@@ -1845,7 +1908,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       visitCases ci args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
         CasesInfoAgrees ci con dp nfs →
@@ -1857,7 +1920,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     ((∀ nf mask e s ctx cctx ref w r s' w',
       visitAlt nf mask e s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         mask = Array.replicate nf .keep →
         IsLamTelescope nf e → Supported known Γ e →
         (∃ ve, TrExprS env Us Δ e ve) →
@@ -1868,7 +1931,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_1 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       f ⊑ Erasure.visitExpr)
@@ -1876,7 +1939,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f l s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (n : Nat) (iid : InductiveId),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         l = .natVal n → Γ.natPeano = true →
         Γ.ctors ``Nat.zero = some (iid, 0) → Γ.ctors ``Nat.succ = some (iid, 1) →
         (∃ ve, TrExprS env Us Δ (.lit l) ve) →
@@ -1886,7 +1949,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f cn args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.ctors cn = some (iid, cidx) →
         (ctx.config.nat = .peano ∨ (cn ≠ ``Nat.zero ∧ cn ≠ ``Nat.succ)) →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
@@ -1896,7 +1959,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_4 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n us, e = .const n us → (known n ∨ Γ.fixvars n ≠ none) →
       Γ.ctors n = none → Γ.casesOns n = none →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1904,19 +1967,19 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_5 := fun f => (∀ n s ctx cctx ref w kn s' w',
       f n s ctx cctx ref w = .ok (kn, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → known n →
       kn = Γ.constants n ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       f ⊑ Erasure.get_constant_kername)
     (motive_6 := fun f => (∀ n s ctx cctx ref w r s' w',
       f n s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → known n →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → known n →
       RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w' ∧ (s'.constants.get? n).isSome) ∧
       f ⊑ Erasure.visitMutual)
     (motive_7 := fun f => (∀ f' args s ctx cctx ref w t s' w',
       f f' args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ (hd : Expr), BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ (hd : Expr), BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       Erases env Us Γ Δ hd f' →
       (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
         ∃ ve, TrExprS env Us Δ (args[i]) ve) →
@@ -1925,7 +1988,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_8 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n ty v b nd, e = .letE n ty v b nd → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1933,7 +1996,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_9 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
       ∀ n ty b bi, e = .lam n ty b bi → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1944,14 +2007,14 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_11 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
       f ⊑ Erasure.visitApp)
     (motive_12 := fun f => (∀ e s ctx cctx ref w t s' w',
       f e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ → Supported known Γ e →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ → Supported known Γ e →
       (∃ ve, TrExprS env Us Δ e ve) →
       ∀ cn us, e.getAppFn = .const cn us →
       Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w') ∧
@@ -1960,7 +2023,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f cn ar e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         e.getAppFn = .const cn us → Γ.ctors cn = some (iid, cidx) →
         Γ.ctorArities cn = some ar → ar ≤ e.getAppArgs.size →
         cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
@@ -1972,7 +2035,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f cn ar ty fe args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (us : List Level) (iid : InductiveId) (cidx : Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.ctors cn = some (iid, cidx) → Γ.ctorArities cn = some ar → ar ≤ args.size →
         cn ≠ ``Nat.zero → cn ≠ ``Nat.succ →
         (∀ i (hi : i < args.size), Supported known Γ (args[i]) ∧
@@ -1983,7 +2046,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f ci e s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         e.getAppFn = .const con us →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
@@ -1997,7 +2060,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f ci ty fe args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
         CasesInfoAgrees ci con dp nfs →
@@ -2010,7 +2073,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       f ci args s ctx cctx ref w = .ok (t, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
       ∀ Δ (con : Name) (us : List Level) (iid : InductiveId) (np dp : Nat) (nfs : List Nat),
-        BridgeInv env Us known Γ (gw w) ctx s Δ →
+        BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Γ.casesOns con = some (iid, np) → Γ.casesDiscrPos con = some dp →
         Γ.ctorFields iid = some nfs →
         CasesInfoAgrees ci con dp nfs →
@@ -2022,7 +2085,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     (motive_18 := fun f => (∀ nf mask e s ctx cctx ref w r s' w',
       f nf mask e s ctx cctx ref w = .ok (r, s') w' →
       ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars),
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         mask = Array.replicate nf .keep →
         IsLamTelescope nf e → Supported known Γ e →
         (∃ ve, TrExprS env Us Δ e ve) →
@@ -2528,7 +2591,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- fragment says that form is `Supported` and translatable.
                rw [(hkey _ hval).1] at hpr
                have hlink : Esrc n = some pe :=
-                 (Hδ cctx ref).prep_esrc hkn hdiC hci hval hpr
+                 (Hδ cctx ref).prep_esrc hkn hdiC hci hval hpr hinv.cfg
                obtain ⟨hsupp, htr⟩ := (Hδ cctx ref).prepared hkn hlink hpr
                -- the invariant travels to the dependency's reader: `withReader` moves
                -- `fixvars` (to `none`, which `DeltaHyps.nofixvars` matches) and
@@ -2544,10 +2607,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- false there. Every other field is `Γ₀`'s already, up to the two
                -- registration projections the coherence equation shares.
                have hinvb := (hinv.mono_state hrc.rc).mono hle
-               have hinv' : BridgeInv env Us known Γ₀ (gw wp)
+               have hinv' : BridgeInv env Us known Γ₀ cfg₀ (gw wp)
                    { ctx with fixvars := none, lparams := ci.levelParams } s₀ Δ :=
                  { mlc := hinvb.mlc
                    lparams := hlp
+                   cfg := hinvb.cfg
                    natcfg := fun h => hinvb.natcfg ((ErasureCtx.coh_natPeano hΓ).trans h)
                    kfresh := hinvb.kfresh
                    fixvars := by
@@ -3349,15 +3413,15 @@ an artefact of `DataBridgeHyps.reg_run`/`CasesBridgeHyps.casesreg_run` asserting
 (`Erasure.run_register_inductive_cold_ok`). Those clauses are gone; this conclusion is
 what the run actually does. -/
 theorem visitExpr_refines_erases {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cctx ref)
+      DeltaHyps env Us known Γ cfg₀ Esrc gw cctx ref)
     (henv : env.Ordered) :
     ∀ e s ctx cctx ref w t s' w',
       Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w' →
-      ∀ Δ, BridgeInv env Us known Γ (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ →
         Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
         Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ Esrc s s' ∧ gw w ≤ gw w' :=
   fun e s ctx cctx ref w t s' w' hrun Δ =>
@@ -3409,19 +3473,19 @@ motives 1/5/6, since a dependency reached from inside a block is genuinely erase
 This theorem survives and keeps its callers, but it is now *subsumed*: the core proves the
 block case directly, at the local `Γ` its motives carry. -/
 theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrcb : SEnv}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrcb : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
              (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us (fun _ => False) (Γ.withFixvars fv) Esrcb gw cc rf)
+      DeltaHyps env Us (fun _ => False) (Γ.withFixvars fv) cfg₀ Esrcb gw cc rf)
     (henv : env.Ordered)
     {fv : Name → Option FVarId} {fvmap : Std.HashMap Name FVarId}
     {ctx ctx' : ErasureContext} {gen : NameGenerator}
     {s s' : ErasureState} {Δ : VLCtx} {e : Expr} {t : LBTerm}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld}
-    (hinv : BridgeInv env Us known Γ gen ctx s Δ) (hgen : gen ≤ gw w)
+    (hinv : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) (hgen : gen ≤ gw w)
     (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
     (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
     (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
@@ -3431,7 +3495,7 @@ theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
     (hex : ∃ ve, TrExprS env Us Δ e ve)
     (hrun : Erasure.visitExpr e s ctx' cctx ref w = .ok (t, s') w') :
     Erases env Us (Γ.withFixvars fv) Δ e t ∧ Erasure.RunConcl s s' ∧ gw w ≤ gw w' := by
-  have hinv' : BridgeInv env Us (fun _ => False) (Γ.withFixvars fv) (gw w) ctx' s Δ :=
+  have hinv' : BridgeInv env Us (fun _ => False) (Γ.withFixvars fv) cfg₀ (gw w) ctx' s Δ :=
     (hinv.mono hgen).withFixvars hlctx hlp hcfg hfvm hagree hfresh
   have h := visitExpr_refines_erases (H.withFixvars fv) (HD.withFixvars fv)
     (C.withFixvars fv) (Hδ' fv) henv e s ctx' cctx ref w t s' w' hrun Δ hinv' hsupp hex
@@ -3457,9 +3521,10 @@ section NonVacuity
 example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
     (cfg : ErasureConfig) (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
-    BridgeInv env Us (fun _ => False) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+    BridgeInv env Us (fun _ => False) Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by intro nm x; rw [hfv]; simp
@@ -3478,10 +3543,11 @@ context in which `visitMutual` starts each sibling body, where the freshness fie
 motive 4's new branch is not vacuously discharged. -/
 example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
     (hres : gen.Reserves x) (cfg : ErasureConfig) :
-    BridgeInv env Us (fun _ => False) (ΓfixOpen x) gen
+    BridgeInv env Us (fun _ => False) (ΓfixOpen x) cfg gen
       ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  cfg := rfl
   natcfg := fun h => absurd h (by simp [ΓfixOpen])
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by
@@ -3524,7 +3590,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
     (C : CasesBridgeHyps ΓfixRec gw)
     (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
              (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us (fun _ => False) (ΓfixRec.withFixvars fv) (fun _ => none) gw cc rf)
+      DeltaHyps env Us (fun _ => False) (ΓfixRec.withFixvars fv) cfg (fun _ => none) gw cc rf)
     (henv : env.Ordered)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (ve : VExpr) (htr : TrExprS env Us [] (.const `f []) ve)
@@ -3541,6 +3607,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
     (fvmap := (∅ : Std.HashMap Name FVarId).insert `f x)
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
+      cfg := rfl
       natcfg := fun h => absurd h (by simp [ΓfixRec])
       kfresh := fun _ hfv => nomatch hfv
       fixvars := by intro nm y; simp [ΓfixRec]
@@ -3603,11 +3670,12 @@ the block reader is still refuted — which is exactly why the block instance mu
 moved, and the four bundles stayed outer (`BridgeHyps.of_coh` and friends re-derive them per
 step, obligation-free). -/
 theorem bridgeInv_blockReader_refuted {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext} {s : ErasureState}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator}
+    {ctx : ErasureContext} {s : ErasureState}
     {Δ : VLCtx} {fvmap : Std.HashMap Name FVarId} {nm : Name} {x : FVarId}
     (hnfv : Γ.fixvars = fun _ => none)
     (hfvm : ctx.fixvars = some fvmap) (hhit : fvmap[nm]? = some x) :
-    ¬ BridgeInv env Us known Γ gen ctx s Δ := by
+    ¬ BridgeInv env Us known Γ cfg₀ gen ctx s Δ := by
   intro h
   have hΓ := (h.fixvars nm x).mp (by rw [hfvm]; exact hhit)
   rw [hnfv] at hΓ
@@ -3618,9 +3686,10 @@ is `{ ctx with fixvars := some (HashMap.ofList (fixvarnames.zip ids)) }`, and at
 sibling that map is `{n ↦ x}`. So the invariant is refuted at the very configuration the
 recursive branch would have to run its IH in. -/
 theorem bridgeInv_rec_exit_reader_refuted {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {gen : NameGenerator} {ctx : ErasureContext} {s : ErasureState}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {gen : NameGenerator}
+    {ctx : ErasureContext} {s : ErasureState}
     {Δ : VLCtx} (n : Name) (x : FVarId) (hnfv : Γ.fixvars = fun _ => none) :
-    ¬ BridgeInv env Us known Γ gen
+    ¬ BridgeInv env Us known Γ cfg₀ gen
         { ctx with fixvars := some (Std.HashMap.ofList ([n].zip [x])) } s Δ :=
   bridgeInv_blockReader_refuted (nm := n) (x := x) hnfv rfl (by simp)
 
@@ -3642,19 +3711,19 @@ Since Γ-W3.5 the walk also takes the eraser's **approximation** conjunct, and t
 supplies it here as `.1.2` — trivially, at the fixpoint. Guard (iv'') below is the version
 that is not trivial. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
-    {gw : Void IO.RealWorld → NameGenerator}
+    {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ₀ Esrc gw cc rf)
-    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+      DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cc rf)
+    (Hβ : BlockHyps env Us known Γ₀ cfg₀ Esrc cctx ref)
     (henv : env.Ordered)
     {names : List Name} {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
     {w w₁ : Void IO.RealWorld} {u₀ : Unit} {n : Name}
     (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
     (hnd : (names.map remove_unsafe_rec).Nodup)
     (hnmem : n ∈ names.map remove_unsafe_rec)
-    (hinv : BridgeInv env Us known Γ₀ (gw w) ctx s₀ Δ)
+    (hinv : BridgeInv env Us known Γ₀ cfg₀ (gw w) ctx s₀ Δ)
     (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
     (hrun : (do
         let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
@@ -3675,7 +3744,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
   rec_exit_refines_erases H (Hδ cctx ref) Hβ henv
     (fun e s ctx' w' t s' w'' hr => (visitExpr_refines_erases_core H HD C Hδ henv).1.1
       e s ctx' cctx ref w' t s' w'' hr)
-    (visitExpr_refines_erases_core H HD C Hδ henv).1.2
+    (visitExpr_refines_erases_core (cfg₀ := cfg₀) H HD C Hδ henv).1.2
     (ErasureCtx.withFixvars_self Γ₀).symm hkn hnd hnmem hinv hreg hrun
 
 /-- **(iv'') …and it fires at exactly the data a *step* holds** (recursion wall, slice
@@ -3695,11 +3764,11 @@ there is only one eraser now — but it is not suppliable either, since readers 
 `Erasure.Config` erase the same block to different `defs` and `BridgeInv.natcfg` is
 one-directional. `ColdStart`'s residue-1 row names it. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ Γ : ErasureCtx} {Esrc : SEnv}
-    {gw : Void IO.RealWorld → NameGenerator}
+    {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     (H : BridgeHyps env Us Γ₀ gw)
-    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
-    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (Hδ : DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us known Γ₀ cfg₀ Esrc cctx ref)
     (henv : env.Ordered)
     {vE : Expr → EraseM LBTerm}
     (ih1 : (∀ (e : Expr) (s : ErasureState) (ctx' : ErasureContext) (cc : Core.Context)
@@ -3707,7 +3776,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ Γ : Erasur
           (s' : ErasureState) (w'' : Void IO.RealWorld),
         vE e s ctx' cc rf w' = .ok (t, s') w'' →
         ∀ (Γ' : ErasureCtx), Γ' = Γ₀.withFixvars Γ'.fixvars →
-        ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' (gw w') ctx' s Δ' → Supported known Γ' e →
+        ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' cfg₀ (gw w') ctx' s Δ' → Supported known Γ' e →
         (∃ ve, TrExprS env Us Δ' e ve) →
         Erases env Us Γ' Δ' e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w' ≤ gw w'') ∧
       vE ⊑ Erasure.visitExpr)
@@ -3717,7 +3786,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ Γ : Erasur
     (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
     (hnd : (names.map remove_unsafe_rec).Nodup)
     (hnmem : n ∈ names.map remove_unsafe_rec)
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s₀ Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s₀ Δ)
     (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
     (hrun : (do
         let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
@@ -3781,14 +3850,14 @@ discharged by `rfl`, since `(Γ₀.withFixvars fv).fixvars` is `fv`.
 Note what is *not* re-proved: the three trust bundles and `Hδ` are the ambient ones,
 unchanged. Only `Γ` moved. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
-    {gw : Void IO.RealWorld → NameGenerator}
+    {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+      DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
     (henv : env.Ordered) (fv : Name → Option FVarId) :
     ∀ e s ctx cctx ref w t s' w',
       Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w' →
-      ∀ Δ, BridgeInv env Us known (Γ₀.withFixvars fv) (gw w) ctx s Δ →
+      ∀ Δ, BridgeInv env Us known (Γ₀.withFixvars fv) cfg₀ (gw w) ctx s Δ →
         Supported known (Γ₀.withFixvars fv) e → (∃ ve, TrExprS env Us Δ e ve) →
         Erases env Us (Γ₀.withFixvars fv) Δ e t ∧
           RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w' :=
@@ -3810,7 +3879,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cc rf)
+      DeltaHyps env Us (fun _ => False) Γ cfg (fun _ => none) gw cc rf)
     (henv : env.Ordered)
     (x : FVarId) (nm : Name) (bi : BinderInfo)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
@@ -3827,12 +3896,13 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     ⟨_, .sortDF trivial trivial rfl⟩
   have hfind : ({} : LocalContext).find? x = none :=
     (Lean4Lean.TrLCtx.nil (env := env) (Us := Us)).find?_eq_none.mpr (fun h => nomatch h)
-  have hinv : BridgeInv env Us (fun _ => False) Γ (gw w)
+  have hinv : BridgeInv env Us (fun _ => False) Γ cfg (gw w)
       ⟨({} : LocalContext).mkLocalDecl x nm (.sort .zero) bi, none, Us, cfg⟩ {}
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] :=
     { mlc := ⟨(MLCtx.nil).vlam x nm (.sort .zero) (.sort .zero) bi,
         ⟨trivial, hfind, hty, hty'⟩, rfl, rfl⟩
       lparams := rfl
+      cfg := rfl
       natcfg := hcfg
       kfresh := by
         intro fv hfv
@@ -3879,7 +3949,7 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
     (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
     (C : CasesBridgeHyps ΓnatLit gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envNatT [] (fun _ => False) ΓnatLit (fun _ => none) gw cc rf)
+      DeltaHyps envNatT [] (fun _ => False) ΓnatLit cfg (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -3887,10 +3957,11 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
     Erases envNatT [] ΓnatLit [] (.lit (.natVal 2)) t ∧
       RunConclδ envNatT [] ΓnatLit (fun _ => none) ({} : ErasureState) s' ∧
       gw w ≤ gw w' := by
-  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit (gw w)
+  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit cfg (gw w)
       ⟨{}, none, [], cfg⟩ {} [] :=
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
+      cfg := rfl
       natcfg := fun _ => hcfg
       kfresh := fun _ h => nomatch h
       fixvars := by intro nm x; simp [ΓnatLit]
@@ -3917,9 +3988,10 @@ theorem bridgeInv_cold_known (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (hkn : ∀ m : Name, Γ.constants m = toKername m) (hfv : Γ.fixvars = fun _ => none)
     (gen : NameGenerator) (cfg : ErasureConfig)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano) (n : Name) :
-    BridgeInv env Us (fun m => m = n) Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+    BridgeInv env Us (fun m => m = n) Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by intro nm x; rw [hfv]; simp
@@ -3962,7 +4034,7 @@ example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envNatT [] gΓδ gw) (HD : DataBridgeHyps gΓδ gw)
     (C : CasesBridgeHyps gΓδ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envNatT [] (fun m => m = ``Nat.zero) gΓδ (fun _ => none) gw cc rf)
+      DeltaHyps envNatT [] (fun m => m = ``Nat.zero) gΓδ cfg (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.const ``Nat.zero []) {} ⟨{}, none, [], cfg⟩ cctx ref w

@@ -50,7 +50,8 @@ constructor-carrying `Supported.ctorApp` fragment and the non-block target.
 theorem shipping_visitExpr_correct_data
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ)
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
     (hctorenv : ErasesEnvCtor Γ E)
@@ -61,12 +62,12 @@ theorem shipping_visitExpr_correct_data
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrcδ gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ)
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us Δ e ve)
     (hnb : NoBlock t)
@@ -85,15 +86,15 @@ Reuses the concrete nullary first-order constructor `c : I` of `FirstOrder.lean`
 `ErasesEnvCtor` by `ΓFOd_envctor`, and the source `c` `SEvalDataC`-evaluates to
 itself. The run and the two trust bundles stay hypothetical (opaque primitives);
 everything else — including the `NoBlock` witness — is constructed. -/
-example (gw : Void IO.RealWorld → NameGenerator)
+example {cfg₀ : ErasureConfig} (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envFO [] (fun _ => False) ΓFOd (fun _ => none) gw cc rf)
+      DeltaHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd (gw w) ctx s [])
+    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd cfg₀ (gw w) ctx s [])
     (hsup : Supported (fun _ => False) ΓFOd (.const `c []))
     (htr : TrExprS envFO [] [] (.const `c []) (.const `c []))
     (hnb : NoBlock t) :

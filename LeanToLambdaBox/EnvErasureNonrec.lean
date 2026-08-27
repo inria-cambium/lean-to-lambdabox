@@ -310,16 +310,17 @@ specialization of `visitExpr_refines_erases`; its premises' non-vacuity is inher
 from `visitExpr_refines_erases`'s own guards (`VisitExprRefines.lean` NonVacuity), plus
 the `Δ = []` invariant guard below. -/
 theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (henv : env.Ordered)
     {prepbody : Expr} {s : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld} {body' : LBTerm}
     {s' : ErasureState} {w' : Void IO.RealWorld}
     (hrun : Erasure.visitExpr prepbody s ctx cctx ref w = .ok (body', s') w')
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s [])
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s [])
     (hsupp : Supported known Γ prepbody)
     (hex : ∃ ve, TrExprS env Us [] prepbody ve) :
     Erases env Us Γ [] prepbody body' :=
@@ -438,9 +439,10 @@ theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ
     (hnfv : Γ.fixvars = fun _ => none)
     (gen : NameGenerator) (cfg : ErasureConfig)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
-    BridgeInv env Us known Γ gen ⟨{}, none, Us, cfg⟩ {} [] where
+    BridgeInv env Us known Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
+  cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
   fixvars := by intro nm x; rw [hnfv]; simp

@@ -607,7 +607,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ cfg Esrc gw cc rf)
     -- the subject
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
@@ -642,7 +642,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
   have hshape : RegInvShape Γ sf := (visitExpr_regInvShape Hr hvis (RegInvShape.empty Γ)).1
   have hcl : LBClosed t 0 := (visitExpr_noFix_closed hvis).2
   -- The bridge invariant is *constructed* at the entry configuration.
-  have hinv : BridgeInv env [] known Γ (gw wp) { «config» := cfg } {} [] :=
+  have hinv : BridgeInv env [] known Γ cfg (gw wp) { «config» := cfg } {} [] :=
     gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, hex⟩ := S.supported hpr
   obtain ⟨ve, htr⟩ := hex
@@ -704,7 +704,7 @@ theorem shipping_erase_correct_firstorder_coldstart
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ cfg Esrc gw cc rf)
     {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w : Void IO.RealWorld}
     (S : ColdStartSubject env Us known Γ e cfg cctx ref w)
@@ -730,7 +730,7 @@ theorem shipping_erase_correct_firstorder_coldstart
   obtain ⟨pe, t, sp, sf, wp, wt, hpr, hvis, hp, -⟩ := erase_run_ok hrun
   obtain rfl : sp = {} := run_prepare_erasure_state (by simpa using hcsimp) hpr
   have hshape : RegInvShape Γ sf := (visitExpr_regInvShape Hr hvis (RegInvShape.empty Γ)).1
-  have hinv : BridgeInv env [] known Γ (gw wp) { «config» := cfg } {} [] :=
+  have hinv : BridgeInv env [] known Γ cfg (gw wp) { «config» := cfg } {} [] :=
     gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, ve, htr⟩ := S.supported hpr
   have hmem : DeltaMem env [] Γ Esrc sf :=
@@ -826,7 +826,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
+      DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envFO [])
@@ -854,7 +854,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
     (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envFO [] (fun _ => False) ΓFOι (fun _ => none) gw cc rf)
+      DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envFO [])
@@ -1094,7 +1094,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envδ [] knownδ ΓFOd Esrcδ gw cc rf)
+      DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.const `g []) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -1139,7 +1139,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw) (Hr : RegBridgeHyps ΓFOd)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envδ [] knownδ ΓFOd Esrcδ gw cc rf)
+      DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
     {e : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
     (hstr : ErasableStrengthen envδ [])

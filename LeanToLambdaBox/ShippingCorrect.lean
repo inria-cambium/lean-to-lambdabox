@@ -69,7 +69,8 @@ state `shipping_erase_correct_firstorder{,ι}_coldstart` (`ColdStart.lean`).
 theorem shipping_visitExpr_correct
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ)
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDelta env Us Γ Esrc E)
     (hrec : RecEnvConsistent env Us Γ Esrc E)
@@ -77,12 +78,12 @@ theorem shipping_visitExpr_correct
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrcδ gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s Δ)
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s Δ)
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us Δ e ve)
     (hev : SEvalβδ Esrc e v) :
@@ -110,7 +111,8 @@ theorem shipping_visitExpr_correct'
     {env₀ : Lean.Kernel.Environment} {ves : Lean4Lean.VEnvs} (wf : ves.WF env₀)
     {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF (ves.venv .safe) Us.length Δ)
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent (ves.venv .safe) Us Esrc)
     (hdelta : ErasesEnvDelta (ves.venv .safe) Us Γ Esrc E)
     (hrec : RecEnvConsistent (ves.venv .safe) Us Γ Esrc E)
@@ -118,12 +120,12 @@ theorem shipping_visitExpr_correct'
     {gw : Void IO.RealWorld → NameGenerator}
     (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps (ves.venv .safe) Us known Γ Esrcδ gw cc rf)
+      DeltaHyps (ves.venv .safe) Us known Γ cfg₀ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv (ves.venv .safe) Us known Γ (gw w) ctx s Δ)
+    (hinv : BridgeInv (ves.venv .safe) Us known Γ cfg₀ (gw w) ctx s Δ)
     (hsup : Supported known Γ e)
     (htr : TrExprS (ves.venv .safe) Us Δ e ve)
     (hev : SEvalβδ Esrc e v) :
@@ -150,7 +152,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps .empty [] (fun _ => False) Γ (fun _ => none) gw cc rf)
+      DeltaHyps .empty [] (fun _ => False) Γ cfg (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lam `a (.sort .zero) (.bvar 0) .default) {}
@@ -177,6 +179,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     H HD C Hδ (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
+      cfg := rfl
       natcfg := hcfg
       kfresh := fun _ h => nomatch h
       fixvars := by intro nm x; rw [hΓfv]; simp

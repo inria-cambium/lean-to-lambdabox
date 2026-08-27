@@ -54,7 +54,8 @@ applied-form (`NoBlock`) erasure of `v` (any other applied erasure of `v` equals
 -/
 theorem shipping_erase_correct_firstorder
     {env : VEnv} (henv : env.WF) {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig}
+    {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
     (hctorenv : ErasesEnvCtor Γ E)
@@ -65,12 +66,12 @@ theorem shipping_erase_correct_firstorder
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrcδ gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
     {e v : Expr} {ve : VExpr} {t : LBTerm}
     {s s' : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State} {w w' : Void IO.RealWorld}
     (hrun : Erasure.visitExpr e s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv env Us known Γ (gw w) ctx s [])
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw w) ctx s [])
     (hsup : Supported known Γ e)
     (htr : TrExprS env Us [] e ve)
     (hnb : NoBlock t)
@@ -95,15 +96,15 @@ lean4lean-blocked arity side condition `harity`, exactly as in `FirstOrder.lean`
 and D3 *fires* — producing `t'` and its uniqueness. The run and the two trust
 bundles stay hypothetical (opaque primitives); everything else is constructed. -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
-    (gw : Void IO.RealWorld → NameGenerator)
+    {cfg₀ : ErasureConfig} (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
     (C : CasesBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envFO [] (fun _ => False) ΓFOd (fun _ => none) gw cc rf)
+      DeltaHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
     (ref : ST.Ref IO.RealWorld Core.State) (w w' : Void IO.RealWorld) (t : LBTerm)
     (hrun : Erasure.visitExpr (.const `c []) s ctx cctx ref w = .ok (t, s') w')
-    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd (gw w) ctx s [])
+    (hinv : BridgeInv envFO [] (fun _ => False) ΓFOd cfg₀ (gw w) ctx s [])
     (hsup : Supported (fun _ => False) ΓFOd (.const `c []))
     (hnb : NoBlock t) :
     ∃ t', WcbvEval EFOd appliedFlags t t' ∧
@@ -194,7 +195,7 @@ example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
     (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
     (C : CasesBridgeHyps ΓnatLit gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps envNatT [] (fun _ => False) ΓnatLit (fun _ => none) gw cc rf)
+      DeltaHyps envNatT [] (fun _ => False) ΓnatLit cfg (fun _ => none) gw cc rf)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (w w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState)
     (hrun : Erasure.visitExpr (.lit (.natVal 2)) {} ⟨{}, none, [], cfg⟩ cctx ref w
@@ -204,10 +205,11 @@ example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
       (∃ vve, TrExprS envNatT [] [] (srcNatTower 2) vve) ∧
       Erases envNatT [] ΓnatLit [] (srcNatTower 2) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envNatT [] ΓnatLit [] (srcNatTower 2) tu → NoBlock tu → tu = t' := by
-  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit (gw w)
+  have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit cfg (gw w)
       ⟨{}, none, [], cfg⟩ {} [] :=
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
+      cfg := rfl
       natcfg := fun _ => hcfg
       kfresh := fun _ h => nomatch h
       fixvars := by intro nm x; simp [ΓnatLit]

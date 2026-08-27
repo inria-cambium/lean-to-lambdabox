@@ -6,9 +6,9 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown twice since: to 660
-at slice proj-P3 and to 673 at slice Γ-W3.5, with every earlier entry's output
-byte-identical at each step.)
+reported the same 648 entries it did at `fee3ada`. It has grown three times since:
+to 660 at slice proj-P3, to 673 at slice Γ-W3.5 and to 691 at slice Γ-W3.6a, with
+every earlier entry's output byte-identical at each step.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
@@ -2810,3 +2810,71 @@ open LeanToLambdaBox
 --     been the S1d/S1e failure mode with `ctx` in the role `known` played there — a
 --     premise vacuously satisfiable precisely where the slice needs it. The measurement
 --     is recorded rather than the field.
+
+-- ============================================================================
+-- SLICE Γ-W3.6a — THE CONFIG GATE
+-- ============================================================================
+--
+-- The measurement Γ-W3.5 recorded above named a *reader/state* quantifier as what keeps
+-- step 6's recursive branch closed. This slice takes the reader half of it apart, and the
+-- finding is that only one field of the reader was ever at issue.
+--
+-- (a) CONFIG IS A RUN INVARIANT, AND NOW THE INVARIANT SAYS SO. `ErasureContext` has four
+--     fields. Of the five `withReader` sites in the shipping eraser — `withLocalDecl`,
+--     `withLocalDef`, `visitMutual`'s non-recursive exit, its block entry, its per-sibling
+--     loop — not one touches `config`; `{ … with config := … }` occurs nowhere in the
+--     eraser; `ReaderT.adapt`/`withTheReader` are never used; and the only reader built
+--     from scratch is `Erasure.run`'s `{ config }`. So `BridgeInv.cfg : ctx.config = cfg₀`
+--     costs five transport lines and ten construction sites, eight of them `rfl`, and
+--     ZERO changes at the transport application sites — the field travels wherever the
+--     invariant does. `BridgeInv.withFixvars` already demanded `hcfg : ctx'.config =
+--     ctx.config` for `natcfg`, supplied by `rfl` at both of its call sites, so the fully
+--     general reader is pinned there too.
+#print axioms LeanToLambdaBox.BridgeInv
+#print axioms LeanToLambdaBox.BridgeInv.mono
+#print axioms LeanToLambdaBox.BridgeInv.mono_state
+#print axioms LeanToLambdaBox.BridgeInv.withFixvars
+#print axioms LeanToLambdaBox.BridgeInv.mkLocalDecl
+#print axioms LeanToLambdaBox.BridgeInv.mkLetDecl
+#print axioms LeanToLambdaBox.gBridgeInv_nil
+--
+-- (b) THE FIX-ONCE BONUS. Two SHIPPED fields carry the same defect the Γ-W3.5 objection
+--     names, and they carried it since Γ-W2: `DeltaHyps.prep_esrc` and
+--     `BlockHyps.block_esrc` quantify the reader of a `prepare_erasure` run and pin its
+--     OUTPUT to a value fixed before the run — while that output demonstrably depends on
+--     `ctx.config.csimp`. Ungated, the clause identifies the bodies two configs prepare,
+--     which for an `Esrc` that distinguishes them is contradictory. Both are now gated on
+--     `ctx.config = cfg₀`, the bundles carrying `cfg₀` as a parameter. This STRENGTHENS
+--     the fields (they say less), so every consumer keeps working: each holds a
+--     `BridgeInv` and reads the equation off `BridgeInv.cfg`, with
+--     `RecBlockErasure.blockReader_config` (`rfl`) covering the block loop's reader.
+#print axioms LeanToLambdaBox.DeltaHyps
+#print axioms LeanToLambdaBox.DeltaHyps.of_bot
+#print axioms LeanToLambdaBox.BlockHyps
+#print axioms LeanToLambdaBox.BlockHyps.of_bot
+#print axioms LeanToLambdaBox.BlockHyps.sibling_scope
+#print axioms LeanToLambdaBox.gBlockHyps
+--
+-- (c) WHAT THE `∀ ids` QUANTIFIER COSTS: NOTHING, AND HERE IS THE MEASUREMENT.
+--     `RecBlockRegistered` quantifies the block's fresh ids. They do not survive into the
+--     block it speaks about: `erases_target_fvars` says an fvar-free source erases to a
+--     target whose free variables are fixvars of the context (`Erases.fvar` is the only
+--     rule that can invent one and its source-side premise is `False`), and
+--     `not_hasFVar_closeFix` says `mkDef`'s fold abstracts exactly those. So the stored
+--     body is `FVarId`-free.
+--
+--     What this does NOT buy — and the reason the premise stays an assumption rather than
+--     becoming a theorem — is equivariance: "no id occurs in the output" is not "two runs
+--     from different generator states build the same output", which would need a renaming
+--     induction over the whole eighteen-motive family. And the premise's world quantifier
+--     ranges over Core environments, so no such theorem exists to be had at all.
+#print axioms LeanToLambdaBox.rec_exit_block_fvar_free
+--
+-- (d) THE CROWN DID NOT MOVE. Both bridge theorems keep the seven axioms they had at
+--     Γ-W3.5 — `propext`, `Classical.choice`, `Quot.sound` and lean4lean's four modeling
+--     axioms — and `rec_exit_refines_erases` keeps its six. A parameter and a `rfl`-valued
+--     field add nothing.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+#print axioms LeanToLambdaBox.rec_exit_refines_erases

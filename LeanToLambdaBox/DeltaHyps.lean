@@ -133,7 +133,7 @@ fetch plus the preparation of its value) and, at the consumer, `prepared`. That 
 forced by the point of use — inside `Erasure.visitExpr.mutual_fixpoint_induct` the caller
 holds runs, not an environment — and is documented at each field. -/
 structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : ErasureCtx)
-    (Esrc : SEnv) (gw : Void IO.RealWorld → NameGenerator)
+    (cfg₀ : ErasureConfig) (Esrc : SEnv) (gw : Void IO.RealWorld → NameGenerator)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
   /-- `Esrc`'s domain is inside the fragment. -/
   esrc_sub : ∀ {n : Name}, (Esrc n).isSome → known n
@@ -303,7 +303,19 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 
   It is the same fact `ColdStartDelta.registeredClosureData_step_nonrec` takes as its
   `hEsrc` premise at the composition site; it lives in the bundle because inside the
-  induction there is no composition site to take it at. -/
+  induction there is no composition site to take it at.
+
+  **The reader is gated on the bundle's own config** (slice Γ-W3.6a), and that is a
+  strict strengthening of the *field* — i.e. a weakening of what a producer must
+  believe. `prepare_erasure`'s output genuinely depends on `ctx.config.csimp`
+  (`Erasure.lean`'s csimp branch), so the clause as it shipped at Γ-W2 quantified `ctx`
+  over readers that prepare **different** bodies and pinned all of them to one `Esrc n`
+  — contradictory for any `Esrc` if two admissible configs disagree. The new premise
+  `ctx.config = cfg₀` removes exactly that: the field now speaks about one config, the
+  one the bundle is stated at. Nothing is lost at the point of use, because every
+  consumer holds a `BridgeInv` and reads the equation off `BridgeInv.cfg`. What stays
+  quantified — `ctx.lctx`, the state and the world — is reader data
+  `prepare_erasure` is transparent in, plus the development's standing world boundary. -/
   prep_esrc : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v pe : Expr}
       {s s₁ : ErasureState} {ctx : ErasureContext}
       {wd wd₁ w w₁ : Void IO.RealWorld},
@@ -311,6 +323,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref wd = .ok r wd₁ →
     r = some ci → ci.value? (allowOpaque := true) = some v →
     prepare_erasure v s ctx cctx ref w = .ok (pe, s₁) w₁ →
+    ctx.config = cfg₀ →
     Esrc n = some pe
   /-- **No fragment constant is emitted as an axiom** — scope restriction 3. Covers both
   `addAxiom` sites: `visitMutual`'s value-less / `@[extern] + preferAxiom` exits, and the
@@ -396,6 +409,7 @@ this bundle its five.
 So: a `known = ⊥` consumer buys exactly five things, and no `Γ`-side or fragment-scope
 obligation at all. -/
 theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {cfg₀ : ErasureConfig}
     {gw : Void IO.RealWorld → NameGenerator} {cctx : Core.Context}
     {ref : ST.Ref IO.RealWorld Core.State}
     (hlog : ∀ {m : MessageData} {u : Unit} {s s' : ErasureState} {ctx : ErasureContext}
@@ -415,7 +429,7 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     (hprep : ∀ {e pe : Expr} {s s' : ErasureState} {ctx : ErasureContext}
         {w w' : Void IO.RealWorld},
       prepare_erasure e s ctx cctx ref w = .ok (pe, s') w' → gw w ≤ gw w' ∧ s' = s) :
-    DeltaHyps env Us (fun _ => False) Γ (fun _ => none) gw cctx ref where
+    DeltaHyps env Us (fun _ => False) Γ cfg₀ (fun _ => none) gw cctx ref where
   esrc_sub := by intro n h; simp at h
   disj := fun h => h.elim
   kinj := fun h => h.elim
@@ -490,7 +504,8 @@ of a sibling body happens *inside* the bridge induction; `nonest` is S — unrea
 intended use, since the shipping eraser never nests a block inside a body (the standing
 residue recorded at `RecBlockErasure.Erases.instFixvars`). -/
 structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀ : ErasureCtx)
-    (Esrc : SEnv) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
+    (cfg₀ : ErasureConfig) (Esrc : SEnv)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
   /-- **Universe monomorphism of the block**, at the loop's own fetch — scope restriction 1
   for `getConstInfo` rather than `getDeclInfo?`. This is what feeds `BridgeInv.withFixvars`'
   `hlp` slot when the per-sibling invariant is rebuilt: the exit's inner
@@ -504,13 +519,21 @@ structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀
     ci.levelParams = Us
   /-- **`Esrc` records the sibling's prepared body** — the block analogue of `prep_esrc`,
   keyed on the two runs a caller inside the loop actually holds, and landing at the
-  *stripped* name because that is the one the fragment and the registration use. -/
+  *stripped* name because that is the one the fragment and the registration use.
+
+  Gated on the bundle's config since slice Γ-W3.6a, for the reason spelled out at
+  `DeltaHyps.prep_esrc`: the preparing reader's `csimp` selects which body comes back, so
+  an ungated `∀ ctx` pins two different bodies to one `Esrc` entry. The block loop's
+  reader is `blockReader … ctx` with the sibling's `lparams` on top, and
+  `RecBlockErasure.blockReader_config` is `rfl`, so the consumer discharges the premise
+  with `BridgeInv.cfg` unchanged. -/
   block_esrc : ∀ {m : Name} {ci : ConstantInfo} {pe : Expr}
       {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
       {wc wc' w w₁ : Void IO.RealWorld},
     known (remove_unsafe_rec m) →
     (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc' →
     prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w = .ok (pe, s₁) w₁ →
+    ctx.config = cfg₀ →
     Esrc (remove_unsafe_rec m) = some pe
   /-- **A block source is λ-headed.** `erases_rec_block_of_run`'s `hsrc`, and the one shape
   fact no `TrExprS` witness gives: a prepared top-level *recursive definition* body is a λ
@@ -543,14 +566,15 @@ All three fragment-keyed fields are free at `known = ⊥`, at *any* `Esrc`: the 
 clauses ask for `known (remove_unsafe_rec m)` and `block_lam` for `known m`. What a
 `known = ⊥` consumer buys is exactly the two residues — which is the honest price of the
 recursion feature, and it is two, not seven. -/
-theorem BlockHyps.of_bot {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx} {Esrc : SEnv}
+theorem BlockHyps.of_bot {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx}
+    {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     (hstr : ErasableStrengthen env Us)
     (hnest : ∀ {fv : Name → Option FVarId} {Δ' : VLCtx} {n' : Name} {ty' b' : Expr}
         {bi' : BinderInfo} {d' : List (@FixDef LBTerm)} {i' : Nat},
       Erases env Us (Γ₀.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
       Erases env Us Γ₀ Δ' (.lam n' ty' b' bi') (.fix d' i')) :
-    BlockHyps env Us (fun _ => False) Γ₀ Esrc cctx ref where
+    BlockHyps env Us (fun _ => False) Γ₀ cfg₀ Esrc cctx ref where
   block_lparams := fun h => h.elim
   block_esrc := fun h => h.elim
   block_lam := fun h => h.elim
@@ -568,23 +592,25 @@ fvar-freeness are read off that witness (`TrExprS.closed`, `TrExprS.fvarsIn`) ra
 assumed. Stating it as one theorem is what keeps the two bundles' division of labour
 checkable: if a conjunct here ever stops being derivable, this is the line that breaks. -/
 theorem BlockHyps.sibling_scope {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ₀ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ₀ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
-    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
-    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us known Γ₀ cfg₀ Esrc cctx ref)
+    (Hδ : DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
     {m : Name} {ci : ConstantInfo} {pe : Expr}
     {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
     {wc wc' w w₁ : Void IO.RealWorld}
     (hkn : known (remove_unsafe_rec m))
     (hci : (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc')
     (hpr : prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w
-             = .ok (pe, s₁) w₁) :
+             = .ok (pe, s₁) w₁)
+    (hcfg : ctx.config = cfg₀) :
     Esrc (remove_unsafe_rec m) = some pe ∧
       Supported known Γ₀ pe ∧ (∀ Δ : VLCtx, ∃ ve, TrExprS env Us Δ pe ve) ∧
       (∃ n ty b bi, pe = .lam n ty b bi) ∧
       pe.Closed 0 ∧ FVarsIn (fun _ => False) pe ∧
       NoProj pe ∧ (∃ ve, TrExprS env Us [] pe ve) := by
-  have hlink : Esrc (remove_unsafe_rec m) = some pe := Hβ.block_esrc hkn hci hpr
+  have hlink : Esrc (remove_unsafe_rec m) = some pe := Hβ.block_esrc hkn hci hpr hcfg
   obtain ⟨hsupp, htr⟩ := Hδ.prepared hkn hlink hpr
   obtain ⟨hnp, ve, hve⟩ := Hδ.esrc_shape hlink
   refine ⟨hlink, hsupp, htr, Hβ.block_lam hkn hlink, ?_, ?_, hnp, ve, hve⟩
@@ -960,8 +986,8 @@ they quantify over opaque runtime primitives. The two residues stay hypothetical
 that is what they are — `strengthen` is commissioned upstream and `nonest` is the standing
 `instFixvars` residue, both premises of the cold-start capstones already
 (`ColdStartDelta.gRecEnvConsistentD8` takes `hnest` in exactly this shape). -/
-theorem gBlockHyps (env : VEnv) (Us : List Name) (cctx : Core.Context)
-    (ref : ST.Ref IO.RealWorld Core.State)
+theorem gBlockHyps (env : VEnv) (Us : List Name) (cfg₀ : ErasureConfig)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State)
     (hlp : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState}
         {ctx : ErasureContext} {w w' : Void IO.RealWorld},
       (fun n => n = `f) (remove_unsafe_rec m) →
@@ -973,13 +999,14 @@ theorem gBlockHyps (env : VEnv) (Us : List Name) (cctx : Core.Context)
       (fun n => n = `f) (remove_unsafe_rec m) →
       (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc' →
       prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w = .ok (pe, s₁) w₁ →
+      ctx.config = cfg₀ →
       gEsrcδ fixRecSrc (remove_unsafe_rec m) = some pe)
     (hstr : ErasableStrengthen env Us)
     (hnest : ∀ {fv : Name → Option FVarId} {Δ' : VLCtx} {n' : Name} {ty' b' : Expr}
         {bi' : BinderInfo} {d' : List (@FixDef LBTerm)} {i' : Nat},
       Erases env Us (ΓfixRec.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
       Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
-    BlockHyps env Us (fun n => n = `f) ΓfixRec (gEsrcδ fixRecSrc) cctx ref where
+    BlockHyps env Us (fun n => n = `f) ΓfixRec cfg₀ (gEsrcδ fixRecSrc) cctx ref where
   block_lparams := hlp
   block_esrc := hesrc
   block_lam := by

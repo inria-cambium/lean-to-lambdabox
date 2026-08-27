@@ -112,16 +112,17 @@ Nothing here is assumed about the state: the entry's presence is read off the co
 decomposition reports, and its shape off `visitExpr_noFix_closed`, which has no
 hypotheses at all. -/
 theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Name → Prop}
-    {Γ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {wp wt : Void IO.RealWorld}
     (hvis : Erasure.visitExpr pe sp ctx' cctx ref wp = .ok (t, st) wt)
-    (hinv : BridgeInv env Us known Γ (gw wp) ctx' sp [])
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw wp) ctx' sp [])
     (hsupp : Supported known Γ pe)
     (hex : ∃ ve, TrExprS env Us [] pe ve)
     (hpost : InlineExt (nonrecConstState n t st) s₁) :
@@ -440,11 +441,11 @@ body the run erased — the *prepared* one, which is the convention
 neither a residue any more: `huni` is `ErasesUniform.erases_uniform_of_nil` (δ-D7b) and
 `hnb` is `ColdStartInduction.visitExpr_noBlock` (δ-N). -/
 theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
-    {known : Name → Prop} {Γ : ErasureCtx} {Esrc : SEnv}
+    {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
-      DeltaHyps env Us known Γ Esrc gw cc rf)
+      DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (henv : env.Ordered) (hknames : ∀ m : Name, Γ.constants m = toKername m)
     {n : Name} {pe : Expr} {t : LBTerm} {sp st s s₁ : ErasureState}
     {ctx' : ErasureContext} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -452,7 +453,7 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     (hold : RegisteredClosureData env Us Γ Esrc s.gdecls)
     (hle : StateLe s s₁) (hkeys : KeysDistinct s₁.gdecls)
     (hvis : Erasure.visitExpr pe sp ctx' cctx ref wp = .ok (t, st) wt)
-    (hinv : BridgeInv env Us known Γ (gw wp) ctx' sp [])
+    (hinv : BridgeInv env Us known Γ cfg₀ (gw wp) ctx' sp [])
     (hsupp : Supported known Γ pe) (hex : ∃ ve, TrExprS env Us [] pe ve)
     (hpost : InlineExt (nonrecConstState n t st) s₁)
     (hdisj : Γ.ctors n = none ∧ Γ.casesOns n = none)
