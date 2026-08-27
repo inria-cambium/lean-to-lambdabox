@@ -33,6 +33,19 @@ defaultTargets = ["LeanToLambdaBox"]
 #       fallback — a written analysis — was delivered instead. `ErasableStrengthen`
 #       stays a named premise downstream (see `ErasesStrengthen.lean`).
 #
+# The pin also carries the follow-up that makes `TrProj` a (near-)functional relation:
+# the motive is no longer existential. It is forced to the canonical constant motive
+# `.lam structTy fieldTy.lift`, with `structTy`/`fieldTy` pinned by two `HasType`
+# conjuncts (the major's type — new — and the reduct's, which replaces the old
+# anonymous `∃ A`). A free motive is under-determined on a neutral major, which made
+# `TrProj.uniq` false rather than merely unproved; that part of the obligation is now
+# gone, and what remains is ordinary (`Injectivity.lean` + iota `pat_uniq`). The
+# constant motive is correct exactly for **non-dependent** structure fields — every
+# typeclass projection, but not `Sigma.snd` — and upstream now states that scope in
+# the definition's docstring. No `TrProj.*` lemma signature moved; the cost lands on
+# code that *constructs* or *destructures* a `TrProj` (nine binders now, not eight),
+# i.e. `ProjPattern.lean`.
+#
 # ⚠️ `trproj` is a merge of upstream `master`, so this pin also absorbs master's
 # level-normalization rewrite, the K-target flag fix, `lazyDeltaProjReduction`, and
 # one new `axiom any_eq_any_toList` (`Verify/Axioms.lean`) plus native `bv_decide`
@@ -41,7 +54,7 @@ defaultTargets = ["LeanToLambdaBox"]
 [[require]]
 name = "lean4lean"
 git = "https://github.com/barabbs/lean4lean"
-rev = "fee3ada062a40bfeb1f9c0bb1fd322dba6ac8267"
+rev = "7a5e96d7641b3848e92e4217fc2fa7b4ca1da823"
 
 [[lean_lib]]
 name = "LeanToLambdaBox"

@@ -2,8 +2,11 @@ import LeanToLambdaBox
 /-! Final axiom audit for the dev/verify verification stack (2026-07-07;
 re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork,
 re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork's
-`iota` branch — and re-pinned again 2026-08-27 to `fee3ada`, head of the fork's
-`trproj` branch, which is where `TrProj` stops being a `sorry`).
+`iota` branch — and re-pinned again 2026-08-27 to `fee3ada` and then `7a5e96d`,
+head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
+and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
+axiom — lean4lean's own count holds at 143 across both revisions — and this file
+still reports the same 648 entries it did at `fee3ada`.)
 
 Allowed: ⊆ [propext, sorryAx, Classical.choice, Quot.sound] + lean4lean's
 modeling axioms (`Verify/Axioms.lean`, `PtrEq.lean`) where the executable
