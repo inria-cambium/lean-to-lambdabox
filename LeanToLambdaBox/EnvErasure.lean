@@ -49,14 +49,14 @@ precise gap between the two:
 * **`visitConst`-fixvar bridge (P3.12, DONE at the term level — recursion wall, W3.1).**
   `visitConst`'s fixvar branch is no longer dead: `BridgeInv.fixvars` is an agreement
   between the reader's block-local map and `Γ.fixvars`, and motive 4 concludes
-  `Erases.fixvar` there, and `Erases.instFixvars` (`EnvErasureRec`) turns a block-local
+  `Erases.fixvar` there, and `Erases.instFixvars` (`RecBlockErasure`) turns a block-local
   erasure into one at the outer `Γ` with the fixvars replaced by the block — so
   `erases_fix_of_open` now takes the *open* bodies directly. What is still missing is the
   **environment**-level walk: slice D6 (`ColdStartRun.run_rec_exit_siblings`) hands back
   the per-sibling runs, but each is at the block-local `Γ.withFixvars fv`. Slice δ-D8
   composed them anyway and with **no** motive change — `visitExpr_refines_erases` is
   Γ-polymorphic as a statement, so `VisitExprRefines.visitExpr_refines_erases_block` reads
-  it at the block's `Γ` and `ColdStartDelta.erases_rec_block_of_run` derives the record's
+  it at the block's `Γ` and `RecBlockErasure.erases_rec_block_of_run` derives the record's
   `erase` field. `RegisteredClosureRec` is thereby DEMOTED to a registration agreement;
   see `ColdStartDelta`'s recursion section for the premise-by-premise ledger, and
   `ColdStart.lean`'s residue 1 for what the *capstone* half still waits on. And

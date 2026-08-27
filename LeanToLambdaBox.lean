@@ -80,8 +80,12 @@ import LeanToLambdaBox.CasesBridgeHyps
 -- `BridgeInv` — which is why it is a bundle and not an invariant field: at the empty entry
 -- state no state condition can speak about a constant the walk has not reached.
 import LeanToLambdaBox.DeltaHyps
--- P3-v2b: recursive (value-`fix`) cold-start env-consistency — the `Erases.fix`
--- reconciliation (`erases_fix_of_closed`) + `LBClosed` de-Bruijn-closedness metatheory.
+-- The recursive block, from open bodies to `Erases.fix`: `Erases.instFixvars`, the
+-- `erases_fix_of_open` family, the block map's inversions and `erases_rec_block_of_run`.
+-- Placed BELOW the bridge (slice Γ-W2) so the induction's step 6 can call them.
+import LeanToLambdaBox.RecBlockErasure
+-- P3-v2b: recursive (value-`fix`) cold-start env-consistency — Part 3's registration
+-- certificate and the historical record of the pre-W1 contentless `Erases.fix`.
 import LeanToLambdaBox.EnvErasureRec
 -- P3-v2b composition: the D3 capstone with its env-δ-consistency premise sourced from
 -- the registration record (`erasesEnvDeltaData_of_registeredClosureData`), plus the

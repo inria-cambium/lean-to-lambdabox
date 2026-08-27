@@ -3,6 +3,7 @@ import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.DataBridgeHyps
 import LeanToLambdaBox.CasesBridgeHyps
 import LeanToLambdaBox.DeltaHyps
+import LeanToLambdaBox.RecBlockErasure
 import LeanToLambdaBox.EraseCore
 import LeanToLambdaBox.CheckerAdequacy
 import Lean4Lean.Verify.NameGenerator
@@ -2023,13 +2024,18 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
              case isFalse hnr =>
                -- (6c) the recursive exit is out of the fragment: `DeltaHyps.nonrecursive` says
                -- the value does not mention `n`, which forces `nonrecursive` true. That
-               -- field is now the *last* thing refuting this branch: the structural
+               -- field is now the *last* thing refuting this branch. The structural
                -- obstruction `bridgeInv_blockReader_refuted` records — the erasure IH being
                -- unusable at the block's own reader — is gone as of slice Γ-W1, since the
                -- motive `ih1` above is quantified over `Γ` and can be instantiated at
-               -- `Γ₀.withFixvars fv`. What remains is to build the walk (`run_mkFreshFVarId_list`,
+               -- `Γ₀.withFixvars fv`; the block-local scope supply is `DeltaHyps.BlockHyps`
+               -- (Γ-W2); and the *layering* obstruction is gone too, since `Γ-W2` moved
+               -- `erases_rec_block_of_run`, `blockMap_getElem?_inv` and
+               -- `closeFix_eq_block_fold` into `RecBlockErasure.lean`, below this file.
+               -- What remains is to write the walk itself — `run_mkFreshFVarId_list`,
                -- `run_rec_exit_siblings_chained`, `erases_rec_block_of_run`,
-               -- `DeltaMem.recBlock`) and to drop `nonrecursive`.
+               -- `RunConclδ.recBlock` — and to drop `nonrecursive`. Every one of those
+               -- names is in scope here.
                exact absurd (by
                  simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
              case isTrue =>

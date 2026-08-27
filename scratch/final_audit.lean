@@ -2516,3 +2516,63 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gBlockKeying
 #print axioms LeanToLambdaBox.gBlockHyps
 #print axioms LeanToLambdaBox.gBlockLam_nonvacuous
+
+-- (d) THE LAYERING FIX — the obstruction slice Γ-W0 discovered and could only record.
+-- Step 6 must call `erases_rec_block_of_run`, `blockMap_getElem?_inv` and
+-- `closeFix_eq_block_fold`, and all three lived in `ColdStartDelta.lean`, which is
+-- STRICTLY DOWNSTREAM of `VisitExprRefines.lean`:
+--
+--     VisitExprRefines → EnvErasureNonrec → EnvErasureRec → ColdStartDelta
+--
+-- Three options were priced against the real import graph before anything moved.
+--
+--   (a) MOVE the lemmas below the bridge. 614 lines relocated, 0 added, 2 one-line
+--       imports, 0 consumer edits, no cycle. TAKEN.
+--   (b) SPLIT `VisitExprRefines` (3262 lines; the induction core is 1306-2715, and 37 of
+--       the 61 prelude declarations are used directly by it, so the cut is 1305/1957).
+--       INFEASIBLE ON ITS OWN: for the core to sit below the four lemmas, `EnvErasureNonrec`
+--       and `ColdStartShape` would have to sit below `ColdStartDelta`, which is what
+--       `ColdStartDelta` is built on — a cycle. (b) is therefore (a) PLUS a 1957-line split,
+--       strictly dominated.
+--   (c) HYPOTHESIS FORM, on the `run_visitMutual_ok` vE-generalisation precedent
+--       (`ErasureRun.lean`: "in Hoare form the same lemma serves both the inline and the
+--       standalone use"). All four facts ARE phrasable in `VisitExprRefines`' scope — only
+--       `KeysDistinct` is out of scope, and it inlines to `List.Pairwise` + `Kername.beq`.
+--       But ~85 lines of premise would propagate from the core through
+--       `visitExpr_refines_erases{,_block}` to `ShippingCorrect`, `ShippingCorrectData`,
+--       `FirstOrderShippingIota` and `EnvErasureNonrec` — four capstone-class theorems
+--       turning conditional — and the four in-file non-vacuity guards could not discharge
+--       them at all, weakening the joint-satisfiability story. Kept as the fallback that
+--       cannot fail; not needed.
+--
+-- WHY (a) IS CHEAP, which is the finding. The entire proof cone of `erases_fix_of_open_nil`
+-- — `substFix_mkLambdas`, `Erases.instFixvars`, `hasFVar_mkLambdas`, `erases_target_fvars`,
+-- `erases_fix_of_closed` — references NOTHING from `EnvErasureNonrec` or from any `Cold*`
+-- module. It lives on `FixUnfold`, `ErasesStrengthen`, `Closed`, `Abstract`, `Erases`,
+-- `FixMetatheory`, `ErasureContext` — every one already in `VisitExprRefines`' import
+-- closure. `EnvErasureRec` was downstream only because its Part 3 needs
+-- `EnvErasureNonrec.RegisteredClosure`. `blockMap_getElem?_inv` is pure Std/List.
+-- So `RecBlockErasure.lean` adds ZERO modules to the closure; it re-slices existing ones.
+--
+-- ONE CORRECTION TO THE BRIEF: `recEnvConsistent_of_block` is NOT a step-6 input and did
+-- not move. Step 6's motive-6 conclusion is a `RunConclδ`, whose recursive extension step
+-- is `DeltaHyps.RunConclδ.recBlock` — upstream already, and fed by
+-- `erases_rec_block_of_run`'s conclusion. `RecEnvConsistent` is capstone-level; leaving it
+-- downstream leaves `KeysDistinct` and `ColdStartShape`'s env-lookup kit downstream too,
+-- which is where the remaining risk of the move would have lived.
+--
+-- The move is VERBATIM: every name, statement and proof unchanged, no consumer edited,
+-- `EnvErasureRec` and `ColdStartDelta` re-acquiring the names transitively. The entries
+-- below are the moved theorems, re-run from their new home.
+#print axioms LeanToLambdaBox.Erases.instFixvars
+#print axioms LeanToLambdaBox.erases_target_fvars
+#print axioms LeanToLambdaBox.erases_fix_of_closed
+#print axioms LeanToLambdaBox.erases_fix_of_open_nil
+#print axioms LeanToLambdaBox.erases_fix_of_open
+#print axioms LeanToLambdaBox.blockMap_getElem?_inv
+#print axioms LeanToLambdaBox.closeFix_eq_block_fold
+#print axioms LeanToLambdaBox.erases_rec_block_of_run
+
+-- …and the two that stayed, still proving from their new-home dependencies.
+#print axioms LeanToLambdaBox.run_rec_exit_siblings_close
+#print axioms LeanToLambdaBox.recEnvConsistent_of_block

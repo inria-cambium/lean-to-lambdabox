@@ -234,7 +234,7 @@ theorem run_nonrec_exit_decomp {f : ErasureContext → ErasureContext} {e : Expr
 per-definition runs themselves are *not* handed back (they sit under a `List.mapM`; slice
 D6's `run_rec_exit_siblings` below walks that loop, and since δ-D8 the recursive δ
 discharge feeds those runs through `VisitExprRefines.visitExpr_refines_erases_block` into
-`EnvErasureRec.erases_fix_of_open_nil`). -/
+`RecBlockErasure.erases_fix_of_open_nil`). -/
 theorem run_rec_exit_decomp {names fixnames : List Name}
     {f : List FVarId → ErasureContext → ErasureContext}
     {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
@@ -278,7 +278,7 @@ machinery — `Erasure.run_rec_exit_ok` already walks the same loop — but an
 **existentially-loaded** loop invariant: one that keeps the per-sibling *runs* rather than
 a state predicate's worth of their consequences. That is what this is.
 
-Per sibling `j` the package is exactly the input list of `EnvErasureRec.erases_fix_of_open`
+Per sibling `j` the package is exactly the input list of `RecBlockErasure.erases_fix_of_open`
 minus the erasure facts: the declaration the walk fetched, the `prepare_erasure` and
 `visitExpr` runs *at the block's own reader* (`f ids ctx`, with the fixvar map installed,
 further narrowed by `g ci` for the declaration's universe parameters), and `mkDef`'s
@@ -379,7 +379,7 @@ theorem run_rec_exit_siblings {names fixnames : List Name}
 /-- **What the per-sibling runs immediately buy**: each sibling's *open* body — the term
 `mkDef` then closes over the block's fixvars — is fix-free and de Bruijn closed.
 
-These are `EnvErasureRec.erases_fix_of_open`'s `hoclosed` slots, and they were exactly the
+These are `RecBlockErasure.erases_fix_of_open`'s `hoclosed` slots, and they were exactly the
 facts a state predicate could not deliver: `RunClosed` knows the closedness of the block it
 *stores*, not of the per-sibling bodies it was built from, because those never appear in a
 state. With the runs in hand they are `ColdStartInduction.visitExpr_noFix_closed`, which

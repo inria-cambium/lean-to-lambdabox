@@ -68,7 +68,7 @@ is written down:
    ever had in scope. That is what lets the *same* bundle be instantiated a second time at
    the block-local `Γ.withFixvars fv` with `known = ⊥`, which is how the recursive walk
    gets at the bridge without moving `Γ` inside the motives
-   (`ColdStartDelta.erases_rec_block_of_run`). The price is a different scope restriction,
+   (`RecBlockErasure.erases_rec_block_of_run`). The price is a different scope restriction,
    named there: a block body calls only its own siblings, constructors and `casesOn`s.
 3. **No fragment constant is emitted as an axiom.** `axiom_free` covers both `addAxiom`
    sites — the value-less and `@[extern] + preferAxiom` exits of `visitMutual` — which is
@@ -232,7 +232,14 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   assumed. Walking the exit therefore needs the motives to quantify `Γ` — the
   generalisation slice δ-D8a showed is unnecessary for the bridge theorem *as a statement*
   (`visitExpr_refines_erases_block`) and which is still necessary *inside* the induction.
-  See the `ColdStart` ledger's `hnorec` row. -/
+
+  **Status.** That generalisation landed at slice Γ-W1: the motives do quantify `Γ`, and
+  guard (i''') derives the core's erasure conjunct at an arbitrary block-local
+  `Γ₀.withFixvars fv`. The foundations for the walk landed at Γ-W0 and the block-local
+  scope supply at Γ-W2 (`BlockHyps`). This field is once again the *only* thing refuting
+  the exit — which is what δ-D8e split it out to be — and dropping it is now a matter of
+  writing the branch, not of another structural change. See the `ColdStart` ledger's
+  `hnorec` row. -/
   nonrecursive : ∀ {n : Name} {ci : ConstantInfo} {r : Option ConstantInfo} {v : Expr}
       {w w₁ : Void IO.RealWorld},
     known n →
@@ -457,7 +464,7 @@ as `DeltaHyps`' run-keyed clauses (specs for real primitives, conditioned on the
 premise of both cold-start capstones, and appears here because the `Δ → []` strengthening
 of a sibling body happens *inside* the bridge induction; `nonest` is S — unreachable in the
 intended use, since the shipping eraser never nests a block inside a body (the standing
-residue recorded at `EnvErasureRec.Erases.instFixvars`). -/
+residue recorded at `RecBlockErasure.Erases.instFixvars`). -/
 structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀ : ErasureCtx)
     (Esrc : SEnv) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
   /-- **Universe monomorphism of the block**, at the loop's own fetch — scope restriction 1
@@ -496,7 +503,7 @@ structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀
   added; it sits here rather than in `DeltaHyps` so that the accounting stays honest about
   *which feature* drags the development's one class-R residue into the induction. -/
   strengthen : ErasableStrengthen env Us
-  /-- **The `Erases.instFixvars` residue** (`EnvErasureRec`), unreachable in the intended
+  /-- **The `Erases.instFixvars` residue** (`RecBlockErasure`), unreachable in the intended
   use: the shipping eraser never nests a `.fix` inside a body, so no derivation at the
   block-local context ever has to be replayed at the ambient one. Quantified over the block
   map `fv`, because the induction meets it at whatever map the run installed. -/
@@ -527,7 +534,7 @@ theorem BlockHyps.of_bot {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx} {Esr
   nonest := hnest
 
 /-- **The sibling's scope package, assembled** — every fact
-`ColdStartDelta.erases_rec_block_of_run` asks of one block source, from the two runs the
+`RecBlockErasure.erases_rec_block_of_run` asks of one block source, from the two runs the
 loop hands back.
 
 This is where the design's `block_prepared` and `block_shape` went. Only the λ-headedness
@@ -690,7 +697,7 @@ index; the record grows by the whole block at once.
 
 The mirror of `DeltaMem.nonrec`, premise for premise: `hkn` is `BridgeInv.knames` at each
 sibling, `hinj` is `DeltaHyps.kinj` composed with `esrc_sub`, and `hwit` is the `Erases.fix`
-derivation the recursive exit's run supplies (`ColdStartDelta.erases_rec_block_of_run`),
+derivation the recursive exit's run supplies (`RecBlockErasure.erases_rec_block_of_run`),
 whose conclusion is already `∀ Δ` — so the record's `∃ Δ` is met at whatever context the
 caller has, `[]` included, where the well-formedness and `NoBV` conjuncts are trivial. -/
 theorem DeltaMem.recBlock {env : VEnv} {Us : List Name} {Γ : ErasureCtx} {Esrc : SEnv}
@@ -835,7 +842,7 @@ theorem gDeltaScope (pe : Expr) :
 carrying the fixvar map `visitMutual` installs — the *unconditioned* `nofixvars` is
 outright false, while the conditioned field is free at `known = ⊥`. That is the whole
 content of the change: it is what lets the recursive walk instantiate the same bundle a
-second time inside the block (`ColdStartDelta.erases_rec_block_of_run`) instead of moving
+second time inside the block (`RecBlockErasure.erases_rec_block_of_run`) instead of moving
 `Γ` inside the bridge's eighteen motives. -/
 theorem gNofixvars_blocklocal_refuted (x : FVarId) :
     ¬ (gΓδ.withFixvars (fun n => if n = `f then some x else none)).fixvars

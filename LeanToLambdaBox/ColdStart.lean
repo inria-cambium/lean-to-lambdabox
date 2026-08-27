@@ -138,7 +138,7 @@ below, three ways.
    unconditionally and is now conditioned on the fragment — the only thing its two
    consumption sites ever had in scope. Hence
    `VisitExprRefines.visitExpr_refines_erases_block`,
-   `ColdStartDelta.erases_rec_block_of_run` and
+   `RecBlockErasure.erases_rec_block_of_run` and
    `ColdStartDelta.recEnvConsistent_of_block`: the record's `erase` field is now *derived*.
 
    What survives is not an `Erases` certificate but a **registration agreement** — "the `Γ`
@@ -188,6 +188,26 @@ below, three ways.
    `DeltaHyps.rec_exit_registers_stripped_name` shows motive 6's conclusion is *false*, not
    merely unproved, at an `._unsafe_rec` name. `ColdStartDelta`'s recursion section carries
    the premise-by-premise ledger for everything downstream of that.
+
+   **Status of that list after slices Γ-W0/W1/W2** — five landed, one narrowed, one
+   dissolved, one found. The generalisation is **narrower** than priced: only `Γ` moved, as
+   a bound variable plus a one-equation coherence hypothesis, and `known`, `Esrc` and all
+   four bundles stayed outer (Γ-W1; 34 signature edits, 33 IH sites, 0 admissibility
+   edits). The chaining loop rule is `Erasure.run_rec_exit_siblings_chained`, and the fresh
+   ids come back `Nodup` from `Erasure.run_mkFreshFVarId_list` (Γ-W0). The outer δ record's
+   transport **dissolved**: indexing `RunConclδ` at the ambient `Γ₀` rather than at the
+   motive-local `Γ` means the inner runs are *allowed* to register things and the record
+   carries them (Γ-W1); `DeltaMem.recBlock`/`RunConclδ.recBlock` are the extension step.
+   The block-local scope premises are `DeltaHyps.BlockHyps` (Γ-W2), five fields rather than
+   the seven priced — and keyed on `known (remove_unsafe_rec m)`, because the loop's `m`
+   ranges over `ci.all`. The `remove_unsafe_rec` restriction was **not** real in the
+   direction recorded above: the suffix rides on the *fetched* declaration, not on the
+   caller's name, so the repair was to relax `decl_run` to `ci.all = [m] ∧
+   remove_unsafe_rec m = n` (Γ-W2a) — after which the fragment *gains* the arithmetic the
+   §H benchmarks need, which is the opposite of a restriction. And one item the list did
+   not have at all: the four block results lived **downstream** of `VisitExprRefines`, so
+   step 6 could not call them; Γ-W2 moved their cone into `RecBlockErasure.lean`, verbatim,
+   below the bridge. What is left is the branch itself.
 
    The capstone half cannot be landed ahead of that producer either, and for a reason that
    is not effort: it would replace a named scope restriction with an *uninhabited* premise.

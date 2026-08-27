@@ -489,7 +489,7 @@ def substFix (ids : List FVarId) (defs : List (@FixDef LBTerm)) (t : LBTerm) : L
 
 /-! ## Part 3b — `substFVarList`/`substFix` push through every node (recursion wall, W3.1)
 
-`Erases.instFixvars` (`EnvErasureRec`) is an induction over an erasure derivation whose
+`Erases.instFixvars` (`RecBlockErasure`) is an induction over an erasure derivation whose
 *target* is being rewritten by `substFix`, so every structural rule needs the matching
 "`substFix` commutes with this node" equation. Each is the corresponding `substFVar`
 clause, iterated down the substitution list. -/
@@ -881,7 +881,7 @@ all.
 
 This is what turns "the block's opened bodies mention only the run's fixvars" into "the
 stored `.fix` node is fvar-free", the hypothesis the `closeFix_substList_fixSubst` capstone
-above (and, downstream, `EnvErasureRec.erases_fix_of_closed`) asks for. Before this kit it
+above (and, downstream, `RecBlockErasure.erases_fix_of_closed`) asks for. Before this kit it
 had to be assumed by every caller. -/
 
 /-- **`toBvar` removes exactly one variable and creates none.** If `x` occurs in

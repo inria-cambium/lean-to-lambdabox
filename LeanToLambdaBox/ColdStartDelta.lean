@@ -147,16 +147,16 @@ What it delivers, against `erases_fix_of_open`'s premise list:
 | premise | after D6 |
 |---|---|
 | `hoclosed` (each open body is `LBClosed`) | **from the run** (`visitExpr_noFix_closed`, per sibling) |
-| `hffv` (the stored block is fvar-free) | **derived**, and gone from `erases_rec_block_of_run`'s signature: a block-local erasure of an fvar-free source has only fixvars free in its target (`EnvErasureRec.erases_target_fvars`), `hfv` says those fixvars are the run's own `ids`, and `closeFix` abstracts exactly the `ids` (`FixUnfold.not_hasFVar_closeFix`). It was never an independent fact about the block — it is a consequence of `hopen` plus `hclose` |
+| `hffv` (the stored block is fvar-free) | **derived**, and gone from `erases_rec_block_of_run`'s signature: a block-local erasure of an fvar-free source has only fixvars free in its target (`RecBlockErasure.erases_target_fvars`), `hfv` says those fixvars are the run's own `ids`, and `closeFix` abstracts exactly the `ids` (`FixUnfold.not_hasFVar_closeFix`). It was never an independent fact about the block — it is a consequence of `hopen` plus `hclose` |
 | `hclose` (`defs[j].body` closes `obodies[j]`) | **from the run**, and since δ-D8 in `closeFix` form outright (`run_rec_exit_siblings_close`): `mkDef`'s fold looks each sibling's *name* up in the reader's map where `closeFix` abstracts the `ids`, and `closeFix_eq_block_fold` discharges the difference from the block names being distinct |
 | `hfv` (the block map names the block's own ids) | **from the reader** (`blockMap_getElem?_inv`, δ-D8), for `fv` read off the map the run installed |
 | the per-sibling `visitExpr` runs feeding `hopen` | **from the run** |
 | `hilen`/`hnlen`/lengths | **from the run** |
-| `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design |
+| `hnd : ids.Nodup` | freshness — `BridgeHyps.fresh_run`'s business, and the loop rule here is `gw`-free by design. **Landed at slice Γ-W0**: `Erasure.run_mkFreshFVarId_list` chains the invariant through state *and* world, and `Nodup` is the payoff of the chaining |
 | `hreg` (`Γ.recBodies` names *this* block) | **irreducible at a parameter `Γ`**: `Γ` is fixed before the run, so no run fact can say it names a block the run built. This is the run-keyed agreement that *replaces* `RegisteredClosureRec` (slice δ-D8) |
-| `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value |
+| `hsrc`/`heclosed`/`henofv`/`hsrcfv` (the source body is a closed, fvar-free λ) | `PrepareHyps`-class facts about the prepared value. **Landed at slice Γ-W2** as `DeltaHyps.BlockHyps.sibling_scope`, and only the λ-headedness is assumed: closedness and fvar-freeness are read off the `TrExprS` witness `DeltaHyps.esrc_shape` already supplies |
 | `hopen`'s `∀ Δf` | **gone** (slice δ-D8). `rec` conditioned it on a fresh `Δf`; the proof instantiates it at `Δf := []` and nowhere else, so `erases_fix_of_open_nil` states it there. That is the shape a *run* can supply |
-| `hopen` at the block-local `Γ.withFixvars fv` | **from the bridge** (slice δ-D8): `VisitExprRefines.visitExpr_refines_erases_block`. No motive changes — the bridge theorem is Γ-polymorphic as a statement, and exactly one premise breaks at `Γ.withFixvars fv` (`DeltaHyps.nofixvars`, now conditioned on the fragment) |
+| `hopen` at the block-local `Γ.withFixvars fv` | **from the bridge** (slice δ-D8): `VisitExprRefines.visitExpr_refines_erases_block`. No motive changes — the bridge theorem is Γ-polymorphic as a statement, and exactly one premise breaks at `Γ.withFixvars fv` (`DeltaHyps.nofixvars`, now conditioned on the fragment). That is true of this *route*, from outside the induction. Reaching it from **inside** step 6 did need the motives to quantify `Γ`, which is slice Γ-W1; see the correction below |
 | `hlink`, `hnest` | scoped premises; `hlink` is derived from `hreg` plus the block map, `hnest` is unreachable in the intended use (see its docstring) |
 
 So the *demotion* is performed, below: `erases_rec_block_of_run` turns the per-sibling
@@ -169,10 +169,25 @@ about the run, modulo the `Γ`↔run registration agreement (`hreg`/`hfv`/`hcov`
 **The one scope restriction this buys, stated honestly.** The block's inner runs are taken
 at `known = ⊥`, so `Supported (fun _ => False) (Γ.withFixvars fv) body` forces every
 `.const` in a block body to be a sibling, a registered constructor or a registered
-`casesOn`. **A mutual block whose bodies call an external constant is out of scope.**
-Lifting that needs `DeltaHyps` to carry the *dependency's* context as a second parameter
-and motives 1/5/6 to quantify `Γ`, because such a callee is genuinely erased at a third
-`Γ` (`fixvars := none`); nothing else in this section needs it.
+`casesOn`. **A mutual block whose bodies call an external constant is out of scope** — for
+*this* route into the bridge, which reads the Γ-polymorphic theorem from outside the
+induction.
+
+**How lifting it was predicted to go, and how it went** (corrected at slice Γ-W1; the
+prediction is kept rather than deleted because the correction is the interesting part). It
+used to read: "lifting that needs `DeltaHyps` to carry the *dependency's* context as a
+second parameter and motives 1/5/6 to quantify `Γ`, because such a callee is genuinely
+erased at a third `Γ` (`fixvars := none`)". Neither half survived contact.
+
+* **No second parameter.** `DeltaHyps` is re-targeted to the ambient `Γ₀` and never
+  mentions the motive-local `Γ`. The anticipated "third `Γ`" is `Γ₀` itself:
+  `nofixvars` pins `Γ₀.fixvars = ⊥` on the fragment, and `Γ₀.withFixvars (fun _ => none)`
+  *is* `Γ₀`.
+* **Not three motives but all seventeen with content.** The IH call graph of
+  `visitExpr_refines_erases_core` is one strongly connected component — the cycle
+  `1 → 11 → 12 → 4 → 5 → 6 → 1` closes it by itself — so a motive cannot quantify `Γ`
+  unless every motive it dispatches to does. Only motive 10, whose conclusion is `True` and
+  which nothing calls, stays fixed.
 
 **What is still not wired to the capstones, and why.** The cold-start capstones' `hnorec`
 does *not* trade for these results yet, and the obstruction is upstream of them:
@@ -181,19 +196,31 @@ does *not* trade for these results yet, and the obstruction is upstream of them:
 `nonrecursive` test `true`, so the bridge's step 6 refutes the recursive exit rather than
 walking it (`VisitExprRefines`, case `isFalse hnr`). A cold start therefore never *takes*
 the recursive exit inside the fragment, and there is no run for these theorems to consume
-there. Wiring them in means giving step 6 a recursive branch — `RunConclδ`'s `δ` transport
+there. Wiring them in means giving step 6 a recursive branch: `RunConclδ`'s `δ` transport
 across `recConstState` (which is exactly `erases_rec_block_of_run`'s conclusion, so it
-composes), the generator bookkeeping for the block's `mkFreshFVarId`/`getConstInfo` loop,
-and one further scope restriction, since the registration is keyed on
-`remove_unsafe_rec n` and not on `n`.
+composes) and the generator bookkeeping for the block's `mkFreshFVarId`/`getConstInfo`
+loop — both landed at slice Γ-W0 (`Erasure.run_mkFreshFVarId_list`,
+`run_rec_exit_siblings_chained`, `DeltaMem.recBlock`) — plus the block-local scope supply,
+landed at Γ-W2 as `DeltaHyps.BlockHyps`.
 
-**That list is incomplete, and slice δ-D8e found the missing item.** Removing
-`nonrecursive` lets the run *reach* the exit; it does not let the bridge *walk* it. Step 6
-has no outside to read the Γ-polymorphic bridge theorem from, and at the block's own reader
-the erasure IH's `BridgeInv` premise is *false*:
-`VisitExprRefines.bridgeInv_blockReader_refuted`. So the trade additionally needs the
-`Γ`-inside-the-motives generalisation, priced premise by premise in `ColdStart.lean`'s
-residue 1.
+**Two items on that list were wrong, and both were found by measurement.** The first: it
+said the trade costs "one further scope restriction, since the registration is keyed on
+`remove_unsafe_rec n` and not on `n`". It does not. The caller's `n` is the plain name;
+what carries the `._unsafe_rec` suffix is the *fetched* declaration's `ci.all`, which the
+old `DeltaHyps.decl_run` wrongly pinned to `n`. Slice Γ-W2a relaxed that conjunct to
+`ci.all = [m] ∧ remove_unsafe_rec m = n`, after which the registration lands on the
+caller's own name and the fragment *gains* every declaration that comes back suffixed —
+which slice Γ-W0 measured to be all of the §H benchmarks' arithmetic
+(`DeltaHyps.rec_exit_registers_name`).
+
+The second: **removing `nonrecursive` lets the run *reach* the exit; it does not let the
+bridge *walk* it** (slice δ-D8e). Step 6 has no outside to read the Γ-polymorphic bridge
+theorem from, and at the block's own reader the erasure IH's `BridgeInv` premise is
+*false*: `VisitExprRefines.bridgeInv_blockReader_refuted`. That obstruction is **gone** as
+of slice Γ-W1: the motives quantify `Γ`, and guard (i''') derives the core's erasure
+conjunct at an arbitrary block-local `Γ₀.withFixvars fv` with the δ conclusion still
+reported at `Γ₀`. What remains is to build the walk itself, which is the last unlanded
+piece and is priced premise by premise in `ColdStart.lean`'s residue 1.
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/
@@ -246,92 +273,17 @@ Everything between them is now derived: the erasure of each sibling body comes f
 bridge instantiated at `Γ.withFixvars fv`
 (`VisitExprRefines.visitExpr_refines_erases_block`), and `erases_fix_of_open_nil` turns the
 per-sibling open erasures into the `Erases.fix` derivation at the *outer* `Γ`, at every
-context. -/
+context.
 
-/-- **The reader `visitMutual` installs while erasing a mutual block** — its
-`withReader (fun env => { env with fixvars := fixvarnames.zip ids |> ofList |> some })`,
-named so the block's two lookups (`mkDef`'s closing fold and the bridge's fixvar
-agreement) can be stated about the same object. -/
-def blockReader (fixnames : List Name) (ids : List FVarId) (ctx : ErasureContext) :
-    ErasureContext :=
-  { ctx with fixvars := some (Std.HashMap.ofList (fixnames.zip ids)) }
-
-@[simp] theorem blockReader_fixvars (fixnames : List Name) (ids : List FVarId)
-    (ctx : ErasureContext) :
-    (blockReader fixnames ids ctx).fixvars
-      = some (Std.HashMap.ofList (fixnames.zip ids)) := rfl
-@[simp] theorem blockReader_lctx (fixnames : List Name) (ids : List FVarId)
-    (ctx : ErasureContext) : (blockReader fixnames ids ctx).lctx = ctx.lctx := rfl
-@[simp] theorem blockReader_lparams (fixnames : List Name) (ids : List FVarId)
-    (ctx : ErasureContext) : (blockReader fixnames ids ctx).lparams = ctx.lparams := rfl
-@[simp] theorem blockReader_config (fixnames : List Name) (ids : List FVarId)
-    (ctx : ErasureContext) : (blockReader fixnames ids ctx).config = ctx.config := rfl
-
-/-- Distinct block names give a `HashMap.ofList`-admissible association list. -/
-theorem zip_pairwise_fst : ∀ {nms : List Name} {ids : List FVarId}, nms.Nodup →
-    (nms.zip ids).Pairwise (fun a b => (a.1 == b.1) = false)
-  | [], _, _ => by simp
-  | _ :: _, [], _ => by simp
-  | a :: l, b :: m, hnd => by
-      rw [List.zip_cons_cons]
-      refine List.Pairwise.cons ?_ (zip_pairwise_fst (List.nodup_cons.mp hnd).2)
-      intro p hp
-      have hmem : p.1 ∈ l := (List.of_mem_zip (a := p.1) (b := p.2) (by simpa using hp)).1
-      have : a ≠ p.1 := fun h => (List.nodup_cons.mp hnd).1 (h ▸ hmem)
-      simpa using this
-
-/-- **The block map at a sibling's own name** — the lookup `mkDef`'s fold performs. -/
-theorem blockMap_getElem! {nms : List Name} {ids : List FVarId}
-    (hnd : nms.Nodup) (hlen : nms.length = ids.length)
-    {k : Nat} (hk : k < nms.length) :
-    (Std.HashMap.ofList (nms.zip ids))[nms[k]]! = ids[k]'(hlen ▸ hk) := by
-  refine Std.HashMap.getElem!_ofList_of_mem (k := nms[k]) (by simp) (zip_pairwise_fst hnd) ?_
-  have hz : (nms.zip ids)[k]'(by simp [← hlen]; omega) = (nms[k], ids[k]'(hlen ▸ hk)) := by
-    simp
-  exact hz ▸ List.getElem_mem _
-
-/-- **…and the inverse**: a hit in the block map really is one of the block's own ids, at
-the matching index. This is what supplies `erases_rec_block_of_run`'s `hfv` when `fv` is
-read off the reader the run installed. -/
-theorem blockMap_getElem?_inv {nms : List Name} {ids : List FVarId}
-    (hnd : nms.Nodup) (hlen : nms.length = ids.length) {nm : Name} {x : FVarId}
-    (h : (Std.HashMap.ofList (nms.zip ids))[nm]? = some x) :
-    ∃ k, ∃ hk : k < nms.length, nms[k] = nm ∧ (ids[k]'(hlen ▸ hk)) = x := by
-  by_cases hmem : nm ∈ nms
-  · obtain ⟨k, hk, rfl⟩ := List.getElem_of_mem hmem
-    refine ⟨k, hk, rfl, ?_⟩
-    have hz : (nms.zip ids)[k]'(by simp [← hlen]; omega) = (nms[k], ids[k]'(hlen ▸ hk)) := by
-      simp
-    have hget : (Std.HashMap.ofList (nms.zip ids))[nms[k]]? = some (ids[k]'(hlen ▸ hk)) :=
-      Std.HashMap.getElem?_ofList_of_mem (by simp) (zip_pairwise_fst hnd)
-        (hz ▸ List.getElem_mem _)
-    rw [hget] at h
-    exact Option.some.inj h
-  · exfalso
-    rw [Std.HashMap.getElem?_ofList_of_contains_eq_false ?_] at h
-    · simp at h
-    · rw [List.map_fst_zip (by omega)]
-      simpa using hmem
-
-/-- **`mkDef`'s binder fold *is* `closeFix ids 0`.** The shipping loop abstracts the
-block's fvars by looking each sibling's name up in the reader's map; `closeFix` abstracts
-the `ids` directly. `FixMetatheory` has always said the two agree "modulo the `fixvars`
-lookup" — this is that modulo, discharged, and it needs exactly the block names' being
-distinct. -/
-theorem closeFix_eq_block_fold {nms : List Name} {ids : List FVarId}
-    (hnd : nms.Nodup) (hlen : nms.length = ids.length) (t : LBTerm) :
-    nms.reverse.zipIdx.foldl
-        (fun b p => toBvar ((Std.HashMap.ofList (nms.zip ids))[p.1]!) p.2 b) t
-      = closeFix ids 0 t := by
-  have hids : ids.reverse
-      = nms.reverse.map (fun nm => (Std.HashMap.ofList (nms.zip ids))[nm]!) := by
-    rw [List.map_reverse]
-    congr 1
-    refine List.ext_getElem (by simp [hlen]) (fun k h1 h2 => ?_)
-    rw [List.getElem_map]
-    exact (blockMap_getElem! hnd hlen (by simpa [hlen] using h1)).symm
-  rw [closeFix, closeFixFold_eq_foldl, hids, List.zipIdx_map, List.foldl_map]
-  rfl
+**Where most of this section went** (slice Γ-W2). `blockReader` and its four projections,
+`zip_pairwise_fst`, `blockMap_getElem!`, `blockMap_getElem?_inv`, `closeFix_eq_block_fold`
+and `erases_rec_block_of_run` now live in `RecBlockErasure.lean`, unchanged and still
+visible here through the import chain. The bridge's step 6 has to call them, and this file
+is downstream of the bridge; their proof cone never touched anything that made it so. What
+stays is what is genuinely downstream: `run_rec_exit_siblings_close`, stated over
+`ColdStartRun`'s decomposition, and `recEnvConsistent_of_block`, which is a *capstone*-level
+record — step 6 needs `DeltaHyps.RunConclδ.recBlock`, not this, and keeping it here keeps
+`KeysDistinct` and `ColdStartShape`'s env-lookup kit downstream with it. -/
 
 /-- **D6's decomposition, in `closeFix` form** — `run_rec_exit_siblings` with the reader
 pinned to the one `visitMutual` installs and `mkDef`'s fold already inverted. This is the
@@ -384,82 +336,6 @@ theorem run_rec_exit_siblings_close {names : List Name}
         ((List.map remove_unsafe_rec names).zip ids))[p.1]!) p.2 b) t = _
   exact closeFix_eq_block_fold hnd (by simp [hil]) t
 
-/-- **From the block's open erasures to `Erases.fix`.** The `hopen` slot is exactly what
-`visitExpr_refines_erases_block` produces for one sibling; everything else is the run's
-own output shape (`ColdStartRun.run_rec_exit_siblings{,_closed}`) or the `Γ`-side
-agreement. The conclusion is context-uniform, which is what the environment-level records
-need.
-
-Fvar-freeness of the stored block is **derived** here rather than assumed: it is not an
-independent fact about `defs` but a consequence of the block-local erasures plus the
-closing — `erases_target_fvars` says every free variable of an opened body is a fixvar of
-`Γ.withFixvars fv`, `hfv` identifies those with the run's own `ids`, and
-`not_hasFVar_closeFix` observes that `closeFix ids 0` abstracts precisely the `ids`. -/
-theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Name}
-    {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
-    {fv : Name → Option FVarId}
-    {fixnames : List Name} {ids : List FVarId} {srcs : List Expr} {obodies : List LBTerm}
-    {defs : List (@FixDef LBTerm)}
-    (hnlen : fixnames.length = defs.length)
-    (hilen : ids.length = defs.length)
-    (hslen : srcs.length = defs.length)
-    (hblen : obodies.length = defs.length)
-    (hnd : ids.Nodup)
-    -- the one irreducible `Γ`↔run agreement, in two halves: the registration and the map
-    (hreg : ∀ j (h : j < defs.length),
-        Γ.recBodies (fixnames[j]'(hnlen ▸ h)) = some (defs, j))
-    (hfv : ∀ (nm : Name) (x : FVarId), fv nm = some x →
-        ∃ j, ∃ h : j < defs.length,
-          (fixnames[j]'(hnlen ▸ h)) = nm ∧ (ids[j]'(hilen ▸ h)) = x)
-    -- the block, as the run built it
-    (hrarg : ∀ d ∈ defs, d.principalArgIdx = 0)
-    (hfclosed : ∀ j : Nat, LBClosed (.fix defs j) 0)
-    (hoclosed : ∀ j (h : j < defs.length), LBClosed (obodies[j]'(hblen ▸ h)) 0)
-    (hclose : ∀ j (h : j < defs.length),
-        (defs[j]'h).body = closeFix ids 0 (obodies[j]'(hblen ▸ h)))
-    -- the block's sources: closed, fvar-free λ-telescopes, as a top-level def body is
-    (hsrc : ∀ j (h : j < defs.length),
-        ∃ n ty b bi, (srcs[j]'(hslen ▸ h)) = .lam n ty b bi)
-    (hsclosed : ∀ j (h : j < defs.length), Closed (srcs[j]'(hslen ▸ h)) 0)
-    (hsrcfv : ∀ j (h : j < defs.length),
-        FVarsIn (fun _ => False) (srcs[j]'(hslen ▸ h)))
-    -- the block-local erasures — the Γ'-instantiated bridge's output, one per sibling
-    (hopen : ∀ j (h : j < defs.length),
-        Erases env Us (Γ.withFixvars fv) [] (srcs[j]'(hslen ▸ h))
-          (obodies[j]'(hblen ▸ h)))
-    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
-        {d' : List (@FixDef LBTerm)} {i' : Nat},
-        Erases env Us (Γ.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
-        Erases env Us Γ Δ' (.lam n' ty' b' bi') (.fix d' i')) :
-    ∀ j (h : j < defs.length) (Δ : VLCtx),
-      Erases env Us Γ Δ (srcs[j]'(hslen ▸ h)) (.fix defs j) := by
-  intro j h Δ
-  -- Fvar-freeness of the stored block, derived. Each def body is `closeFix ids 0` of the
-  -- matching opened body (`hclose`); every free variable of that opened body is a fixvar
-  -- of the block-local `Γ` (`erases_target_fvars` applied to `hopen`), hence one of the
-  -- run's `ids` (`hfv`); and `closeFix ids 0` abstracts exactly those.
-  have hffv : ∀ (x : FVarId) (k : Nat), ¬ hasFVar x (.fix defs k) := by
-    intro x k hx
-    rw [hasFVar_fix, hasFVarDefs_iff] at hx
-    obtain ⟨d, hd, hxd⟩ := hx
-    obtain ⟨m, hm, rfl⟩ := List.getElem_of_mem hd
-    rw [hclose m hm] at hxd
-    refine not_hasFVar_closeFix (fun z hz => ?_) 0 x hxd
-    obtain ⟨nm, hnm⟩ := erases_target_fvars (hopen m hm) (hsrcfv m hm) hz
-    rw [ErasureCtx.withFixvars_fixvars] at hnm
-    obtain ⟨i, hi, -, rfl⟩ := hfv nm z hnm
-    exact List.getElem_mem _
-  obtain ⟨n, ty, b, bi, hsj⟩ := hsrc j h
-  rw [hsj]
-  refine erases_fix_of_open_nil henv hnfv (nms := fixnames) (ids := ids) (srcs := srcs)
-    (obodies := obodies) h hnlen hslen hblen hilen hnd (hsj ▸ rfl) hreg hrarg
-    (hsj ▸ hsclosed j h) (hsj ▸ hsrcfv j h) (hfclosed j) (fun x => hffv x j)
-    hoclosed hclose ?_ hnest hsrcfv hsclosed hopen
-  -- `hlink`: the block map names the block's own ids, and `Γ` records the block at the
-  -- matching index. This is where the two halves of the agreement meet.
-  intro nm x hx
-  obtain ⟨k, hk, hnm, hid⟩ := hfv nm x hx
-  exact ⟨k, hilen ▸ hk, hid, hnm ▸ hreg k hk⟩
 
 /-- **`RecEnvConsistent` for one walked block** (slice δ-D8) — what
 `EnvErasureRec.recEnvConsistent_of_registeredClosureRec` used to buy from the certificate,

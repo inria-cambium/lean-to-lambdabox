@@ -513,7 +513,7 @@ one wants to start from the empty context — `Δ'.NoBV` (that is what
 needs weakening: `Erases.fix`'s `hbodies` premise (`Erases.lean`) quantifies over
 `∀ Δf : VLCtx`, *unrestricted* — bvar entries, and fvar entries that shadow each
 other, included. So `erases_weakFV` alone cannot rebuild `hbodies`, which is the
-concrete obstruction to `EnvErasureRec.erases_fix_of_open`.
+concrete obstruction to `RecBlockErasure.erases_fix_of_open`.
 
 What gets us there is the data the recursive-definition setting already carries:
 top-level bodies are **closed** and **fvar-free** sources erasing to **`LBClosed`**
@@ -680,7 +680,7 @@ This is the shape `Erases.fix`'s `hbodies` premise demands. That premise is
 `∀ Δf : VLCtx`, entirely unrestricted, so neither `erases_weakFV` (which wants
 `Δ'.FVWF`) nor `VLCtx.FVLift.from_nil` (which wants `Δ'.NoBV`) can supply it;
 this lemma is what unblocks rebuilding it, and hence
-`EnvErasureRec.erases_fix_of_open`.
+`RecBlockErasure.erases_fix_of_open`.
 
 Why the three premises are exactly these, and where each is spent — the proof is an
 induction on `Δ`, one entry at a time:
