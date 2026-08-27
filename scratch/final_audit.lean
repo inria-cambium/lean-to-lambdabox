@@ -2378,3 +2378,68 @@ open LeanToLambdaBox
 -- (4) The δ record's second extension step.
 #print axioms LeanToLambdaBox.DeltaMem.recBlock
 #print axioms LeanToLambdaBox.RunConclδ.recBlock
+
+-- ============================================================================
+-- SLICE Γ-W1 — the motives quantify `Γ`
+--
+-- THE CHANGE, MEASURED. Inside `visitExpr_refines_erases_core`, every motive with content
+-- gained two binders immediately after its run hypothesis,
+--
+--     ∀ (Γ : ErasureCtx) (_hΓ : Γ = Γ₀.withFixvars Γ.fixvars) Δ, …
+--
+-- and its `RunConclδ` conjunct was re-indexed to the ambient `Γ₀`. Counted on the diff:
+-- 34 motive-signature edits (17 in the theorem's own statement, 17 in the `(motive_i := …)`
+-- block — motive 10's conclusion is `True` and nothing calls it, so it stays fixed and the
+-- design's "36" is 34 here), 42 `RunConclδ` re-indexes, 17 `intro` lines, 33 IH argument
+-- insertions, 12 bundle transports across 9 steps, and one manual site — step 6's callee
+-- invariant `hinv'`, retargeted from the motive-local `Γ` to `Γ₀`.
+--
+-- WHAT DID **NOT** MOVE, and this is the whole design:
+--   * the 18 `eraseM_admissible_ok` obligations — the binders live inside the `Q` those
+--     helpers quantify, so admissibility never sees them;
+--   * the ~135 `Erases env Us Γ` / `BridgeInv … Γ` / `Supported known Γ` / `Γ.…` mentions
+--     inside the step bodies — `Γ` is still a variable literally named `Γ`;
+--   * `known`, `Esrc`, and all four premise bundles, which stay outer at `Γ₀`;
+--   * every consumer. `visitExpr_refines_erases` is the `Γ := Γ₀`,
+--     `hΓ := (withFixvars_self Γ).symm` corollary and its four call sites are untouched;
+--     `visitExpr_refines_erases_block` and all eight NonVacuity guards are untouched.
+--
+-- ELABORATION. The mitigation for the design's top risk was to keep `Γ` a bound *variable*
+-- rather than substituting `Γ₀.withFixvars fv`, so the goal terms do not grow. Measured:
+-- `lake env lean LeanToLambdaBox/VisitExprRefines.lean` runs at 6.05s / 7.81s user after
+-- the change against 6.07s / 7.83s user before — no delta, at the unchanged
+-- `maxHeartbeats 1000000`.
+--
+-- AXIOM MOVEMENT: **none**, anywhere. This file's entire output is byte-identical to the
+-- Γ-W0 run, which was itself byte-identical to the pre-slice baseline.
+-- ============================================================================
+
+-- The three obligation-free bundle transports the steps run on, and the two registration
+-- projections the coherence equation shares.
+#print axioms LeanToLambdaBox.BridgeHyps.of_coh
+#print axioms LeanToLambdaBox.DataBridgeHyps.of_coh
+#print axioms LeanToLambdaBox.CasesBridgeHyps.of_coh
+#print axioms LeanToLambdaBox.ErasureCtx.coh_constants
+#print axioms LeanToLambdaBox.ErasureCtx.coh_natPeano
+
+-- WHAT THE SLICE BUYS, machine-checked rather than asserted: guard (i''') in
+-- `VisitExprRefines.lean`'s NonVacuity section derives the core's erasure conjunct at an
+-- ARBITRARY block-local `Γ₀.withFixvars fv`, with `hΓ` discharged by `rfl` and `RunConclδ`
+-- still at `Γ₀` — the exact instantiation step 6's recursive exit needs, and the exact
+-- thing the two refutation theorems below show a fixed-`Γ` motive cannot supply. The four
+-- premise bundles in that guard are the ambient ones, unchanged; only `Γ` moved.
+--
+-- The obstruction guards stay TRUE theorems: they are now the record of why the fixed-`Γ`
+-- motives could not walk the exit, and the check that the `hΓ` binder is load-bearing.
+#print axioms LeanToLambdaBox.bridgeInv_blockReader_refuted
+#print axioms LeanToLambdaBox.bridgeInv_rec_exit_reader_refuted
+#print axioms LeanToLambdaBox.supported_const_fixOpen_not_ambient
+
+-- Stability, once more: the core, its corollary, the block instance, and the crown four.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_core
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.visitExpr_refines_erases_block
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
