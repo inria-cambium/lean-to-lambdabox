@@ -38,6 +38,16 @@ trust boundary, exactly as for `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`.
 `mkFreshFVarId` is deliberately **absent**: `BridgeHyps.fresh_run` already specs it, and the
 recursive exit's block ids are the only place the registration path mints one.
 
+## Two exits, two bundles
+
+Every clause here is keyed on the **declaration fetch** — `Compiler.LCNF.getDeclInfo?` and
+the `prepare_erasure` of its value — because that is what `visitMutual`'s *non-recursive*
+exit performs. The **recursive** exit performs a different pair per sibling
+(`getConstInfo m` for `m ∈ ci.all`, then `prepare_erasure`), so none of these clauses can
+fire there however much they look like they should. `BlockHyps` below is the companion for
+that second pair; it is a separate structure so that `of_bot` and the whole non-recursive
+path stay untouched and the recursion feature's price stays legible as one ledger row.
+
 ## The five scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
@@ -391,6 +401,165 @@ theorem DeltaHyps.of_bot {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
   prep_run := hprep
   esrc_shape := by intro n pe h; simp at h
 
+/-! ## The block-local companion: `BlockHyps`
+
+`DeltaHyps` is keyed on the **declaration fetch** — `Compiler.LCNF.getDeclInfo?` followed
+by `prepare_erasure` — because that is the pair of runs `visitMutual`'s *non-recursive*
+exit performs. The **recursive** exit performs a different pair, once per sibling:
+`getConstInfo m` for `m ∈ ci.all`, then `prepare_erasure (ci.value! …)`
+(`Erasure.visitMutual`). Different runs, different key: `decl_run`/`prep_esrc` cannot fire
+there, however much they look like they should.
+
+What follows is the companion bundle for that second pair. It is a *separate* structure
+rather than five more `DeltaHyps` fields for three reasons: `DeltaHyps.of_bot` and the
+whole non-recursive path stay untouched, the recursion feature's price is legible as one
+ledger row, and it is where the `ErasableStrengthen` residue belongs — visibly attached to
+recursion rather than smuggled into the δ bundle every cold start already pays.
+
+### The keying, and why it is not the obvious one
+
+Every run-keyed field below reads `known (remove_unsafe_rec m)`, **not** `known m`. The
+loop's `m` ranges over `ci.all`, and slice Γ-W0 measured that on this toolchain those are
+`._unsafe_rec` names for exactly the declarations the fragment must contain
+(`Nat.add`/`mul`/`sub`/`pow`, `Nat.ble`/`beq`, `List.length`/`append`/`map`/`foldl`). The
+fragment `known` contains the plain names — that is what `visitMutual`'s caller asks for
+and what the exit registers under. Keyed on `known m` every field here would be
+**vacuous** on precisely the data the slice exists to cover; `gBlockKeying` is that check.
+
+### What is *not* a field, and why
+
+The design this implements listed seven fields. Four of them turned out to be consequences
+of what the walk already carries, and are proved rather than assumed
+(`BlockHyps.sibling_scope`):
+
+* `block_prepared` — `Supported known Γ₀ pe` and the `∀ Δ` translatability. `DeltaHyps.prepared`
+  is keyed on *any* `prepare_erasure` run producing `pe` plus `Esrc n = some pe`, and the
+  block loop holds both (the second from `block_esrc`). It fires unchanged;
+* `block_shape`'s closedness and fvar-freeness — consequences of the `TrExprS` witness
+  (`TrExprS.closed`, `TrExprS.fvarsIn`), which is what `DeltaHyps.esrc_shape` already
+  supplies, keyed on `Esrc n = some pe` alone;
+* `block_shape`'s `NoProj` and empty-context translation — `DeltaHyps.esrc_shape`, verbatim;
+* `stripped` (`known n → remove_unsafe_rec n = n`) — the fragment restriction slice δ-D8e
+  predicted the recursive exit would cost. It does not: the relaxed `decl_run` supplies
+  `remove_unsafe_rec m = n` for the *fetched* name, which is the equation the registration
+  actually needs, and it is true where `stripped` plus the old `decl_run` was jointly
+  unsatisfiable. See `rec_exit_registers_name`.
+
+So one genuine scope field survives — the sibling body is λ-headed, which no `TrExprS`
+witness implies — beside two run-keyed clauses and two residues. -/
+
+/-- **What the recursive exit's siblings cost.** Two Hoare clauses for the block loop's own
+runs, one scope fact, and the two residues recursion drags in.
+
+Epistemic class, field by field: `block_lparams` and `block_esrc` are H+S in the same sense
+as `DeltaHyps`' run-keyed clauses (specs for real primitives, conditioned on the fragment);
+`block_lam` is S; `strengthen` is the development's single class-R residue, already a
+premise of both cold-start capstones, and appears here because the `Δ → []` strengthening
+of a sibling body happens *inside* the bridge induction; `nonest` is S — unreachable in the
+intended use, since the shipping eraser never nests a block inside a body (the standing
+residue recorded at `EnvErasureRec.Erases.instFixvars`). -/
+structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀ : ErasureCtx)
+    (Esrc : SEnv) (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
+  /-- **Universe monomorphism of the block**, at the loop's own fetch — scope restriction 1
+  for `getConstInfo` rather than `getDeclInfo?`. This is what feeds `BridgeInv.withFixvars`'
+  `hlp` slot when the per-sibling invariant is rebuilt: the exit's inner
+  `withReader (… lparams := ci.levelParams)` has to land back at the ambient `Us`.
+  `DeltaHyps.decl_run`'s own `ci.levelParams = Us` is about the *outer* fetch and says
+  nothing about the siblings'. -/
+  block_lparams : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState}
+      {ctx : ErasureContext} {w w' : Void IO.RealWorld},
+    known (remove_unsafe_rec m) →
+    (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' →
+    ci.levelParams = Us
+  /-- **`Esrc` records the sibling's prepared body** — the block analogue of `prep_esrc`,
+  keyed on the two runs a caller inside the loop actually holds, and landing at the
+  *stripped* name because that is the one the fragment and the registration use. -/
+  block_esrc : ∀ {m : Name} {ci : ConstantInfo} {pe : Expr}
+      {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
+      {wc wc' w w₁ : Void IO.RealWorld},
+    known (remove_unsafe_rec m) →
+    (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc' →
+    prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w = .ok (pe, s₁) w₁ →
+    Esrc (remove_unsafe_rec m) = some pe
+  /-- **A block source is λ-headed.** `erases_rec_block_of_run`'s `hsrc`, and the one shape
+  fact no `TrExprS` witness gives: a prepared top-level *recursive definition* body is a λ
+  telescope, which is what makes the block's `mkDef` fold meaningful. Everything else that
+  premise list asks of the sources — closedness, fvar-freeness, `NoProj`, the empty-context
+  translation — follows from `DeltaHyps.esrc_shape` (`BlockHyps.sibling_scope`). -/
+  block_lam : ∀ {m : Name} {pe : Expr}, known m → Esrc m = some pe →
+    ∃ n ty b bi, pe = .lam n ty b bi
+  /-- **The `Δ → []` strengthening the block needs.** The loop erases each sibling at the
+  *call site's* `Δ` — `visitMutual`'s `withReader` moves `fixvars` and `lparams` and leaves
+  the `lctx` alone — while `erases_rec_block_of_run`'s `hopen` demands the erasure at `[]`.
+  The bridge is `ErasesUniform.erases_strengthen_closed`, whose only named obligation is
+  this one. It is already a premise of both cold-start capstones, so no ledger row is
+  added; it sits here rather than in `DeltaHyps` so that the accounting stays honest about
+  *which feature* drags the development's one class-R residue into the induction. -/
+  strengthen : ErasableStrengthen env Us
+  /-- **The `Erases.instFixvars` residue** (`EnvErasureRec`), unreachable in the intended
+  use: the shipping eraser never nests a `.fix` inside a body, so no derivation at the
+  block-local context ever has to be replayed at the ambient one. Quantified over the block
+  map `fv`, because the induction meets it at whatever map the run installed. -/
+  nonest : ∀ {fv : Name → Option FVarId} {Δ' : VLCtx} {n' : Name} {ty' b' : Expr}
+      {bi' : BinderInfo} {d' : List (@FixDef LBTerm)} {i' : Nat},
+    Erases env Us (Γ₀.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+    Erases env Us Γ₀ Δ' (.lam n' ty' b' bi') (.fix d' i')
+
+/-- **What the block bundle costs at the empty fragment** — the mirror of
+`DeltaHyps.of_bot`, and the tell that the scope half is genuinely fragment-scoped.
+
+All three fragment-keyed fields are free at `known = ⊥`, at *any* `Esrc`: the two run
+clauses ask for `known (remove_unsafe_rec m)` and `block_lam` for `known m`. What a
+`known = ⊥` consumer buys is exactly the two residues — which is the honest price of the
+recursion feature, and it is two, not seven. -/
+theorem BlockHyps.of_bot {env : VEnv} {Us : List Name} {Γ₀ : ErasureCtx} {Esrc : SEnv}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (hstr : ErasableStrengthen env Us)
+    (hnest : ∀ {fv : Name → Option FVarId} {Δ' : VLCtx} {n' : Name} {ty' b' : Expr}
+        {bi' : BinderInfo} {d' : List (@FixDef LBTerm)} {i' : Nat},
+      Erases env Us (Γ₀.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+      Erases env Us Γ₀ Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    BlockHyps env Us (fun _ => False) Γ₀ Esrc cctx ref where
+  block_lparams := fun h => h.elim
+  block_esrc := fun h => h.elim
+  block_lam := fun h => h.elim
+  strengthen := hstr
+  nonest := hnest
+
+/-- **The sibling's scope package, assembled** — every fact
+`ColdStartDelta.erases_rec_block_of_run` asks of one block source, from the two runs the
+loop hands back.
+
+This is where the design's `block_prepared` and `block_shape` went. Only the λ-headedness
+comes from `BlockHyps`; `Supported`, the `∀ Δ` translatability, `NoProj` and the
+empty-context witness are `DeltaHyps`' existing `prepared`/`esrc_shape`, and closedness and
+fvar-freeness are read off that witness (`TrExprS.closed`, `TrExprS.fvarsIn`) rather than
+assumed. Stating it as one theorem is what keeps the two bundles' division of labour
+checkable: if a conjunct here ever stops being derivable, this is the line that breaks. -/
+theorem BlockHyps.sibling_scope {env : VEnv} {Us : List Name} {known : Name → Prop}
+    {Γ₀ : ErasureCtx} {Esrc : SEnv} {gw : Void IO.RealWorld → NameGenerator}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+    {m : Name} {ci : ConstantInfo} {pe : Expr}
+    {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
+    {wc wc' w w₁ : Void IO.RealWorld}
+    (hkn : known (remove_unsafe_rec m))
+    (hci : (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc')
+    (hpr : prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w
+             = .ok (pe, s₁) w₁) :
+    Esrc (remove_unsafe_rec m) = some pe ∧
+      Supported known Γ₀ pe ∧ (∀ Δ : VLCtx, ∃ ve, TrExprS env Us Δ pe ve) ∧
+      (∃ n ty b bi, pe = .lam n ty b bi) ∧
+      pe.Closed 0 ∧ FVarsIn (fun _ => False) pe ∧
+      NoProj pe ∧ (∃ ve, TrExprS env Us [] pe ve) := by
+  have hlink : Esrc (remove_unsafe_rec m) = some pe := Hβ.block_esrc hkn hci hpr
+  obtain ⟨hsupp, htr⟩ := Hδ.prepared hkn hlink hpr
+  obtain ⟨hnp, ve, hve⟩ := Hδ.esrc_shape hlink
+  refine ⟨hlink, hsupp, htr, Hβ.block_lam hkn hlink, ?_, ?_, hnp, ve, hve⟩
+  · simpa [VLCtx.bvars] using hve.closed
+  · exact hve.fvarsIn.mono (by simp)
+
 /-! ## The δ record along the walk
 
 `DeltaHyps` is what a δ-*reference* costs. What follows is what a δ-*record* is: the fact
@@ -729,6 +898,79 @@ theorem rec_exit_registers_name (defs : List (@FixDef LBTerm)) :
         `f).isSome := by
   refine ⟨by decide, ?_⟩
   simp [recConstState, show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide]
+
+/-- **`BlockHyps`' keying is load-bearing** (slice Γ-W2), on the measured data.
+
+The block loop's `m` ranges over `ci.all`, which slice Γ-W0 measured to be `._unsafe_rec`
+names for the declarations the fragment has to contain. The fragment itself holds the
+plain names. So a field keyed on `known m` is uninhabited at exactly the sibling the loop
+is looking at, while the same field keyed on `known (remove_unsafe_rec m)` fires — and the
+difference is not cosmetic: keyed the wrong way the whole bundle would be *vacuously*
+satisfiable and would supply nothing at the point of use.
+
+Both halves are decided on the fixture's real shape, `f._unsafe_rec`. -/
+theorem gBlockKeying :
+    (fun n => n = `f) (remove_unsafe_rec (`f ++ `_unsafe_rec)) ∧
+      ¬ (fun n => n = `f) (`f ++ `_unsafe_rec) :=
+  ⟨by decide, by decide⟩
+
+/-- **`BlockHyps` is satisfiable at a *non-empty* fragment** (slice Γ-W2) — the guard the
+design asks to land in the same commit as the structure, so that the bundle is never a
+shipped-then-refuted certificate.
+
+The fragment is `{f}`, the ambient context is `Erases.lean`'s recursion fixture `ΓfixRec`
+(which registers the one-def block for `f` and leaves `fixvars` at `⊥`), and `Esrc` records
+`f`'s prepared body `fixRecSrc = fun (a : Prop) => f a`. What is *checked* here rather than
+assumed is the one genuine scope field: `block_lam` has something to say at `f` — `Esrc`'s
+entry really is λ-headed — so the field is not true merely because the fragment is empty.
+
+The two run-keyed clauses stay hypothetical, for the same reason `BridgeHyps`' fields do:
+they quantify over opaque runtime primitives. The two residues stay hypothetical because
+that is what they are — `strengthen` is commissioned upstream and `nonest` is the standing
+`instFixvars` residue, both premises of the cold-start capstones already
+(`ColdStartDelta.gRecEnvConsistentD8` takes `hnest` in exactly this shape). -/
+theorem gBlockHyps (env : VEnv) (Us : List Name) (cctx : Core.Context)
+    (ref : ST.Ref IO.RealWorld Core.State)
+    (hlp : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState}
+        {ctx : ErasureContext} {w w' : Void IO.RealWorld},
+      (fun n => n = `f) (remove_unsafe_rec m) →
+      (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' →
+      ci.levelParams = Us)
+    (hesrc : ∀ {m : Name} {ci : ConstantInfo} {pe : Expr}
+        {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
+        {wc wc' w w₁ : Void IO.RealWorld},
+      (fun n => n = `f) (remove_unsafe_rec m) →
+      (getConstInfo m : EraseM ConstantInfo) sc ctx' cctx ref wc = .ok (ci, s) wc' →
+      prepare_erasure (ci.value! (allowOpaque := true)) s ctx cctx ref w = .ok (pe, s₁) w₁ →
+      gEsrcδ fixRecSrc (remove_unsafe_rec m) = some pe)
+    (hstr : ErasableStrengthen env Us)
+    (hnest : ∀ {fv : Name → Option FVarId} {Δ' : VLCtx} {n' : Name} {ty' b' : Expr}
+        {bi' : BinderInfo} {d' : List (@FixDef LBTerm)} {i' : Nat},
+      Erases env Us (ΓfixRec.withFixvars fv) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+      Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    BlockHyps env Us (fun n => n = `f) ΓfixRec (gEsrcδ fixRecSrc) cctx ref where
+  block_lparams := hlp
+  block_esrc := hesrc
+  block_lam := by
+    rintro m pe rfl hb
+    obtain rfl : pe = fixRecSrc := (by simpa using hb : fixRecSrc = pe).symm
+    exact ⟨`a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
+  strengthen := hstr
+  nonest := hnest
+
+/-- **…and the field it checks is not vacuous**: the fragment really contains `f`, `Esrc`
+really records a body for it, and that body really is a λ. Read together with
+`gBlockKeying` this is the whole non-vacuity story for the scope half of `BlockHyps`. -/
+theorem gBlockLam_nonvacuous :
+    (fun n => n = `f) `f ∧ gEsrcδ fixRecSrc `f = some fixRecSrc ∧
+      ∃ n ty b bi, fixRecSrc = Expr.lam n ty b bi :=
+  ⟨rfl, by simp, `a, .sort .zero, .app (.const `f []) (.bvar 0), .default, rfl⟩
+
+/-- **The fragment's constant is `Supported`** — the derivation that was unreachable at
+`known = ⊥` (`Supported.const` needs `known n`, and `Γ.fixvars = ⊥` kills the other
+disjunct). This is what δ-inclusion is *for*. -/
+theorem gDeltaSupported : Supported (fun n => n = `f) gΓδ (.const `f []) :=
+  .const `f [] (Or.inl rfl) rfl rfl
 
 /-- **Why the registry domain is load-bearing in `get_constant_kername`'s motive.**
 

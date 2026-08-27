@@ -2443,3 +2443,76 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-W2 — the block bundle, and the fetch that names the declaration
+--
+-- (a) THE `decl_run` RELAXATION — the eighth item on the price list, and the one Γ-W0's
+-- measurement forced. The conjunct `ci.all = [n]` becomes
+--
+--     ∃ ci m, r = some ci ∧ ci.all = [m] ∧ remove_unsafe_rec m = n ∧ ci.levelParams = Us
+--
+-- because `Compiler.LCNF.getDeclInfo?` tries `n._unsafe_rec` first and, at this toolchain,
+-- succeeds for every arithmetic declaration the §H benchmarks drag in. At `ci.all = [n]`
+-- the field was FALSE at exactly those names — the fragment could not contain them — so
+-- this is a repair, not a weakening. Nothing else moves: the run's own test is
+-- `ci.all.length == 1`, so the single-declaration prefix is entered either way and step
+-- 6's `isFalse` refutation is the same `simp [hall]`; only the `obtain` gains two
+-- components.
+--
+-- A δ-D8e PREDICTION, FALSIFIED. `rec_exit_registers_stripped_name` was read as buying a
+-- further FRAGMENT restriction, `remove_unsafe_rec n = n` for every `known n`, to be paid
+-- as a field of the block bundle. The arrow was backwards: the caller's `n` is the plain
+-- name, and what carries the suffix is the fetched `ci.all`, which the old conjunct
+-- wrongly pinned to `n`. Under the relaxation the registration is under
+-- `ci.all.map remove_unsafe_rec = [n]` and NO fragment restriction is bought. The negative
+-- theorem stays (retitled); `rec_exit_registers_name` is the positive half, decided on the
+-- same `f._unsafe_rec` data.
+#print axioms LeanToLambdaBox.rec_exit_registers_stripped_name
+#print axioms LeanToLambdaBox.rec_exit_registers_name
+
+-- (b) THE BLOCK BUNDLE. `BlockHyps` — the companion of `DeltaHyps`, keyed on the recursive
+-- exit's own two runs (`getConstInfo`, `prepare_erasure`) rather than on the declaration
+-- fetch, which is why none of `DeltaHyps`' run-keyed clauses can fire inside the block.
+--
+-- THE KEYING IS THE FINDING. Every run-keyed field reads `known (remove_unsafe_rec m)`,
+-- not `known m`: the loop's `m` ranges over `ci.all`, which Γ-W0 measured to be the
+-- `._unsafe_rec` names, while the fragment holds the plain ones. Keyed the design's way
+-- the bundle would be VACUOUSLY satisfiable at exactly the data the slice exists for.
+-- `gBlockKeying` decides both halves on the fixture's real shape.
+--
+-- SEVEN FIELDS BECAME FIVE, AND FOUR OF THE DROPPED ONES ARE THEOREMS. The design listed
+-- `stripped`, `block_lparams`, `block_esrc`, `block_prepared`, `block_shape`, `strengthen`,
+-- `nonest`. What ships is `block_lparams`, `block_esrc`, `block_lam`, `strengthen`,
+-- `nonest`, because:
+--   * `stripped` — dissolved by (a) above;
+--   * `block_prepared` — `DeltaHyps.prepared` is keyed on ANY `prepare_erasure` run
+--     producing `pe` plus `Esrc n = some pe`, and the block loop holds both (the second
+--     from `block_esrc`). It fires unchanged;
+--   * `block_shape`'s `NoProj` and empty-context translation — `DeltaHyps.esrc_shape`,
+--     verbatim, keyed on `Esrc n = some pe` alone;
+--   * `block_shape`'s closedness and fvar-freeness — read off that witness
+--     (`TrExprS.closed`, `TrExprS.fvarsIn`), which is what `esrc_shape`'s own docstring has
+--     said since δ-D7b.
+-- Only λ-headedness survives as an assumption, and it survives because no `TrExprS`
+-- witness implies it. `BlockHyps.sibling_scope` is the composition, stated as one theorem
+-- so that the division of labour between the two bundles is machine-checked: if a conjunct
+-- there ever stops being derivable, that is the line that breaks.
+--
+-- ALSO DROPPED: the `gw` parameter the design gave the structure. No field mentions a
+-- generator — `ci_run` and `prep_run` already live in `DeltaHyps` and the block's
+-- `mkFreshFVarId` is `BridgeHyps.fresh_run`'s business — so the bundle is
+-- generator-free.
+#print axioms LeanToLambdaBox.BlockHyps.of_bot
+#print axioms LeanToLambdaBox.BlockHyps.sibling_scope
+
+-- (c) NON-VACUITY, IN THE SAME COMMIT AS THE STRUCTURE — the S1e mitigation the design
+-- names explicitly ("land the non-empty instance in the same commit", which is what S1d did
+-- not do and paid +776/-269 for). `gBlockHyps` builds the bundle at the recursion fixture
+-- `ΓfixRec` with the fragment `{f}` and `Esrc` recording `fixRecSrc`; the one genuine scope
+-- field, `block_lam`, is DISCHARGED there rather than assumed, and `gBlockLam_nonvacuous`
+-- checks it has something to say. The two run clauses and the two residues stay
+-- hypothetical, for the reasons their own docstrings give.
+#print axioms LeanToLambdaBox.gBlockKeying
+#print axioms LeanToLambdaBox.gBlockHyps
+#print axioms LeanToLambdaBox.gBlockLam_nonvacuous
