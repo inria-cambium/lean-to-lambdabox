@@ -78,7 +78,7 @@ theorem noFix_toBvar {t : LBTerm} (x : FVarId) :
     simp only [List.mem_map] at hmem
     obtain ⟨a', hmem', rfl⟩ := hmem
     exact iha a' hmem' (lvl + a'.1.length) (ha a' hmem')
-  | hproj p e ih => intro lvl _; simp [toBvar]
+  | hproj p e ih => intro lvl h; simpa [toBvar] using ih lvl h
   | hfix defs i ih => intro lvl h; exact absurd h (by simp)
 
 /-- **`toBvar` preserves applied form.** The third `toBvar` lemma, and the one the shape
@@ -110,7 +110,7 @@ theorem noBlock_toBvar {t : LBTerm} (x : FVarId) :
     refine ⟨ihd lvl h.1, fun a ha => ?_⟩
     obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
     exact iha b hb (lvl + b.1.length) (h.2 b hb)
-  | hproj p e ih => intro lvl _; trivial
+  | hproj p e ih => intro lvl h; exact ih lvl h
   | hfix defs i ih =>
     intro lvl h
     rw [NoBlock_fix] at h

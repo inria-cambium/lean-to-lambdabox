@@ -280,6 +280,29 @@ def CtorFieldsCoherent (Γ : ErasureCtx) : Prop :=
     ∃ (h : cidx < nfs.length), Γ.ctorArities cn = some (np + nfs[cidx])
 
 
+/-- **`Γ`-internal projection-arity coherence** — `CtorFieldsCoherent`'s twin, keyed on
+`Γ.projs` instead of `Γ.casesOns` (projection round, slice P0).
+
+The projection simulation needs the same decomposition `ctorArities = numParams + fields`
+that the ι one does, for the *same* reason and at the same inductive: `WcbvEval.proj`
+selects `args[p.paramCount + p.fieldIdx]`, so the target index `np + i` must be in range
+for a spine whose length the source rule pins to `Γ.ctorArities ctor`. Only this
+decomposition links the two.
+
+Stated as a twin rather than by widening `CtorFieldsCoherent`'s hypothesis to a
+disjunction, which keeps that predicate's six existing call sites byte-unchanged. The
+constructor index is hard-wired to `0` — `register_inductive`'s `is_struct` gate
+(`inf.ctors.length == 1`) is what makes a structure's only constructor constructor `0`,
+and it is the same `0` the target rule's `.construct p.indType 0 []` carries.
+
+Discharged at registration by `projFieldsCoherent_of_registered`
+(`EnvErasureNonrec.lean`). -/
+def ProjFieldsCoherent (Γ : ErasureCtx) : Prop :=
+  ∀ {S cn : Name} {iid : InductiveId} {np : Nat} {nfs : List Nat},
+    Γ.projs S = some (iid, np) → Γ.ctorFields iid = some nfs →
+    Γ.ctors cn = some (iid, 0) →
+    ∃ (h : 0 < nfs.length), Γ.ctorArities cn = some (np + nfs[0])
+
 /-- **`IotaArities` ↔ `ErasureCtx` coherence.** `SEvalDataι.iota` pins its redex
 *arithmetically*, through `ia` (`pre.length = np + nmot + nidx`, `minors.length = nmin`);
 `Erases.cases` pins the same spine *through `Γ`* (`Γ.casesDiscrPos con = some pre.length`,

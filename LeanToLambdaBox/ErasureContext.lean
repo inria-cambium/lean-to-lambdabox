@@ -86,6 +86,27 @@ structure ErasureCtx where
       `fun _ => none`, so both rules are unusable at a `Γ` that registers no recursion.
       (Recursion wall, slice W1.) -/
   recBodies : Name → Option (List (@FixDef LBTerm) × Nat) := fun _ => none
+  /-- For each source **structure type** name `S` — the head of an `Expr.proj S i e` —
+      its `(InductiveId, numParams)`, as `register_inductive` assigns the id and
+      `InductiveVal.numParams` gives the count. This is exactly the pair `visitProj`
+      (`Erasure.lean`) puts into `ProjectionInfo.indType` / `ProjectionInfo.paramCount`.
+
+      Keyed by the **structure type** name, not by a constructor or a `casesOn` head, and
+      that is why it is a new field rather than a derived lookup: `Expr.proj S i e` names
+      only `S`, while `Γ.ctorArities` is keyed on the constructor and `Γ.casesOns` is
+      populated only when the walk actually saw a `casesOn` application — which a
+      projection-only structure never produces.
+
+      Registered only for `register_inductive`'s `is_struct` shape
+      (`names.length == 1 && inf.ctors.length == 1 && !inf.isRec`), which is what makes the
+      target `WcbvEval.proj` rule's hard-wired constructor index `0` correct.
+      Single-constructor-ness and the field count come free from
+      `Γ.ctorFields iid = some [nf]`, so no separate `isStructure` bit is needed.
+
+      Defaulted to `fun _ => none`, like every registration field, so every existing
+      `ErasureCtx` literal is unchanged and `Erases.proj`/`Supported.proj` are unusable at
+      a `Γ` that registers no structure. (Projection round, slice P0.) -/
+  projs : Name → Option (InductiveId × Nat) := fun _ => none
 
 /-- **The block-local context**: `Γ` with a fixvar map installed, and *nothing else*
 changed — the model of `visitMutual`'s
@@ -124,6 +145,14 @@ others, but until they are `@[simp]` a `simp` at a block-local `Γ.withFixvars f
 @[simp] theorem ErasureCtx.withFixvars_inductives (Γ : ErasureCtx)
     (fv : Name → Option FVarId) :
     (Γ.withFixvars fv).inductives = Γ.inductives := rfl
+/-- The projection column is `withFixvars`-invariant, like every other registration
+field. Landed `@[simp]` *with* the field rather than after it: the trap the three
+lemmas above record — a `simp` at a block-local `Γ.withFixvars fv` leaving
+`(Γ.withFixvars fv).projs` unreduced — is exactly what the bridge's motives walk into,
+and `Erases.instFixvars`' `proj` arm is a `rfl` transport only because of this.
+(Projection round, slice P0.) -/
+@[simp] theorem ErasureCtx.withFixvars_projs (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).projs = Γ.projs := rfl
 
 /-! ### The `Γ`-in-motives coherence equation
 

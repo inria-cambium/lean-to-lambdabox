@@ -172,6 +172,111 @@ theorem ctorFieldsCoherent_of_registered {Γ : ErasureCtx} {E : GlobalDeclaratio
     rw [(Option.some.inj h).symm]
   rw [harity, hcbn, hnpars]
 
+/-! ### Part 1b — the projection column (projection round, slice P0)
+
+`Γ.projs` is the one datum `visitProj` reads that no other field supplies, and the target
+rule it feeds — `WcbvEval.proj`, the **non-block** one, which is the flavour `appliedFlags`
+runs — asks the environment for two things: that `p.indType` resolve to an
+`.inductiveDecl` whose `npars` is `p.paramCount`, and that the inductive be
+**non-propositional** (a propositional one collapses under `proj_prop`, which
+`with_prop_case = false` kills).
+
+That is `ErasesEnvCases`'s contract with `casesOns` replaced by `projs`, so the four
+declarations below are `ErasesEnvCases` / `RegisteredCases` /
+`erasesEnvCases_of_registeredCases` / `ErasesEnvCases.nonProp` transposed line for line.
+Nothing about the *structure*-ness of `S` is asked here: single-constructor-ness and the
+field count live in `Γ.ctorFields iid = some [nf]`, which is `register_inductive`'s own
+`is_struct` gate expressed in data `Γ` already carries. -/
+
+/-- **Target-side projection env consistency** — the `.proj` analogue of
+`ErasesEnvCases`. For every registered structure `S` (`Γ.projs S = some (iid, np)`), the
+target env `E` has `iid` registered as an `.inductiveDecl` whose parameter count matches
+`np` — so the `ProjectionInfo.paramCount` the `Erases.proj` rule emits agrees with `E`,
+which is what makes `WcbvEval.proj`'s `args[p.paramCount + p.fieldIdx]?` select the field
+and not a parameter — and which is **not propositional**. The last conjunct is exposed as
+`ErasesEnvProjs.nonProp`. -/
+def ErasesEnvProjs (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    Γ.projs S = some (iid, np) →
+    ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+      LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
+      body.bodies[iid.idx]? = some oib ∧
+      body.npars = np ∧
+      oib.propositional = false
+
+/-- **Closure-level projection registration** (a clean `Prop` hypothesis, discharged by
+the same DAG cold-start that discharges `RegisteredCtors`/`RegisteredCases` — `visitProj`
+calls the *same* `register_inductive`, so the record is the same one, read through a
+different key). Same shape as `ErasesEnvProjs`, tagged as the *registration* record so the
+discharge reads "registration ⟹ env consistency". -/
+def RegisteredProjs (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    Γ.projs S = some (iid, np) →
+    ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+      LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
+      body.bodies[iid.idx]? = some oib ∧
+      body.npars = np ∧
+      oib.propositional = false
+
+/-- Closure-level field-count registration keyed on the **projection** column: every
+inductive some registered structure projects out has its field-count list recorded. The
+`RegisteredCtorFieldsAll` twin, and needed for the same reason `ProjFieldsCoherent` is a
+twin of `CtorFieldsCoherent` — a projection-only structure never produces a `casesOn`, so
+the `casesOns`-keyed record is not available at it. -/
+def RegisteredProjCtorFields (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    Γ.projs S = some (iid, np) → RegisteredCtorFields Γ E iid
+
+/-- **`ErasesEnvProjs` discharge.** Immediate from the registration record, exactly as
+`erasesEnvCases_of_registeredCases`. -/
+theorem erasesEnvProjs_of_registeredProjs {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (h : RegisteredProjs Γ E) : ErasesEnvProjs Γ E :=
+  fun hS => h hS
+
+/-- **The target-side projection precondition, read off `ErasesEnvProjs`.**
+`WcbvEval.proj`'s `isPropositionalInductive E p.indType = false` premise, by unfolding the
+lookup chain against the registration record. `ErasesEnvCases.nonProp`'s transpose. -/
+theorem ErasesEnvProjs.nonProp {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (h : ErasesEnvProjs Γ E) {S : Name} {iid : InductiveId} {np : Nat}
+    (hS : Γ.projs S = some (iid, np)) : isPropositionalInductive E iid = false := by
+  obtain ⟨body, oib, henv, hbod, _, hprop⟩ := h hS
+  simp only [isPropositionalInductive, henv, hbod, hprop]
+
+/-- **`ProjFieldsCoherent` discharge.** `ctorFieldsCoherent_of_registered`'s proof with
+`RegisteredCases` replaced by `RegisteredProjs` and the constructor index fixed at `0`:
+`RegisteredCtor` gives `Γ.ctorArities cn = some (body.npars + cb.nargs)`, `RegisteredProjs`
+gives `body.npars = np`, and `RegisteredCtorFields` gives `nfs = oib.ctors.map (·.nargs)`,
+hence `nfs[0] = cb.nargs` from `oib.ctors[0]? = some cb`. The three witnesses are pinned to
+the same `body`/`oib` by `Option.some.inj`. -/
+theorem projFieldsCoherent_of_registered {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (hc : RegisteredCtors Γ E) (hps : RegisteredProjs Γ E)
+    (hcf : RegisteredProjCtorFields Γ E) : ProjFieldsCoherent Γ := by
+  intro S cn iid np nfs hprojs hnfs hctors
+  obtain ⟨body, oib, cb, henv, hbod, hcb, harity⟩ := hc hctors
+  obtain ⟨body2, oib2, henv2, hbod2, hnpars, _⟩ := hps hprojs
+  obtain ⟨body3, oib3, henv3, hbod3, hfields⟩ := hcf hprojs
+  have hb2 : body2 = body := by
+    have h := Option.some.inj (henv2.symm.trans henv); injection h
+  have hb3 : body3 = body := by
+    have h := Option.some.inj (henv3.symm.trans henv); injection h
+  rw [hb2] at hbod2 hnpars
+  rw [hb3] at hbod3
+  have ho3 : oib3 = oib := Option.some.inj (hbod3.symm.trans hbod)
+  rw [ho3] at hfields
+  obtain rfl : nfs = oib.ctors.map (·.nargs) := Option.some.inj (hnfs.symm.trans hfields)
+  have hlt0 : 0 < oib.ctors.length := by
+    by_contra hge
+    rw [List.getElem?_eq_none (by omega)] at hcb
+    exact absurd hcb (by simp)
+  have hlt : 0 < (oib.ctors.map (·.nargs)).length := by rw [List.length_map]; exact hlt0
+  refine ⟨hlt, ?_⟩
+  have hcbn : (oib.ctors.map (·.nargs))[0]'hlt = cb.nargs := by
+    rw [List.getElem_map]
+    have h := List.getElem?_eq_getElem hlt0
+    rw [hcb] at h
+    rw [(Option.some.inj h).symm]
+  rw [harity, hcbn, hnpars]
+
 /-! ### Non-vacuity guards for Part 1
 
 We reuse the concrete one-parameter, one-field inductive `AC`/`mk`
@@ -219,6 +324,82 @@ theorem gΓcases_registeredCases : RegisteredCases gΓcases acΓ := by
 /-- Non-vacuity: `ErasesEnvCases gΓcases acΓ` is derived. -/
 theorem gΓcases_erasesEnvCases : ErasesEnvCases gΓcases acΓ :=
   erasesEnvCases_of_registeredCases gΓcases_registeredCases
+
+/-! ### Non-vacuity for the projection column (slice P0)
+
+`AC` is *exactly* a structure in the sense `register_inductive`'s `is_struct` gate uses —
+one body, one constructor `mk`, not recursive, one parameter, one field
+(`Semantics/Metatheory.lean`) — so it is the right fixture for the projection records,
+and the same one `Erases.proj`'s own guards use. `gΓproj` registers it under **all three**
+keys the projection layer reads: `projs` (the structure name), `ctors`/`ctorArities` (the
+single constructor) and `ctorFields`. -/
+
+/-- A concrete `Γ` registering the structure `AC` at `(acIid, 1)` — one parameter — with
+its single constructor `mk` at index `0`, arity `2 = 1 param + 1 field`, and the field
+list `[1]`. -/
+private def gΓproj : ErasureCtx where
+  inductives := fun _ => none
+  constants := fun _ => default
+  ctors := fun n => if n = `mk then some (acIid, 0) else none
+  ctorArities := fun n => if n = `mk then some 2 else none
+  casesOns := fun _ => none
+  ctorFields := fun _ => some [1]
+  projs := fun n => if n = `AC then some (acIid, 1) else none
+
+theorem gΓproj_projs : gΓproj.projs `AC = some (acIid, 1) := rfl
+theorem gΓproj_ctorFields : gΓproj.ctorFields acIid = some [1] := rfl
+theorem gΓproj_ctors : gΓproj.ctors `mk = some (acIid, 0) := rfl
+
+/-- Non-vacuity: `RegisteredProjs` holds at `(gΓproj, acΓ)` — the inductive is registered
+with `npars = 1` and is not propositional, which is what `WcbvEval.proj` needs. -/
+theorem gΓproj_registeredProjs : RegisteredProjs gΓproj acΓ := by
+  intro S iid np hS
+  by_cases h : S = `AC
+  · subst h
+    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
+    obtain ⟨rfl, rfl⟩ := hS
+    exact ⟨_, acOIB, rfl, rfl, rfl, rfl⟩
+  · simp [gΓproj, h] at hS
+
+/-- Non-vacuity: `ErasesEnvProjs gΓproj acΓ` is *derived*, not assumed. -/
+theorem gΓproj_erasesEnvProjs : ErasesEnvProjs gΓproj acΓ :=
+  erasesEnvProjs_of_registeredProjs gΓproj_registeredProjs
+
+/-- …and it genuinely fires: the target-side non-propositionality premise of
+`WcbvEval.proj` comes out of the record by computation. -/
+theorem gΓproj_nonProp : isPropositionalInductive acΓ acIid = false :=
+  gΓproj_erasesEnvProjs.nonProp gΓproj_projs
+
+theorem gΓproj_registeredCtors : RegisteredCtors gΓproj acΓ := by
+  intro cn iid cidx hc
+  by_cases h : cn = `mk
+  · subst h
+    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hc
+    obtain ⟨rfl, rfl⟩ := hc
+    exact ⟨_, acOIB, { name := "mk", nargs := 1 }, rfl, rfl, rfl, rfl⟩
+  · simp [gΓproj, h] at hc
+
+theorem gΓproj_registeredProjCtorFields : RegisteredProjCtorFields gΓproj acΓ := by
+  intro S iid np hS
+  by_cases h : S = `AC
+  · subst h
+    simp only [gΓproj, if_pos rfl, Option.some.injEq, Prod.mk.injEq] at hS
+    obtain ⟨rfl, rfl⟩ := hS
+    exact ⟨_, acOIB, rfl, rfl, rfl⟩
+  · simp [gΓproj, h] at hS
+
+/-- Non-vacuity: `ProjFieldsCoherent gΓproj` is *derived*, and non-degenerately — `AC`'s
+arity `2` decomposes as `1 + 1`, so a proof that confused parameters with fields would
+not close. -/
+theorem gΓproj_projFieldsCoherent : ProjFieldsCoherent gΓproj :=
+  projFieldsCoherent_of_registered gΓproj_registeredCtors gΓproj_registeredProjs
+    gΓproj_registeredProjCtorFields
+
+/-- …and the arithmetic it delivers is the one the target selection needs: the field sits
+at spine position `np + 0 = 1`, and the spine has `2` entries. -/
+example : gΓproj.ctorArities `mk = some 2 :=
+  (gΓproj_projFieldsCoherent gΓproj_projs gΓproj_ctorFields gΓproj_ctors).elim
+    fun _ h => h
 
 /-! ### Non-vacuity for the ι coherence predicates (ι Task 3)
 

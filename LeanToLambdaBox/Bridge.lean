@@ -273,7 +273,7 @@ excludes the unsupported constructs. -/
 
 example : Supported (fun _ => True)
     ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none, fun _ => none, fun _ => none,
-      fun _ => none, fun _ => none, false, fun _ => none, fun _ => none⟩
+      fun _ => none, fun _ => none, false, fun _ => none, fun _ => none, fun _ => none⟩
     (.lam `x (.const `Nat []) (.bvar 0) .default) :=
   .lam _ _ _ (.bvar 0)
 
@@ -356,7 +356,7 @@ example (iid : InductiveId) :
       ⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩,
         fun n => if n = `c then some (iid, 0) else none,
         fun n => if n = `c then some 0 else none, fun _ => none,
-        fun _ => none, fun _ => none, false, fun _ => none, fun _ => none⟩
+        fun _ => none, fun _ => none, false, fun _ => none, fun _ => none, fun _ => none⟩
       (.const `c []) := by
   have h : (Expr.const `c []) = ([] : List Expr).foldl Expr.app (.const `c []) := rfl
   rw [h]
@@ -380,7 +380,7 @@ example (iid : InductiveId) (p m i d : FVarId) :
         fun n => if n = `J.casesOn then some (iid, 1) else none,
         fun _ => some [1, 2],
         fun n => if n = `J.casesOn then some 3 else none, false,
-        fun _ => none, fun _ => none⟩
+        fun _ => none, fun _ => none, fun _ => none⟩
       ([Expr.fvar p, .fvar m, .fvar i, .fvar d,
           .lam `u (.const `U []) (.bvar 0) .default,
           .lam `u (.const `U []) (.lam `v (.const `V []) (.bvar 1) .default) .default].foldl

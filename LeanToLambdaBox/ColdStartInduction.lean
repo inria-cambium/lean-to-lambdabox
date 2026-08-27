@@ -706,8 +706,11 @@ theorem visitExpr_shape {Q : ErasureState → Prop} (H : RunClosed Q) :
       obtain ⟨te, s₃, w₃, hve, hp⟩ := hk2
       rw [run_pure] at hp
       cases hp
-      obtain ⟨hQ3, -, hcl, -⟩ := ih1 _ _ _ _ _ _ _ _ _ hve hQ2
-      exact ⟨hQ3, NoFix_proj _ _, hcl, trivial⟩
+      -- (projection round, slice P0) `NoFix`/`NoBlock` now recurse at `.proj`, so the
+      -- two components that used to be `trivial` are the sub-run's own — the *only*
+      -- forced repair the de-opacification has outside its own files.
+      obtain ⟨hQ3, hnf3, hcl, hnb3⟩ := ih1 _ _ _ _ _ _ _ _ _ hve hQ2
+      exact ⟨hQ3, (NoFix_proj _ _).mpr hnf3, hcl, (NoBlock_proj _ _).mpr hnb3⟩
     all_goals
       (rw [run_panicWithPosWithDecl] at hk
        cases hk

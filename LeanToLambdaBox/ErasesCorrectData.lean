@@ -43,8 +43,15 @@ open Lean Lean4Lean
 
 `NoBlock t` holds when `t` contains no *nonempty* block-constructor node
 `.construct iid c (_ :: _)`. The nullary node `.construct iid c []` (the base of a
-non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed. `proj` is treated
-opaquely (`True`) — the data fragment of `erases_correct_data` never produces one.
+non-block spine, MetaRocq's `atom (tConstruct ind c [])`) is allowed.
+
+`.proj` **is** traversed (projection round, slice P0). It used to be opaque (`True`) on
+the stated ground that the data fragment never produced one, which was true only while
+`Erases` had no projection rule. With `Erases.proj` in the relation the ι simulation's
+projection case inverts a target `.proj p discr'` and must hand `NoBlock discr'` to the
+discriminant IH — the same argument that forced `.case` open in ι Task 3, and with a
+`True` clause the argument is unobtainable. One child, no alternative list, so no mutual
+helper. Strengthening, so hypothesis-position consumers are unaffected.
 
 `.case` **is** traversed (ι Task 3): the ι forward simulation
 (`ErasesCorrectIota.lean`) inverts a target `.case (iid, np) discr' alts'` and must feed
@@ -82,7 +89,7 @@ def NoBlock : LBTerm → Prop
   | .bvar _ => True
   | .fvar _ => True
   | .const _ => True
-  | .proj _ _ => True
+  | .proj _ e => NoBlock e
   | .prim _ => True
 
 /-- `NoBlock` over `case` alternatives (each branch body is `NoBlock`). -/
@@ -127,7 +134,8 @@ theorem NoBlockDefs_iff (l : List (@FixDef LBTerm)) :
     NoBlock (.case info d alts) ↔ NoBlock d ∧ ∀ a ∈ alts, NoBlock a.2 := by
   show NoBlock d ∧ NoBlockAlts alts ↔ _
   rw [NoBlockAlts_iff]
-@[simp] theorem NoBlock_proj (p : ProjectionInfo) (e : LBTerm) : NoBlock (.proj p e) := trivial
+@[simp] theorem NoBlock_proj (p : ProjectionInfo) (e : LBTerm) :
+    NoBlock (.proj p e) ↔ NoBlock e := Iff.rfl
 @[simp] theorem NoBlock_fix (defs : List (@FixDef LBTerm)) (i : Nat) :
     NoBlock (.fix defs i) ↔ ∀ d ∈ defs, NoBlock d.body := by
   show NoBlockDefs defs ↔ _
@@ -158,6 +166,7 @@ theorem noBlock_shift {s : LBTerm} (hs : NoBlock s) (d c : Nat) :
       intro fd hfd
       obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hfd
       exact ih y hy (hs y hy) _
+  | hproj p e ih => exact ih hs c
   | _ => trivial
 
 /-- `NoBlock` is preserved by substitution (the substitutee `s` must be `NoBlock`
@@ -191,6 +200,7 @@ theorem noBlock_subst {t : LBTerm} (ht : NoBlock t) {s : LBTerm} (hs : NoBlock s
       intro fd hfd
       obtain ⟨y, hy, rfl⟩ := List.mem_map.mp hfd
       exact ih y hy (ht y hy) _
+  | hproj p e ih => exact ih ht d
   | _ => trivial
 
 theorem noBlock_subst1 {t s : LBTerm} (ht : NoBlock t) (hs : NoBlock s) :

@@ -99,6 +99,19 @@ def ErasesEnvCasesι (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
   ∀ {con : Name} {iid : InductiveId} {numParams : Nat},
     Γ.casesOns con = some (iid, numParams) → isPropositionalInductive E iid = false
 
+/-- **The projection simulation's thin env premise** (projection round, slice P0), the
+`ErasesEnvCasesι` transpose. `WcbvEval.proj` — the non-block rule, the one `appliedFlags`
+runs — asks for `isPropositionalInductive E p.indType = false` and nothing else, so this
+is what the simulation takes; the fat record with the `npars` agreement is
+`ErasesEnvProjs`/`RegisteredProjs` (`EnvErasureNonrec.lean`), and
+`ErasesEnvProjs.nonProp` is exactly this conclusion, so
+`fun hS => ErasesEnvProjs.nonProp h hS` discharges it. The two are kept apart for the
+reason recorded above: importing `EnvErasureNonrec` here would drag the whole shipping
+bridge into the forward simulation's dependency cone. -/
+def ErasesEnvProjsι (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    Γ.projs S = some (iid, np) → isPropositionalInductive E iid = false
+
 /-- **The flat fragment.** Every constructor of an inductive eliminated by some registered
 `casesOn` has zero retained fields (`Bool`, `Ordering`, enumerations).
 

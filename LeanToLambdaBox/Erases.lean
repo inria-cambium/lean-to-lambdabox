@@ -198,10 +198,21 @@ forward-simulation theorems purely to discharge the (vacuous, in that fragment) 
 disjunct that `Erases.lam_inv` gains once `Erases.fix` is added: a `.lam`-source that
 erases via the fix rule has target `.fix …`, and `NoFix (.fix …)` is `False`.
 
-`.construct`/`.proj` are opaque (`True`): the data fragment's applied-form
+`.construct` is opaque (`True`): the data fragment's applied-form
 constructor spines carry their arguments through `.app` (`mkApps (.construct … []) args`),
 so `NoFix` reaches them via the `.app` recursion, not the (always-empty) `.construct`
 node.
+
+`.proj` is **not** opaque (projection round, slice P0). It used to be, and the reason
+given above covered only `.construct`: `.proj` was unreachable, because `Erases` had no
+projection rule and so never produced one. Once `Erases.proj` exists,
+`NoFix (.proj p t) = True` hides an arbitrary `t` — a `.fix` under a projection would
+satisfy `NoFix` and then take a `fix_guarded` step the simulation has no case for. The
+change is the one ι Task 3 made to `.case`, one node simpler (a projection has exactly
+one child and no alternative list, so no mutual helper is needed). It is a
+*strengthening*, so every hypothesis-position consumer is unaffected; the cost is the
+conclusion-position `hproj` arms of the `LBTerm.recData` inductions, which become
+`exact ih …` instead of `trivial`.
 
 `.case` is **not** opaque (ι Task 3): the ι forward simulation inverts a target
 `.case (iid, np) discr' alts'` and must hand `NoFix discr'` to the discriminant IH and
@@ -222,7 +233,7 @@ def NoFix : LBTerm → Prop
   | .fvar _ => True
   | .const _ => True
   | .construct _ _ _ => True
-  | .proj _ _ => True
+  | .proj _ e => NoFix e
   | .prim _ => True
 
 /-- `NoFix` over `case` alternatives (each branch body is `NoFix`). -/
@@ -257,7 +268,8 @@ theorem NoFixAlts_iff (l : List (List BinderName × LBTerm)) :
     NoFix (.case info d alts) ↔ NoFix d ∧ ∀ a ∈ alts, NoFix a.2 := by
   show NoFix d ∧ NoFixAlts alts ↔ _
   rw [NoFixAlts_iff]
-@[simp] theorem NoFix_proj (p : ProjectionInfo) (e : LBTerm) : NoFix (.proj p e) := trivial
+@[simp] theorem NoFix_proj (p : ProjectionInfo) (e : LBTerm) :
+    NoFix (.proj p e) ↔ NoFix e := Iff.rfl
 @[simp] theorem NoFix_prim (p : PrimVal) : NoFix (.prim p) := trivial
 
 /-- `NoFix` is preserved by de Bruijn shifting. -/
@@ -275,6 +287,7 @@ theorem noFix_shift {s : LBTerm} (hs : NoFix s) (d c : Nat) :
       obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
       exact iha b hb (hs.2 b hb) _
   | hfix defs i _ => exact absurd hs (by simp [NoFix])
+  | hproj p e ih => exact ih hs c
   | _ => trivial
 
 /-- `NoFix` is preserved by substitution (the substitutee `s` must be `NoFix` too). -/
@@ -298,6 +311,7 @@ theorem noFix_subst {t : LBTerm} (ht : NoFix t) {s : LBTerm} (hs : NoFix s)
       obtain ⟨b, hb, rfl⟩ := List.mem_map.mp ha
       exact iha b hb (ht.2 b hb) _
   | hfix defs i _ => exact absurd ht (by simp [NoFix])
+  | hproj p e ih => exact ih ht d
   | _ => trivial
 
 theorem noFix_subst1 {t s : LBTerm} (ht : NoFix t) (hs : NoFix s) :
