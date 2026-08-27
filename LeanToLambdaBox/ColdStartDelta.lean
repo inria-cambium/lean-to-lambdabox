@@ -207,9 +207,11 @@ the block-local scope supply at Γ-W2 (`DeltaHyps.BlockHyps`); and the registrat
 agreement at Γ-W3.5/Γ-W3.6 (`VisitExprRefines.RecBlockAgreement`, keyed on the shipping
 eraser and gated on `BridgeInv`).
 
-What is left for the capstones is *their* half: `recEnvConsistent_of_noRec hnorec` has to
-become `recEnvConsistent_of_block`, which needs the walk's `.fix` registration threaded
-into the cold-start δ record. `ColdStart.lean`'s `hnorec` row prices it.
+The capstones' own half landed at **slice Γ-W4**, and not through this theorem:
+`recEnvConsistent_of_deltaMem_walked` (below) reads the record straight off the walk,
+keyed per name on `Γ.recBodies`, so it carries no single-block restriction and needs no
+`hcov` per block — one coverage agreement over the whole `Γ` does it. `hnorec` is deleted
+from both capstones; `ColdStart.lean`'s `hcov` row classifies what replaced it.
 
 **Two items on that list were wrong, and both were found by measurement.** The first: it
 said the trade costs "one further scope restriction, since the registration is keyed on
@@ -785,6 +787,105 @@ theorem registeredClosureData_of_deltaMem_walked {env : VEnv} {Us : List Name}
     obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase (SEnv.walked_le hb) hmem
     exact ⟨t, hlk, fun {_} => huni (SEnv.walked_le hb) hmem (hclenv hlk) hΔwf hΔnb her, hnb hmem⟩
 
+/-! ### …and the recursive half: `RecEnvConsistent` from the same record (slice Γ-W4)
+
+`RegisteredClosure*` is the δ record for the constants `Esrc` unfolds. `RecEnvConsistent`
+is the one for the constants `Γ` records as **recursive**, and until this slice every
+cold-start capstone discharged it the only way a cold start could:
+`recEnvConsistent_of_noRec`, off the scope restriction `Γ.recBodies = ⊥` (`hnorec`).
+
+That restriction is gone. What replaces it is the **converse** of the agreement the
+bridge's step 6 consumes, and the two directions are genuinely different facts:
+
+* `VisitExprRefines.RecBlockAgreement` (Γ-W3.6b) reads **run → `Γ`**: the block a run
+  builds is the block `Γ` records. It is `Erases.fix`'s own `hreg` premise.
+* `RecCovered` below reads **`Γ` → run**: every constant `Γ` records as recursive really
+  is in the fragment's source environment and really has *its* block stored in the
+  environment the run built. Nothing derives it from the first — a `Γ` may name a block
+  for a constant the program never calls, and then no walk registers anything for it — so
+  it stays a premise, of the registration-agreement class, and it is where the scope the
+  deleted `hnorec` used to enforce now lives: named, and satisfiable rather than empty.
+
+Everything else the record needs is already in `DeltaMem`. The `Erases` witness for a
+`.fix` body is exactly what the walked recursive exit puts there
+(`DeltaMem.recBlock`, fed by `RecBlockErasure.erases_rec_block_of_run`) — the record is
+keyed on the recorded entry and says nothing about its shape, which is what makes it
+shape-polymorphic in the first place — and the `∃ Δ → ∀ Δ` lift is the same `huni` the two
+conversions above take, at the same discharge (`ErasesUniform.erases_uniform_closed`).
+
+**No single-block restriction.** `recEnvConsistent_of_block` is stated for *one* walked
+block and says so; this conversion is keyed per name on `Γ.recBodies n`, so a `Γ`
+describing several blocks costs nothing extra — each name's block is looked up in the one
+final environment, and each name's witness comes from whichever exit recorded it. What
+does stay single-declaration is the *subject*: `Erasure.erase` erases one term. -/
+
+/-- **The recursion coverage agreement** (recursion wall, slice Γ-W4): every constant `Γ`
+records as recursive is in the fragment's source environment, and has *its* block stored
+under its kername in the run's final environment.
+
+Keyed on `LBTerm.envLookup`, which is both what `RecEnvConsistent.reg` concludes and what
+`SEnv.walked` restricts by — so a covered name survives the walk restriction rather than
+being cut by it.
+
+At a `Γ` that records no recursion it is a **theorem** (`of_noRec`), which is how every
+`known = ⊥` guard picks it up for free — the mirror of `RecBlockAgreement.of_bot` on the
+bridge's side of the same trade.
+
+A structure and not a `def`, for the reason `DeltaMem` and `RecEnvConsistent` are: the
+capstones state it *under* a run's quantifiers, and a definitional unfolding there makes
+the premise's implicit binders eta-expand at every use site. -/
+structure RecCovered (Γ : ErasureCtx) (Esrc : SEnv) (s : ErasureState) : Prop where
+  cov : ∀ {n : Name} {defs : List (@FixDef LBTerm)} {idx : Nat},
+    Γ.recBodies n = some (defs, idx) →
+      (Esrc n).isSome ∧
+      LBTerm.envLookup s.gdecls (Γ.constants n)
+        = some (.constantDecl ⟨some (.fix defs idx)⟩)
+
+/-- The degenerate case: a `Γ` registering no recursion covers vacuously. This is
+`recEnvConsistent_of_noRec`'s hypothesis, now paying for one premise instead of standing
+in a capstone's signature as a scope restriction on every program. -/
+theorem RecCovered.of_noRec {Γ : ErasureCtx} {Esrc : SEnv} {s : ErasureState}
+    (h : Γ.recBodies = fun _ => none) : RecCovered Γ Esrc s :=
+  ⟨fun hn => absurd (h ▸ hn) (by simp)⟩
+
+/-- **`RecEnvConsistent` from the walk's δ record, at the walk-restricted `Esrc`**
+(recursion wall, slice Γ-W4) — the capstone half of the `hnorec` trade.
+
+Premise for premise this is `registeredClosureData_of_deltaMem_walked` with the
+applied-form conjunct dropped and the coverage agreement added: `hdisj`, `hclenv` and
+`huni` are the *same three arguments* a capstone already assembles for its
+`ErasesEnvDeltaData`, so the recursive record costs it exactly one new premise.
+
+The `Erases` conjunct is derived, not assumed — which is the whole point of the trade.
+`DeltaMem` hands back the witness for the recorded `.fix` entry (whatever exit recorded
+it), and `huni` lifts it from the context the walk fired at to the `∀ Δ` the forward
+simulations' δ case consumes. -/
+theorem recEnvConsistent_of_deltaMem_walked {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    {Esrc : SEnv} {s : ErasureState} (h : DeltaMem env Us Γ Esrc s)
+    (hdisj : ∀ {n : Name} {body : Expr}, Esrc n = some body →
+      Γ.ctors n = none ∧ Γ.casesOns n = none)
+    (hclenv : ClosedEnv s.gdecls)
+    (huni : ∀ {n : Name} {body : Expr} {t : LBTerm} {Δ Δ' : VLCtx}, Esrc n = some body →
+      (Γ.constants n, GlobalDecl.constantDecl ⟨some t⟩) ∈ s.gdecls → LBClosed t 0 →
+      VLCtx.WF env Us.length Δ → Δ.NoBV →
+      Erases env Us Γ Δ body t → Erases env Us Γ Δ' body t)
+    (hcov : RecCovered Γ Esrc s) :
+    RecEnvConsistent env Us Γ (Esrc.walked Γ s.gdecls) s.gdecls where
+  reg := by
+    intro n defs idx hrec
+    obtain ⟨hsome, hlk⟩ := hcov.cov hrec
+    obtain ⟨body, hb⟩ : ∃ body, Esrc n = some body := by
+      cases hEs : Esrc n with
+      | none => rw [hEs] at hsome; simp at hsome
+      | some b => exact ⟨b, rfl⟩
+    have hwb : Esrc.walked Γ s.gdecls n = some body := by
+      unfold SEnv.walked; rw [hlk]; exact hb
+    obtain ⟨k, hmem, hbeq⟩ := envLookup_mem hlk
+    obtain rfl := Kername.eq_of_beq hbeq
+    obtain ⟨Δ, hΔwf, hΔnb, her⟩ := h.erase hb hmem
+    exact ⟨hlk, (hdisj hb).1, (hdisj hb).2, body, hwb,
+      fun {_} => huni hb hmem (hclenv hlk) hΔwf hΔnb her⟩
+
 /-- **`SEnvConsistent` restricts.** The source-side δ trust item is a `∀` over `Esrc`'s
 domain, so cutting the domain down keeps it — which is what lets the capstone state its
 evaluation premise at the walk-restricted environment while taking the trust item at the
@@ -982,5 +1083,98 @@ theorem gRecEnvConsistentD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (
         exact ⟨this.1.symm, this.2.symm⟩
       exact ⟨by simp [fixRecDefs], rfl, rfl⟩
     · simp [ΓfixRec, hn] at hrec
+
+/-! ### The same fixture, through the route the capstones take (slice Γ-W4)
+
+`gRecEnvConsistentD8` builds the record from `recEnvConsistent_of_block` — the per-block
+route, which takes the block apart index by index and needs the block's own registration
+agreement. What the cold-start capstones call since Γ-W4 is
+`recEnvConsistent_of_deltaMem_walked`, whose input is the δ record the bridge *carries*,
+and whose one new obligation is `RecCovered`. Both are checked here on the same
+self-referential fixture, so the replacement of `hnorec` is exercised end to end on data
+rather than only in the statement.
+
+`hnest` stays hypothetical, for the reason recorded above; nothing else does. -/
+
+/-- **The coverage agreement, on real recursive data** (slice Γ-W4) — the suppliability
+check for the premise that replaced `hnorec`. Its hypothesis is *inhabited* (`ΓfixRec`
+really does record a block for `f`) and its conclusion is computed, so the premise is not
+satisfiable-only-vacuously: precisely the S1d/S1e failure mode this development refuses to
+hide inside a hypothesis. -/
+theorem gRecCoveredD8 : RecCovered ΓfixRec gEsrcD8 (recConstState [`f] fixRecDefs {}) where
+  cov := by
+    intro n defs idx hrec
+    by_cases hn : n = `f
+    · subst hn
+      obtain ⟨rfl, rfl⟩ : defs = fixRecDefs ∧ idx = 0 := by
+        have h := (by simpa [ΓfixRec] using hrec : fixRecDefs = defs ∧ 0 = idx)
+        exact ⟨h.1.symm, h.2.symm⟩
+      refine ⟨by simp [gEsrcD8], ?_⟩
+      show LBTerm.envLookup _ (toKername `f) = _
+      exact recConstState_envLookup (by simp) gKeysD8
+    · simp [ΓfixRec, hn] at hrec
+
+/-- **The δ record at the fixture's final state**, built by the extension step the walked
+recursive exit fires (`DeltaMem.recBlock`) rather than by hand: `hkn` is the canonical
+naming, `hinj` is one-name-one-key on a one-name fragment, and `hwit` is
+`gErasesRecBlockD8` — the *derived* `Erases.fix` witness, taken at `Δ = []`. -/
+theorem gDeltaMemRecD8 (env : VEnv) (henv : env.Ordered) (Us : List Name) (x : FVarId)
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (ΓfixRec.withFixvars (gFvD8 x)) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    DeltaMem env Us ΓfixRec gEsrcD8 (recConstState [`f] fixRecDefs {}) := by
+  refine DeltaMem.empty.recBlock (fixnames := [`f]) (defs := fixRecDefs) ?_ ?_ ?_
+  · intro j hj; rfl
+  · intro j hj m hs _
+    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at hj; omega
+    by_cases hm : m = `f
+    · exact hm
+    · simp [gEsrcD8, hm] at hs
+  · intro j hj body hb
+    obtain rfl : j = 0 := by simp only [List.length_cons, List.length_nil] at hj; omega
+    obtain rfl : body = fixRecSrc := by simpa [gEsrcD8] using hb.symm
+    exact ⟨[], trivial, rfl, gErasesRecBlockD8 env henv Us x hnest []⟩
+
+/-- **`RecEnvConsistent` through the capstones' own route** (slice Γ-W4), on the
+self-referential fixture: from the δ record the walk carries, plus the coverage agreement,
+at the walk-restricted source environment the capstones state their evaluation premise at.
+
+Every premise of the conversion is discharged here — `hdisj` off `ΓfixRec`, `hclenv` off
+the one stored block, `huni` off the derived witness's own context-polymorphism, and
+`hcov` by computation. The record `recEnvConsistent_of_noRec` used to supply vacuously is
+now supplied at a `Γ` that genuinely registers recursion. -/
+theorem gRecEnvConsistentWalkedD8 (env : VEnv) (henv : env.Ordered) (Us : List Name)
+    (x : FVarId)
+    (hnest : ∀ {Δ' : VLCtx} {n' : Name} {ty' b' : Expr} {bi' : BinderInfo}
+        {d' : List (@FixDef LBTerm)} {i' : Nat},
+        Erases env Us (ΓfixRec.withFixvars (gFvD8 x)) Δ' (.lam n' ty' b' bi') (.fix d' i') →
+        Erases env Us ΓfixRec Δ' (.lam n' ty' b' bi') (.fix d' i')) :
+    RecEnvConsistent env Us ΓfixRec
+      (gEsrcD8.walked ΓfixRec (recConstState [`f] fixRecDefs {}).gdecls)
+      (recConstState [`f] fixRecDefs {}).gdecls :=
+  recEnvConsistent_of_deltaMem_walked (gDeltaMemRecD8 env henv Us x hnest)
+    (fun _ => ⟨rfl, rfl⟩)
+    (by
+      intro kn body hl
+      obtain ⟨k, hmem, -⟩ := envLookup_mem hl
+      obtain rfl : body = LBTerm.fix fixRecDefs 0 := by
+        simp only [recConstState, List.zipIdx, List.foldl_cons, List.foldl_nil,
+          List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hmem
+        simpa using hmem.2
+      simp [fixRecDefs, LBClosedDefs])
+    (by
+      intro n body t Δ Δ' hb hmem _ _ _ _
+      obtain rfl : n = `f := by
+        by_cases hn : n = `f
+        · exact hn
+        · simp [gEsrcD8, hn] at hb
+      obtain rfl : body = fixRecSrc := by simpa [gEsrcD8] using hb.symm
+      obtain rfl : t = LBTerm.fix fixRecDefs 0 := by
+        simp only [recConstState, List.zipIdx, List.foldl_cons, List.foldl_nil,
+          List.mem_cons, List.not_mem_nil, or_false, Prod.mk.injEq] at hmem
+        simpa using hmem.2
+      exact gErasesRecBlockD8 env henv Us x hnest Δ')
+    gRecCoveredD8
 
 end LeanToLambdaBox
