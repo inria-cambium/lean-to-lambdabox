@@ -30,6 +30,7 @@ Everything below is *derived from the run*, not assumed:
 | `NoBlock t` (applied form of the output) | `visitExpr_noBlock` (R11's third conjunct, no hypotheses — slice δ-N) |
 | `NoBlockEnv sf.gdecls` (applied form of every recorded body) | `visitExpr_noBlockEnv` (δ-N: `NoBlockEnv` is a `RunClosed` predicate) |
 | `hregctors`/`hregcases`/`hregfields` | `RegInvShape.registeredCtors/…`, modulo saturation |
+| `hprojenv : ErasesEnvProjs` and `hpcoh : ProjFieldsCoherent` (ι) | `RegInvShape.registeredProjs`/`registeredProjCtorFields`, modulo saturation (slice P9). Until P9 the invariant had no `Γ.projs` column, and the ι capstone paid for that with the scope restriction `hnoprojs : Γ.projs = ⊥` — which excluded every program touching the typeclass layer. Both are now **derived**, and the restriction is deleted |
 | `hdelta : ErasesEnvDeltaData` | the walk's own δ record, converted (slice D5) |
 | `hrec : RecEnvConsistent` | the **same** δ record, converted the other way (slice Γ-W4): `recEnvConsistent_of_deltaMem_walked`, modulo the coverage agreement `hcov`. Until Γ-W4 it was discharged by `recEnvConsistent_of_noRec` off the scope restriction `hnorec`, which excluded every recursive program |
 | `known` as a free variable | stays free — the fragment (slice D5) |
@@ -100,6 +101,8 @@ Four classes, and nothing falls outside them:
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec` |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
+| `P : ProjBridgeHyps` | H | the fourth bundle (proj-P8), two clauses for `visitProj`'s two calls. Both are Γ↔environment *registration* agreements and both are `env`/`Us`-free, so **the projection round adds no typing assumption** — it is the same class as `CasesBridgeHyps`, one call site smaller. At `Γ.projs = ⊥` it is a theorem (`ProjBridgeHyps.of_bot`), which is why the eight pre-projection call sites instantiate it rather than assuming it |
+| `hproj : ProjConsistent env Us Γ` (ι) | H | the projection interface premise, `hiota`'s exact analogue: the source-side ι rule for `.proj`, stated about `env`. `ProjDischarge.projConsistent_of_coh` discharges it from `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, a real statement with a **deferred proof** (commission item A2), so this row is *upstream-gated* in the same sense `PatsIotaSpec` was before `of_trEnv` — plus `ProjCtorAgree`, the `env.pats`↔`Γ.ctors` constructor agreement that `ProjShape` provably cannot supply (`ProjDischarge.lean`'s module docstring), plus the `ProjFieldsCoherent` this capstone now derives from the walk. At `Γ.projs = ⊥` it is `projConsistent_of_noProjs`, which is how both `known = ⊥` guards pick it up unchanged. **Not an axiom** at any point: `ProjDefeqSpec` and `ProjCtorAgree` are `Prop` hypotheses |
 | `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe, and `esrc_shape` was weakened at proj-P2 from `NoProj` to `NoProjBinders` — the typeclass layer's prepared bodies are projections, so the strong predicate made the field uninhabitable for all of them; the strong one now sits on `BlockHyps.block_lam`, for the sibling bodies only |
 | `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is a projection-free λ — the `NoProj` half arrived at proj-P2, out of `DeltaHyps.esrc_shape`, and keeps this path on the `sorryAx`-free strengthening) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues. Its scope restriction is named at `RecBlockErasure.erases_rec_block_of_run`: **a block's bodies call only its own siblings, registered constructors and registered `casesOn`s** — the block's inner runs are taken at `known = ⊥`, so an external call is out of scope. That is the one restriction the recursion feature genuinely still makes, and it is *inside* a block rather than about the program |
 | `Hreg : RecBlockAgreement` | H | **the walk's registration agreement** (Γ-W3.6b): `Γ` records the block the recursive exit stores, at the readers and states the bridge's induction quantifies. `Erases.fix`'s own premise, and irreducible at a parameter `Γ` fixed before the run builds the block. Its quantifiers are *gated* — on the fragment, and on `BridgeInv`, whose `cfg` field pins the config (Γ-W3.6a) and whose `consts`/`knames` pin the registry — so the two refutations that could be written are closed, and what is left free (`ctx.lctx`, `s.inductives`, the world) is the class every run-keyed field already carries. At `known = ⊥` it is a **theorem** (`RecBlockAgreement.of_bot`). `gRecAgreement` is the suppliability guard; residue 1 records the route that would make it a theorem outright (read `Γ.recBodies` off the run's final `gdecls`, priced at "re-index the erasure relation") |
@@ -113,8 +116,9 @@ Four classes, and nothing falls outside them:
 | `hstr : ErasableStrengthen env Us` | **R** | the only one left. A three-line `VExpr`-level statement — `HasType.weakN_inv` for the shipping `VEnv.HasType`. Commissioned upstream as C1 and **NOT discharged** by the trproj round; a written analysis came back instead, and it argues the route is blocked. See residue 2 below |
 
 **Derived from the run, and therefore absent from the list above** — the `ErasureState`,
-the environment `E`, `ClosedEnv E`, `LBClosed t 0`, the bridge invariant, the three
-registration records, `ErasesEnvDeltaData`, `RecEnvConsistent`, the `Program` shape, and
+the environment `E`, `ClosedEnv E`, `LBClosed t 0`, the bridge invariant, the five
+registration records (three data columns, and since P9 the two projection ones),
+`ErasesEnvDeltaData`, `RecEnvConsistent`, the `Program` shape, and
 (since S1e) the registry invariant's preservation. `PrepareHyps.prepare_sound` is derived
 too: it is the theorem `ColdStartRun.prepare_sound_of_prepareHyps`, so that bundle is down
 to three fields. `ColdStartInduction.RegShapeHyps` is **not used at all** — it is refuted
@@ -640,16 +644,19 @@ theorem shipping_erase_correct_firstorderι_coldstart
     (hiota : IotaConsistent env Us Γ ia)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
-    -- projection round, slice P7 (forced repair; this file belongs to another lane).
-    -- The ι simulation now carries three projection premises. Two of them are env
-    -- records that would have to come off the registry invariant, which has no
-    -- projection field yet (`RegInvShape` is `ColdStartShape.lean`'s, and giving it one
-    -- is slice P9's composition work). Until then the cold-start ι capstone is stated at
-    -- a **structure-free** `Γ`, which is every `Γ` it already applied to: the three
-    -- premises are then *discharged*, not assumed, by the vacuity trio
-    -- (`projConsistent_of_noProjs` / `projFieldsCoherent_of_noProjs`,
-    -- `SourceEvalData.lean`; `ErasesEnvProjs` by refutation).
-    (hnoprojs : Γ.projs = fun _ => none)
+    -- projection round, slice P9 — the composition. Of the ι simulation's three
+    -- projection premises, the two *environment* records are now off the walk, exactly as
+    -- the ctor/`casesOn` ones are: `RegInvShape` grew a `Γ.projs`-keyed column (P9), so
+    -- `ErasesEnvProjs` and `ProjFieldsCoherent` are **derived** below. What is left is the
+    -- source-side interface premise, and it sits here for the same reason `hiota` does —
+    -- `ProjConsistent` is a statement about `env`, not about the registry. Its discharge
+    -- is `projConsistent_of_coh` (`ProjDischarge.lean`) from `ProjDefeqSpec` (upstream's
+    -- `TrEnv.proj_defeq`, deferred) and `ProjCtorAgree`, feeding on the very
+    -- `ProjFieldsCoherent` this theorem now derives; at a structure-free `Γ` it is
+    -- `projConsistent_of_noProjs`, which is how the `known = ⊥` guards pick it up.
+    -- Slice P7's `hnoprojs : Γ.projs = ⊥` is **gone**: the capstone no longer excludes
+    -- the typeclass layer (`ΓprojQ_noprojs_refuted`).
+    (hproj : ProjConsistent env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     -- runtime Hoare bundles
@@ -750,15 +757,17 @@ theorem shipping_erase_correct_firstorderι_coldstart
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
       hcon.walked
       hiota
-      (projConsistent_of_noProjs hnoprojs)
+      hproj
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
       (erasesEnvCases_of_registeredCases (hshape.registeredCases (Hr.satCases hvis)))
-      (fun hS => absurd hS (by rw [hnoprojs]; simp))
+      (erasesEnvProjs_of_registeredProjs (hshape.registeredProjs (Hr.satProjs hvis)))
       (ctorFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
-      (projFieldsCoherent_of_noProjs hnoprojs)
+      (projFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
+        (hshape.registeredProjs (Hr.satProjs hvis))
+        (hshape.registeredProjCtorFields (Hr.satProjs hvis)))
       hiacoh hrel hcc hrecc hnfv hshape.closed H HD C P Hδ
       Hβ Hreg hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
@@ -971,7 +980,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
-    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc (hnoprojs := rfl)
+    hiota ΓFOι_iotaArityCoherent hrel (projConsistent_of_noProjs rfl) ΓFOι_cc
     H HD C P Hδ Hβ RecBlockAgreement.of_bot S
     (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
@@ -1640,5 +1649,129 @@ example (harity : ¬ IsArityUpTo envRec 0 [] (.const `I []))
     (envRec_foC harity) hrun
 
 end RecursiveGuard
+
+section ProjectionGuard
+
+/-! ## The projection guard: a `Γ` that REGISTERS a structure (slice P9)
+
+The two `known = ⊥` guards above run at `ΓFOι`, which registers no structure, so they
+exercise the P9 rewiring the way the pre-Γ-W4 guards exercised `hnorec`: by discharging
+the new premise vacuously (`projConsistent_of_noProjs rfl`). This section is the other
+side — the `RecursiveGuard` pattern, transposed onto the projection column.
+
+The fixture is `ΓprojQ` (`VisitExprRefines.lean`, guard (v) of the bridge), the round's own
+context: `MyOfNat` registered as a **two-parameter, one-field** structure, with
+`ctorArities MyOfNat.mk = 3 = 2 + 1`. Non-degeneracy matters twice here — a `Γ` whose
+structure had no fields would satisfy `ProjFieldsCoherent` by `0 = 0 + 0`, and a proof
+that confused `paramCount` with `fieldIdx` would still close.
+
+**Constructed**: the refutation of the deleted premise (`ΓprojQ_noprojs_refuted`);
+`ProjFieldsCoherent` (`ΓprojQ_projFieldsCoherent`), which is the `Γ`-side input of the
+`ProjConsistent` discharge and, at the *capstone*, the fact P9 derives from the walk; the
+fixvar and peano-config pins; the constructor/`casesOn` disjointness; the source-side δ
+item at the empty fragment; and the two recursion premises at `⊥`.
+
+**Hypothetical**, and each in a class this file already carries: the run; the five runtime
+bundles; `Hr : RegBridgeHyps ΓprojQ`; the residue `hstr`; the ι trust items; the prepared
+subject `S`/`hev`; and `henv`/`hfo`, which are *newly* hypothetical here — `ΓprojQ` records
+no first-order constructor at all (its only constructor is the structure's, whose arguments
+are the two type parameters), so no value of the fragment can be exhibited, and the guard is
+stated at an arbitrary well-formed `env` rather than at `envQ`, whose `Ordered` this pin
+cannot supply (`VEnv.Ordered` has no `addPat` clause — `ProjPattern.lean`'s module note).
+That is a deliberate weakening: `env` universally quantified is a stronger statement than
+`env := envQ` would be, and the env-side content is exercised by the `ΓFOι` guards above.
+
+**Two premises stop being free here**, which is the point of running the guard at this `Γ`:
+
+* `P : ProjBridgeHyps ΓprojQ` can no longer be instantiated by `ProjBridgeHyps.of_bot` —
+  both its clauses are keyed on `Γ.projs S = some _`, which now fires. The fourth bundle is
+  genuinely assumed for the first time at a capstone;
+* `Hr.satProjs`'s gate is inhabited (`ΓprojQ_projs`), so the field is not satisfiable
+  only-vacuously — the S1d/S1e failure mode, checked here for the column P9 added.
+
+And `hproj` is discharged along the route the ledger names — `projConsistent_of_coh`, on
+the *constructed* `ProjFieldsCoherent` — leaving exactly the two upstream-gated items,
+`ProjDefeqSpec` (`TrEnv.proj_defeq`, deferred) and `ProjCtorAgree`. -/
+
+/-- **The premise slice P9 deleted is FALSE at this fixture.** `ΓFOrec_norec_refuted`'s
+transpose: `hnoprojs : Γ.projs = ⊥` is not merely unused below, it is refutable, so the
+capstone's widening is real rather than a re-phrasing. -/
+theorem ΓprojQ_noprojs_refuted : ¬ (ΓprojQ.projs = fun _ => none) := by
+  intro h
+  have hq := congrFun h `MyOfNat
+  rw [ΓprojQ_projs] at hq
+  simp at hq
+
+/-- **`ProjFieldsCoherent` at the fixture, non-degenerately.** `MyOfNat.mk`'s arity `3`
+decomposes as `2` parameters `+ 1` field, so the equation the target selection needs —
+`args[paramCount + fieldIdx]` lands on the field — is checked against real arithmetic. -/
+theorem ΓprojQ_projFieldsCoherent : ProjFieldsCoherent ΓprojQ := by
+  intro S cn iid np nfs hS hnfs hctors
+  by_cases hSn : S = `MyOfNat
+  · subst hSn
+    simp only [ΓprojQ] at hS
+    obtain ⟨rfl, rfl⟩ := hS
+    obtain rfl : nfs = [1] := by simpa [ΓprojQ] using hnfs.symm
+    by_cases hcn : cn = `MyOfNat.mk
+    · subst hcn
+      exact ⟨by simp, by simp [ΓprojQ]⟩
+    · simp [ΓprojQ, hcn] at hctors
+  · simp [ΓprojQ, hSn] at hS
+
+/-- The constructor/`casesOn` disjointness premise at the fixture: `ΓprojQ` registers no
+`casesOn` head at all, so the structure's constructor cannot collide with one. -/
+theorem ΓprojQ_cc {cn : Name} {iid : InductiveId} {cidx : Nat} :
+    ΓprojQ.ctors cn = some (iid, cidx) → ΓprojQ.casesOns cn = none := fun _ => rfl
+
+/-- **The cold-start ι capstone fires at a `Γ` that registers a structure** (projection
+round, slice P9). `Erasure.erase`, from the empty state, at the round's own context: the
+two environment records the ι simulation needs on the projection column —
+`ErasesEnvProjs` and `ProjFieldsCoherent` — are **derived** inside the capstone from the
+registry invariant's new column, and the premise that used to stand in for them,
+`hnoprojs : Γ.projs = ⊥`, is refuted here (`ΓprojQ_noprojs_refuted`).
+
+What is left on the projection side is `hproj`, discharged below through
+`projConsistent_of_coh` from the two upstream-gated items and the constructed
+`ΓprojQ_projFieldsCoherent`. See the section docstring for the constructed/hypothetical
+split and for the two premises that stop being free at this `Γ`. -/
+example {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
+    {env : VEnv} (henv : env.WF) (ia : IotaArities)
+    (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
+    (hspec : ProjDefeqSpec safety kenv env) (hagree : ProjCtorAgree env ΓprojQ)
+    (hiota : IotaConsistent env [] ΓprojQ ia) (hiacoh : IotaArityCoherent ΓprojQ ia)
+    (hrel : IotaRelevant env [] ΓprojQ)
+    (gw : Void IO.RealWorld → NameGenerator)
+    (H : BridgeHyps env [] ΓprojQ gw) (HD : DataBridgeHyps ΓprojQ gw)
+    (C : CasesBridgeHyps ΓprojQ gw) (P : ProjBridgeHyps ΓprojQ gw)
+    (Hr : RegBridgeHyps ΓprojQ)
+    (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      DeltaHyps env [] (fun _ => False) ΓprojQ cfg (fun _ => none) gw cc rf)
+    (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
+      BlockHyps env [] (fun _ => False) ΓprojQ cfg (fun _ => none) cc rf)
+    {e v : Expr} {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    {w w' : Void IO.RealWorld} {p : Program} {inls : List Kername}
+    (hstr : ErasableStrengthen env [])
+    (S : ColdStartSubject env [] (fun _ => False) ΓprojQ e cfg cctx ref w)
+    (hev : ∀ {pe : Expr} {s₁ : ErasureState} {w₁ : Void IO.RealWorld},
+      Erasure.prepare_erasure e {} { «config» := cfg } cctx ref w = .ok (pe, s₁) w₁ →
+      SEvalDataι ΓprojQ ia (fun _ => none) pe v)
+    (hfo : FirstOrderValue env [] ΓprojQ [] v)
+    (hrun : Erasure.erase e cfg cctx ref w = .ok (p, inls) w') :
+    ∃ (E : GlobalDeclarations) (t t' : LBTerm),
+      p = .untyped E (some t) ∧
+      WcbvEval E appliedFlags t t' ∧
+      (∃ vve, TrExprS env [] [] v vve) ∧
+      Erases env [] ΓprojQ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
+      ∀ tu, Erases env [] ΓprojQ [] v tu → NoBlock tu → tu = t' :=
+  shipping_erase_correct_firstorderι_coldstart henv rfl hcsimp rfl
+    (by simp [ΓprojQ]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
+    hiota hiacoh hrel
+    (projConsistent_of_coh henv hspec hagree ΓprojQ_projFieldsCoherent) ΓprojQ_cc
+    H HD C P Hδ Hβ RecBlockAgreement.of_bot S
+    (fun _ _ => RecCovered.of_noRec (Γ := ΓprojQ) rfl)
+    (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
+    hfo hrun
+
+end ProjectionGuard
 
 end LeanToLambdaBox
