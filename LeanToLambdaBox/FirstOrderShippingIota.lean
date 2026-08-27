@@ -123,10 +123,13 @@ theorem shipping_erase_correct_firstorderι
     {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hiota : IotaConsistent env Us Γ ia)
+    (hproj : ProjConsistent env Us Γ)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
     (hctorenv : ErasesEnvCtor Γ E)
     (hcasesenv : ErasesEnvCases Γ E)
+    (hprojenv : ErasesEnvProjs Γ E)
     (hcoh : CtorFieldsCoherent Γ)
+    (hpcoh : ProjFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
@@ -157,8 +160,9 @@ theorem shipping_erase_correct_firstorderι
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' := by
   obtain ⟨t', vve, heval, htrv, herv, hnbv, hclv⟩ :=
-    erases_correct_dataι henv (Δ := []) trivial hcon hiota hdelta hctorenv
-      (fun hc => hcasesenv.nonProp hc) hcoh hiacoh hrel hcc hrec hnfv hclenv hev htr
+    erases_correct_dataι henv (Δ := []) trivial hcon hiota hproj hdelta hctorenv
+      (fun hc => hcasesenv.nonProp hc) (fun hS => hprojenv.nonProp hS)
+      hcoh hpcoh hiacoh hrel hcc hrec hnfv hclenv hev htr
       (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
         e s ctx cctx ref w t s' w' hrun [] hinv hsup ⟨ve, htr⟩).1
       hnb hcl
@@ -191,10 +195,13 @@ theorem shipping_erase_correct_firstorderι_of_shape
     (hspec : PatsIotaSpec safety kenv env)
     (hcon : SEnvConsistent env Us Esrc)
     (hshape : IotaShape safety kenv Γ ia Esrc)
+    (hproj : ProjConsistent env Us Γ)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
     (hctorenv : ErasesEnvCtor Γ E)
     (hcasesenv : ErasesEnvCases Γ E)
+    (hprojenv : ErasesEnvProjs Γ E)
     (hcoh : CtorFieldsCoherent Γ)
+    (hpcoh : ProjFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
@@ -225,9 +232,9 @@ theorem shipping_erase_correct_firstorderι_of_shape
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι henv hcon
-    (iotaConsistent_of_shape henv hspec hcon hshape)
-    hdelta hctorenv hcasesenv hcoh hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ Hβ Hreg
-    hrun hinv hsup htr hnb hcl hev hfo
+    (iotaConsistent_of_shape henv hspec hcon hshape) hproj
+    hdelta hctorenv hcasesenv hprojenv hcoh hpcoh hiacoh hrel hcc hrec hnfv hclenv
+    H HD C Hδ Hβ Hreg hrun hinv hsup htr hnb hcl hev hfo
 
 /-- **D3ι with every `Γ`/`E` env-consistency premise sourced from registration.** The ι
 analogue of `shipping_erase_correct_firstorder_registered`, and a step further: not only
@@ -255,10 +262,13 @@ theorem shipping_erase_correct_firstorderι_registered
     {Esrc Esrcδ : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hiota : IotaConsistent env Us Γ ia)
+    (hproj : ProjConsistent env Us Γ)
     (hregdelta : RegisteredClosureData env Us Γ Esrc E)
     (hregctors : RegisteredCtors Γ E)
     (hregcases : RegisteredCases Γ E)
     (hregfields : RegisteredCtorFieldsAll Γ E)
+    (hregprojs : RegisteredProjs Γ E)
+    (hregprojfields : RegisteredProjCtorFields Γ E)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
@@ -288,11 +298,13 @@ theorem shipping_erase_correct_firstorderι_registered
       (∃ vve, TrExprS env Us [] v vve) ∧
       Erases env Us Γ [] v t' ∧ NoBlock t' ∧ LBClosed t' 0 ∧
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
-  shipping_erase_correct_firstorderι henv hcon hiota
+  shipping_erase_correct_firstorderι henv hcon hiota hproj
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
     (erasesEnvCtor_of_registeredCtors hregctors)
     (erasesEnvCases_of_registeredCases hregcases)
+    (erasesEnvProjs_of_registeredProjs hregprojs)
     (ctorFieldsCoherent_of_registered hregctors hregcases hregfields)
+    (projFieldsCoherent_of_registered hregctors hregprojs hregprojfields)
     hiacoh hrel hcc hrec hnfv hclenv H HD C Hδ Hβ Hreg hrun hinv hsup htr hnb hcl hev hfo
 
 /-! ## Non-vacuity guards
@@ -395,6 +407,15 @@ theorem ΓFOι_erasesEnvCases : ErasesEnvCases ΓFOι EFOd :=
 theorem ΓFOι_erasesEnvCasesι : ErasesEnvCasesι ΓFOι EFOd :=
   fun hc => ΓFOι_erasesEnvCases.nonProp hc
 
+/-- Derived: the projection env record, **vacuously** — `ΓFOι` registers no structure,
+so it takes `ErasureCtx.projs`' default `⊥`. The projection round is additive here: the
+three new premises of the ι simulation are discharged at this guard rather than assumed
+(`projConsistent_of_noProjs` / `projFieldsCoherent_of_noProjs`, `SourceEvalData.lean`).
+The non-vacuous side of each lives at `Γproj` (`Erases.lean` / `EnvErasureNonrec.lean`).
+-/
+theorem ΓFOι_erasesEnvProjs : ErasesEnvProjs ΓFOι EFOd := by
+  intro _ _ _ hs; exact absurd hs (by simp [ΓFOι])
+
 /-- Derived: `CtorFieldsCoherent` — `ctorArities c = 0` decomposes as `npars 0 + nfs[0] 0`. -/
 theorem ΓFOι_ctorFieldsCoherent : CtorFieldsCoherent ΓFOι :=
   ctorFieldsCoherent_of_registered ΓFOι_registeredCtors ΓFOι_registeredCases
@@ -438,12 +459,14 @@ the registration records where a discharge exists. This is the guard the ι caps
 actually carry; see the section docstring for the one that it cannot. -/
 theorem ΓFOι_certificates :
     ErasesEnvCtor ΓFOι EFOd ∧ ErasesEnvCases ΓFOι EFOd ∧ ErasesEnvCasesι ΓFOι EFOd ∧
+      ErasesEnvProjs ΓFOι EFOd ∧ ProjFieldsCoherent ΓFOι ∧
       CtorFieldsCoherent ΓFOι ∧ IotaArityCoherent ΓFOι iaFOι ∧
       RecEnvConsistent envFO [] ΓFOι (fun _ => none) EFOd ∧
       ΓFOι.fixvars = (fun _ => none) ∧ ClosedEnv EFOd ∧
       (∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
         ΓFOι.ctors cn = some (iid, cidx) → ΓFOι.casesOns cn = none) :=
-  ⟨ΓFOι_erasesEnvCtor, ΓFOι_erasesEnvCases, ΓFOι_erasesEnvCasesι, ΓFOι_ctorFieldsCoherent,
+  ⟨ΓFOι_erasesEnvCtor, ΓFOι_erasesEnvCases, ΓFOι_erasesEnvCasesι, ΓFOι_erasesEnvProjs,
+    projFieldsCoherent_of_noProjs rfl, ΓFOι_ctorFieldsCoherent,
     ΓFOι_iotaArityCoherent, recEnvConsistent_of_noRec (Γ := ΓFOι) rfl, rfl, EFOd_closedEnv,
     ΓFOι_cc⟩
 
@@ -490,8 +513,10 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   have hinv : BridgeInv envFO [] (fun _ => False) ΓFOι cfg (gw w) ⟨{}, none, [], cfg⟩ {} [] :=
     gBridgeInv_nil envFO [] _ ΓFOι (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOι])
   refine shipping_erase_correct_firstorderι envFO_wf (Us := []) (Esrc := fun _ => none)
-    (E := EFOd) (ia := iaFOι) ?_ hiota ?_ ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases
-    ΓFOι_ctorFieldsCoherent ΓFOι_iotaArityCoherent hrel ΓFOι_cc
+    (E := EFOd) (ia := iaFOι) ?_ hiota (projConsistent_of_noProjs rfl) ?_
+    ΓFOι_erasesEnvCtor ΓFOι_erasesEnvCases ΓFOι_erasesEnvProjs
+    ΓFOι_ctorFieldsCoherent (projFieldsCoherent_of_noProjs rfl)
+    ΓFOι_iotaArityCoherent hrel ΓFOι_cc
     (recEnvConsistent_of_noRec (Γ := ΓFOι) rfl) rfl
     EFOd_closedEnv H HD C Hδ Hβ RecBlockAgreement.of_bot
     hrun hinv hsup envFO_trC hnb hcl ?_

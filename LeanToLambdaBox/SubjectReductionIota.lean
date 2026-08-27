@@ -3,6 +3,7 @@ import LeanToLambdaBox.SourceEvalData
 import LeanToLambdaBox.ErasesCorrectData
 import LeanToLambdaBox.FirstOrder
 import LeanToLambdaBox.IotaDischarge
+import LeanToLambdaBox.ProjPattern
 
 /-!
 # Subject reduction and forward simulation for the ι (`casesOn`) fragment — C2/C3
@@ -137,6 +138,7 @@ docstring). `IotaConsistent` stays a hypothesis, never an axiom. -/
 theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
     (hcon : SEnvConsistent env Us Esrc) (hiota : IotaConsistent env Us Γ ia)
+    (hproj : ProjConsistent env Us Γ)
     {e v : Expr} {ve : VExpr}
     (htr : TrExprS env Us Δ e ve)
     (hev : SEvalDataι Γ ia Esrc e v) :
@@ -201,6 +203,15 @@ theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VL
           (fun htr => ihdiscr hΔ htr) htr
       obtain ⟨rvv, htr_r, hdef3⟩ := ihbranch hΔ htr_branch
       exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΔ.toCtx hdef12 hdef3⟩
+  | @proj S ctor cus cargs iid np nf i ar discr r hs hctor hnfs har hcargs hi
+        hdiscr hlt hsel ihdiscr ihsel =>
+      -- One application of `ProjConsistent`, with the discriminant's own subject
+      -- reduction handed over as a function: the interface takes its discriminant up to
+      -- definitional equality, so no `TrProj` congruence is needed (see its docstring).
+      obtain ⟨fve, htr_f, hd₂⟩ :=
+        hproj hΔ hs hctor hnfs har hcargs hi hlt htr (fun htrd => ihdiscr hΔ htrd)
+      obtain ⟨rvv, htr_r, hd₃⟩ := ihsel hΔ htr_f
+      exact ⟨rvv, htr_r, VEnv.IsDefEqU.trans henv hΔ.toCtx hd₂ hd₃⟩
   | @lit l r hev ih =>
       -- Free: `TrExprS.lit` gives the literal and its unfolding the *same* `VExpr`.
       cases htr with | lit _ htrC => exact ih hΔ htrC
@@ -220,11 +231,12 @@ theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kern
     (hspec : PatsIotaSpec safety kenv env)
     (hcon : SEnvConsistent env Us Esrc)
     (hshape : IotaShape safety kenv Γ ia Esrc)
+    (hproj : ProjConsistent env Us Γ)
     {e v : Expr} {ve : VExpr}
     (htr : TrExprS env Us Δ e ve)
     (hev : SEvalDataι Γ ia Esrc e v) :
     ∃ vve, TrExprS env Us Δ v vve ∧ env.IsDefEqU Us.length Δ.toCtx ve vve :=
-  SEvalDataι_defeq henv hΔ hcon (iotaConsistent_of_shape henv hspec hcon hshape) htr hev
+  SEvalDataι_defeq henv hΔ hcon (iotaConsistent_of_shape henv hspec hcon hshape) hproj htr hev
 
 /-! ## ι-redex relevance — the two side conditions the model needs
 
@@ -277,9 +289,19 @@ structure IotaRelevant (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop wh
     Γ.ctorFields iid = some nfs → args.length < dp + 1 + nfs.length →
     TrExprS env Us Δ (args.foldl Expr.app (.const con us)) vk →
     InformativeType env Us Δ (args.foldl Expr.app (.const con us))
+  /-- A constructor value of an inductive that some registered eliminator consumes is
+  not irrelevant. The eliminator is a `casesOn` (ι) **or** a projection (projection
+  round, slice P7): `.proj S i e` has no proper application prefix for the relation to
+  box, so the `partialCases` clause has no projection analogue and this disjunction is
+  the *whole* of what the projection simulation needs from `IotaRelevant`. Widening the
+  hypothesis rather than adding a structure keeps the field count at two and leaves
+  every `IotaRelevant` **consumer** stronger, not weaker; nothing in the tree
+  constructs one, so there are no discharge sites to repair. -/
   ctorValue : ∀ {Δ : VLCtx} {cn : Name} {us : List Level} {iid : InductiveId}
       {cidx : Nat} {args : List Expr} {vk : VExpr},
-    Γ.ctors cn = some (iid, cidx) → (∃ con np, Γ.casesOns con = some (iid, np)) →
+    Γ.ctors cn = some (iid, cidx) →
+    ((∃ con np, Γ.casesOns con = some (iid, np)) ∨
+      (∃ S np, Γ.projs S = some (iid, np))) →
     TrExprS env Us Δ (args.foldl Expr.app (.const cn us)) vk →
     InformativeType env Us Δ (args.foldl Expr.app (.const cn us))
 

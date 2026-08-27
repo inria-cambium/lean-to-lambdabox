@@ -213,6 +213,40 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
       (hbranch : SEvalDataι Γ ia E ((cargs.drop np).foldl Expr.app (minors[cidx]'hidx)) r) :
       SEvalDataι Γ ia E
         ((discr :: minors).foldl Expr.app (pre.foldl Expr.app (.const con us))) r
+  /-- **Projection reduction** (`reduceProj`), projection round slice P5. The kernel
+      rule being modelled is `TypeChecker.reduceProj`: the discriminant evaluates to a
+      **saturated** constructor application of the structure's own single constructor,
+      and the projection selects spine position `np + i` — `np` parameters skipped,
+      then field `i` — and evaluates it.
+
+      The premises mirror `SEvalDataι.iota`'s, one class lighter (a projection has no
+      motive, no indices and no minors):
+
+      * `hs` pins `S` as a registered structure with `np` parameters — the datum
+        `visitProj` reads and the one `Erases.proj` carries;
+      * `hctor` pins the constructor to `S`'s own inductive **at index `0`**, which is
+        both `register_inductive`'s `is_struct` gate (`inf.ctors.length == 1`) and the
+        target rule's hard-wired `.construct p.indType 0 []`;
+      * `hnfs` is the same gate on the field side, and `hi` the range check;
+      * `har`/`hcargs` pin **saturation** exactly as `iota`'s `hcargs` does, which is
+        what makes the selection total.
+
+      `hlt` and `hsel` are kept as *two* fields rather than one `∃ h, …` bundle. The
+      design sketch bundled them; that would put the recursive occurrence under
+      `Exists` and cost the arm its induction hypothesis. `iota` splits `hidx` from
+      `hbranch` for the same reason, and this rule copies it. -/
+  | proj {S ctor : Name} {cus : List Level} {cargs : List Expr}
+      {iid : InductiveId} {np nf i ar : Nat} {discr r : Expr}
+      (hs : Γ.projs S = some (iid, np))
+      (hctor : Γ.ctors ctor = some (iid, 0))
+      (hnfs : Γ.ctorFields iid = some [nf])
+      (har : Γ.ctorArities ctor = some ar)
+      (hcargs : cargs.length = ar)
+      (hi : i < nf)
+      (hdiscr : SEvalDataι Γ ia E discr (cargs.foldl Expr.app (.const ctor cus)))
+      (hlt : np + i < cargs.length)
+      (hsel : SEvalDataι Γ ia E (cargs[np + i]'hlt) r) :
+      SEvalDataι Γ ia E (.proj S i discr) r
   /-- A **literal** evaluates by unfolding to its constructor form (see
       `SEvalβζδ.lit`). -/
   | lit {l : Literal} {r : Expr} :
@@ -300,17 +334,46 @@ one, because the reduct `cargs[np+i]` is a **subterm of the redex**, so its `TrE
 read straight off `TrExprS.mkApps_inv`'s `Forall₂` rather than built by application
 generation.
 
+**The discriminant is the *unreduced* one, and its subject reduction arrives as a
+function** (slice P6). The P4 statement quantified over `TrExprS Δ (.proj S i (ctor c̄))
+ve`, i.e. over the *already reduced* redex; every consumer has `TrExprS Δ (.proj S i
+discr) ve` instead, and bridging the two would need a `TrProj` congruence under a defeq
+discriminant — which the design costed as a separate lemma. It is not needed, and the
+reason is structural: `ProjDefeqSpec`/`TrEnv.proj_defeq` **already** takes its
+discriminant up to definitional equality (`hd : IsDefEqU d ((const c cus).mkApps
+(params ++ fields))`), so the congruence the design wanted to prove is exactly the
+premise the upstream rule wants to be given. Threading `hdiscr` here — the same
+"subject reduction as a function" device `SEvalDataι_iota_reduct` uses for the ι
+discriminant — hands it over directly and removes the congruence obligation from the
+round.
+
 A `Prop` **hypothesis**, never an axiom. -/
 def ProjConsistent (env : VEnv) (Us : List Name) (Γ : ErasureCtx) : Prop :=
   ∀ {Δ : VLCtx} {S ctor : Name} {cus : List Level} {cargs : List Expr}
-    {iid : InductiveId} {np nf i ar : Nat} {ve : VExpr},
+    {iid : InductiveId} {np nf i ar : Nat} {discr : Expr} {ve : VExpr},
     VLCtx.WF env Us.length Δ →
     Γ.projs S = some (iid, np) → Γ.ctors ctor = some (iid, 0) →
     Γ.ctorFields iid = some [nf] → Γ.ctorArities ctor = some ar →
     cargs.length = ar → i < nf → (hlt : np + i < cargs.length) →
-    TrExprS env Us Δ (.proj S i (cargs.foldl Expr.app (.const ctor cus))) ve →
+    TrExprS env Us Δ (.proj S i discr) ve →
+    (∀ {dve : VExpr}, TrExprS env Us Δ discr dve →
+      ∃ cve, TrExprS env Us Δ (cargs.foldl Expr.app (.const ctor cus)) cve ∧
+        env.IsDefEqU Us.length Δ.toCtx dve cve) →
     ∃ fve, TrExprS env Us Δ (cargs[np + i]'hlt) fve ∧
       env.IsDefEqU Us.length Δ.toCtx ve fve
+
+/-- **`ProjConsistent` is free at a `Γ` that registers no structure** (projection round,
+slice P6). Every clause of the interface is keyed on `Γ.projs S = some _`, so at
+`Γ.projs = ⊥` — every `Γ` in the tree that predates the projection round, including the
+capstone guards' `ΓFOι` — it holds by refutation and needs no `VEnv` reasoning at all.
+
+This is what makes the round *additive at the guards*: a projection-free capstone
+instantiation discharges the new premise instead of assuming it. The `Γproj` fixture is
+where the non-vacuous side lives. -/
+theorem projConsistent_of_noProjs {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
+    (h : Γ.projs = fun _ => none) : ProjConsistent env Us Γ := by
+  intro _ _ _ _ _ _ _ _ _ _ _ _ _ hs
+  rw [h] at hs; exact absurd hs (by simp)
 
 /-- **`Γ`-internal projection-arity coherence** — `CtorFieldsCoherent`'s twin, keyed on
 `Γ.projs` instead of `Γ.casesOns` (projection round, slice P0).
@@ -334,6 +397,13 @@ def ProjFieldsCoherent (Γ : ErasureCtx) : Prop :=
     Γ.projs S = some (iid, np) → Γ.ctorFields iid = some nfs →
     Γ.ctors cn = some (iid, 0) →
     ∃ (h : 0 < nfs.length), Γ.ctorArities cn = some (np + nfs[0])
+
+/-- …and `ProjFieldsCoherent` is free at `Γ.projs = ⊥` for the same reason as
+`projConsistent_of_noProjs`. -/
+theorem projFieldsCoherent_of_noProjs {Γ : ErasureCtx} (h : Γ.projs = fun _ => none) :
+    ProjFieldsCoherent Γ := by
+  intro _ _ _ _ _ hs
+  rw [h] at hs; exact absurd hs (by simp)
 
 /-- **`IotaArities` ↔ `ErasureCtx` coherence.** `SEvalDataι.iota` pins its redex
 *arithmetically*, through `ia` (`pre.length = np + nmot + nidx`, `minors.length = nmin`);

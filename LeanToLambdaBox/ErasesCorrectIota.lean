@@ -112,6 +112,15 @@ def ErasesEnvProjsι (Γ : ErasureCtx) (E : GlobalDeclarations) : Prop :=
   ∀ {S : Name} {iid : InductiveId} {np : Nat},
     Γ.projs S = some (iid, np) → isPropositionalInductive E iid = false
 
+/-- **Free at a structure-free `Γ`** (projection round, slice P7), the third member of
+the vacuity trio with `projConsistent_of_noProjs` / `projFieldsCoherent_of_noProjs`
+(`SourceEvalData.lean`). Every capstone instantiation that predates the round registers
+no structure, so all three of the simulation's new premises are *discharged* there
+rather than assumed — which is what keeps the round additive at the guards. -/
+theorem erasesEnvProjsι_of_noProjs {Γ : ErasureCtx} {E : GlobalDeclarations}
+    (h : Γ.projs = fun _ => none) : ErasesEnvProjsι Γ E := by
+  intro _ _ _ hs; rw [h] at hs; exact absurd hs (by simp)
+
 /-- **The flat fragment.** Every constructor of an inductive eliminated by some registered
 `casesOn` has zero retained fields (`Bool`, `Ordering`, enumerations).
 
@@ -215,6 +224,12 @@ theorem SEvalDataι_partial_cases_lam_elim {Γ : ErasureCtx} {ia : IotaArities} 
       have hargslen : (pre ++ discr :: minors).length = pre.length + 1 + minors.length := by
         simp only [List.length_append, List.length_cons]; omega
       omega
+  | @proj S ctor cus cargs iid np nf i ar discr r hs hctor hnfs har hcargs hi
+      hdiscr hlt hsel _ _ =>
+      -- a `.proj` source is never a `.const`-headed spine, so the premise is refuted —
+      -- the `lit` arm verbatim, at the projection round's own head-mismatch lemma
+      intro con us args iid₀ np₀ dp nfs heq _ _ _ _
+      exact absurd heq.symm foldl_app_const_ne_proj
   | @lit l r hev _ =>
       -- a `.lit` source is never a `.const`-headed spine, so the premise is refuted
       intro con us args iid np dp nfs heq _ _ _ _
@@ -234,7 +249,7 @@ produces with the one-shot `substList` of the target ι rule.
 
 The ported β/δ/ctor cases differ from `erases_correct_data`'s only in that `SEvalDataι`
 has no forgetful map to `SEvalβζδ` (ι is not in that fragment), so every
-`SEvalβζδ_defeq henv hΔ hcon …` becomes `SEvalDataι_defeq henv hΔ hcon hiota …` — same
+`SEvalβζδ_defeq henv hΔ hcon …` becomes `SEvalDataι_defeq henv hΔ hcon hiota hproj …` — same
 rôle, same output triple, one extra argument — and in the `LBClosed` bookkeeping.
 
 Note the *reverse* disjointness (`Γ.casesOns con = some _ → Γ.ctors con = none`) is not a
@@ -252,10 +267,13 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
     {Esrc : SEnv} {E : GlobalDeclarations}
     (hcon : SEnvConsistent env Us Esrc)
     (hiota : IotaConsistent env Us Γ ia)
+    (hproj : ProjConsistent env Us Γ)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
     (hctorenv : ErasesEnvCtor Γ E)
     (hcasesenv : ErasesEnvCasesι Γ E)
+    (hprojenv : ErasesEnvProjsι Γ E)
     (hcoh : CtorFieldsCoherent Γ)
+    (hpcoh : ProjFieldsCoherent Γ)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
@@ -295,7 +313,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         ⟨con2, us2, pre2, discr2, minors2, iid2, np2, discr', alts', nfs2, hsrc,
           hcase2, hpre2, hnfs2, hd2, hlen2, hnlen2, harity2, halts2, rfl⟩
       · obtain ⟨vve, htrr, hdef⟩ :=
-          SEvalDataι_defeq henv hΔ hcon hiota htr (.beta hf ha hbody)
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr (.beta hf ha hbody)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
         exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef),
@@ -311,10 +329,10 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
               hEf hEa herlam ⟨hnbftv, hclftv⟩ with
             ⟨velam, htrvelam, herlamE, hEbox⟩ | ⟨tyE, b', htrtyE, hb', hPb', hEstep⟩
           · obtain ⟨vve, htrr, hdef⟩ :=
-              SEvalDataι_defeq henv hΔ hcon hiota (.app hTf hTa htrf htra)
+              SEvalDataι_defeq henv hΔ hcon hiota hproj (.app hTf hTa htrf htra)
                 (.beta hf ha hbody)
             obtain ⟨fvv0, htrlam0, hfdef⟩ :=
-              SEvalDataι_defeq henv hΔ hcon hiota htrf hf
+              SEvalDataι_defeq henv hΔ hcon hiota hproj htrf hf
             have hferase : Erasable env Us.length Δ.toCtx f' :=
               (herlamE.defeq henv hΓ
                 (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrvelam htrlam0)).defeq
@@ -324,7 +342,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
             exact ⟨.box, vve, hEbox, htrr,
               .box htrr (herapp.defeq henv hΓ hdef), trivial, trivial⟩
           · obtain ⟨fvv0, htrlam0, hfdef⟩ :=
-              SEvalDataι_defeq henv hΔ hcon hiota htrf hf
+              SEvalDataι_defeq henv hΔ hcon hiota hproj htrf hf
             cases htrlam0 with
             | @lam ty' _Δ _ty _body body' _name _bi hty' htrty htrb =>
               obtain ⟨B'', hbodyT⟩ :=
@@ -341,7 +359,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
                 exact ⟨_, h⟩
               have havIsA : env.IsDefEqU Us.length Δ.toCtx avv a'' := by
                 obtain ⟨avv0, htrav0, had0⟩ :=
-                  SEvalDataι_defeq henv hΔ hcon hiota htra ha
+                  SEvalDataι_defeq henv hΔ hcon hiota hproj htra ha
                 exact VEnv.IsDefEqU.trans henv hΓ
                   (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrav htrav0)
                   (VEnv.IsDefEqU.symm had0)
@@ -397,7 +415,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
         | ⟨x, hfx, rfl⟩
       · obtain ⟨vve, htrr, hrdef⟩ :=
-          SEvalDataι_defeq henv hΔ hcon hiota htr (.delta hunf hbodyev)
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr (.delta hunf hbodyev)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
         exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hrdef),
@@ -423,7 +441,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
       rcases Erases.ctor_spine_inv henv hΔ hcctors (hcc hcctors) args.length args rfl htr her with
         ⟨herve, args', rfl, hmem⟩ | ⟨args', hlen', rfl, hcorr⟩ | hnbt
       · obtain ⟨vve, htrr, hdef⟩ :=
-          SEvalDataι_defeq henv hΔ hcon hiota htr
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr
             (.ctor_val hcctors har hsat hl (fun i h => hargs i h))
         have heval : ∀ a' ∈ args', ∃ w, WcbvEval E appliedFlags a' w := by
           intro a' ha'
@@ -464,7 +482,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         have hTeval := construct_app_spine harE args' ws (.construct iid cidx []) [] hbase hle hlaw hpe
         rw [← mkApps_eq_foldl, List.nil_append] at hTeval
         obtain ⟨vve, htrr, _⟩ :=
-          SEvalDataι_defeq henv hΔ hcon hiota htr
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr
             (.ctor_val hcctors har hsat hl (fun i h => hargs i h))
         have hVerase : Erases env Us Γ Δ (vs.foldl Expr.app (.const cn us))
             (LBTerm.mkApps (.construct iid cidx []) ws) := by
@@ -511,7 +529,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
         ⟨herve, rfl⟩ | ⟨discr', alts', hlen, rfl, hd, harity, halts⟩
       · -- the whole match is irrelevant: `t = .box`
         obtain ⟨vve, htrr, hdef⟩ :=
-          SEvalDataι_defeq henv hΔ hcon hiota htr
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr
             (.iota hcases hctor hia har hpre hmin hcargs hdiscr hidx hbranch)
         exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef),
           trivial, trivial⟩
@@ -528,7 +546,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
             htrdv herdv with
           ⟨hercv, cargs', rfl, _⟩ | ⟨cargs', hclen, rfl, hccorr⟩ | hnbt
         · exact absurd hercv (informativeType_not_erasable henv hΔ
-            (hrel.ctorValue hctor ⟨con, np, hcases⟩ htrdv) htrdv)
+            (hrel.ctorValue hctor (.inl ⟨con, np, hcases⟩) htrdv) htrdv)
         · -- (5) arity arithmetic: the constructor's field block *is* the selected
           --     alternative's λ-telescope (`CtorFieldsCoherent` links the two arities)
           obtain ⟨hcidx, harc⟩ := hcoh hcases hnfs hctor
@@ -555,7 +573,7 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           -- (7) the reduct's translation, from `IotaConsistent`
           obtain ⟨bve, htrbranch, hdefb⟩ :=
             SEvalDataι_iota_reduct henv hΔ hiota hcases hctor hia har hpre hmin hcargs hidx
-              (fun htrx => SEvalDataι_defeq henv hΔ hcon hiota htrx hdiscr) htr
+              (fun htrx => SEvalDataι_defeq henv hΔ hcon hiota hproj htrx hdiscr) htr
           -- (8) the branch IH, on the applied telescope
           have hfieldnb : ∀ x ∈ cargs'.drop np, NoBlock x :=
             fun x hx => noBlock_mkApps_inv hnbd x (List.mem_of_mem_drop hx)
@@ -581,12 +599,70 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
           · exact wcbvEval_mkApps_mkLambdas_substList (cargs'.drop np) _ _
               (by rw [hnames, hdropl']) hfieldval hfieldcl hEbranch
         · exact absurd hnbd hnbt
+  | @proj S ctor cus cargs iid np nf i ar discr r hs hctor hnfs har hcargs hi
+      hdiscr hlt hsel ihdiscr ihsel =>
+      intro ve t htr her hnb hcl
+      have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
+      have htr₀ := htr
+      -- (1) invert the erasure of the redex. `Erases.proj_inv` is total and two-way —
+      --     `box` and `proj` are the only rules concluding at a `.proj` source — so no
+      --     `proj_redex_inv` analogue of `iota_redex_inv` is needed: there is no spine
+      --     arithmetic and no prefix-relevance side condition to thread.
+      rcases her.proj_inv with ⟨veb, htrb, herbox, rfl⟩
+        | ⟨iid', np', nf', discr', hs', hnfs', hi', hd, rfl⟩
+      · -- the whole projection is irrelevant: `t = .box`
+        obtain ⟨vve, htrr, hdef⟩ :=
+          SEvalDataι_defeq henv hΔ hcon hiota hproj htr
+            (.proj hs hctor hnfs har hcargs hi hdiscr hlt hsel)
+        have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
+          (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
+        exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef),
+          trivial, trivial⟩
+      · -- the model's `ProjectionInfo` is the source rule's own registration data
+        obtain ⟨rfl, rfl⟩ : iid = iid' ∧ np = np' := by
+          rw [hs] at hs'
+          simp only [Option.some.injEq, Prod.mk.injEq] at hs'
+          exact ⟨hs'.1, hs'.2⟩
+        -- (2) evaluate the discriminant. This is where §2.6's de-opacification is
+        --     cashed in: with `NoBlock (.proj p t) = True` the IH's argument would be
+        --     unobtainable.
+        obtain ⟨dve, htrd, _⟩ := htr.proj_inv
+        rw [NoBlock_proj] at hnb
+        rw [LBClosed_proj] at hcl
+        obtain ⟨dt', dvv, hEd, htrdv, herdv, hnbd, hcld⟩ := ihdiscr htrd hd hnb hcl
+        -- (3) shape the value: a non-erasable constructor spine at index `0`
+        rcases Erases.ctor_spine_inv henv hΔ hctor (hcc hctor) cargs.length cargs rfl
+            htrdv herdv with
+          ⟨hercv, cargs', rfl, _⟩ | ⟨cargs', hclen, rfl, hccorr⟩ | hnbt
+        · exact absurd hercv (informativeType_not_erasable henv hΔ
+            (hrel.ctorValue hctor (.inr ⟨S, np, hs⟩) htrdv) htrdv)
+        · -- (4) the selected field, on both sides. `ProjFieldsCoherent` is what puts
+          --     the target index `np + i` in range: it decomposes the spine length
+          --     `ar` the source rule pins as `np + nf`.
+          obtain ⟨_, harc⟩ := hpcoh hs hnfs hctor
+          have harnf : ar = np + nf := by
+            rw [har] at harc; simpa using Option.some.inj harc
+          have hlt' : np + i < cargs'.length := by omega
+          have herfield : Erases env Us Γ Δ (cargs[np + i]'hlt) (cargs'[np + i]'hlt') :=
+            hccorr (np + i) hlt'
+          obtain ⟨sve, htrsel⟩ :=
+            (trExprS_appSpine_inv cargs (.const ctor cus) dvv htrdv).2 (np + i) hlt
+          obtain ⟨t', vve, hEfield, htrr, herr, hnbt', hclt'⟩ :=
+            ihsel htrsel herfield
+              (noBlock_mkApps_inv hnbd _ (List.getElem_mem hlt'))
+              (LBClosed.mkApps_inv hcld _ (List.getElem_mem hlt'))
+          -- (5) fire the target rule — the **non-block** `WcbvEval.proj`, which is the
+          --     one `appliedFlags` runs (`with_constructor_as_block = false`).
+          refine ⟨t', vve, ?_, htrr, herr, hnbt', hclt'⟩
+          exact WcbvEval.proj (p := ⟨iid, np, i⟩) rfl (hprojenv hs) hEd
+            (by simp [List.getElem?_eq_getElem hlt']) hEfield
+        · exact absurd hnbd hnbt
   | @lit l r hev ih =>
       intro ve t htr her hnb hcl
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       obtain ⟨hcll, htrC⟩ := TrExprS.lit_inv' htr
       rcases Erases.lit_inv her with ⟨veb, htrb, herbox, rfl⟩ | ⟨_, herC⟩
-      · obtain ⟨vve, htrr, hdef⟩ := SEvalDataι_defeq henv hΔ hcon hiota htr (.lit hev)
+      · obtain ⟨vve, htrr, hdef⟩ := SEvalDataι_defeq henv hΔ hcon hiota hproj htr (.lit hev)
         have herve : Erasable env Us.length Δ.toCtx ve := herbox.defeq henv hΓ
           (TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htr)
         exact ⟨.box, vve, .box, htrr, .box htrr (herve.defeq henv hΓ hdef),

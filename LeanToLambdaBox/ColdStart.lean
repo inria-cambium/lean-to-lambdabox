@@ -640,6 +640,16 @@ theorem shipping_erase_correct_firstorderι_coldstart
     (hiota : IotaConsistent env Us Γ ia)
     (hiacoh : IotaArityCoherent Γ ia)
     (hrel : IotaRelevant env Us Γ)
+    -- projection round, slice P7 (forced repair; this file belongs to another lane).
+    -- The ι simulation now carries three projection premises. Two of them are env
+    -- records that would have to come off the registry invariant, which has no
+    -- projection field yet (`RegInvShape` is `ColdStartShape.lean`'s, and giving it one
+    -- is slice P9's composition work). Until then the cold-start ι capstone is stated at
+    -- a **structure-free** `Γ`, which is every `Γ` it already applied to: the three
+    -- premises are then *discharged*, not assumed, by the vacuity trio
+    -- (`projConsistent_of_noProjs` / `projFieldsCoherent_of_noProjs`,
+    -- `SourceEvalData.lean`; `ErasesEnvProjs` by refutation).
+    (hnoprojs : Γ.projs = fun _ => none)
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     -- runtime Hoare bundles
@@ -740,12 +750,15 @@ theorem shipping_erase_correct_firstorderι_coldstart
       (Esrc := Esrc.walked Γ sf.gdecls) (E := sf.gdecls) (known := known)
       hcon.walked
       hiota
+      (projConsistent_of_noProjs hnoprojs)
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
       (erasesEnvCases_of_registeredCases (hshape.registeredCases (Hr.satCases hvis)))
+      (fun hS => absurd hS (by rw [hnoprojs]; simp))
       (ctorFieldsCoherent_of_registered (hshape.registeredCtors (Hr.satCtors hvis))
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
+      (projFieldsCoherent_of_noProjs hnoprojs)
       hiacoh hrel hcc hrecc hnfv hshape.closed H HD C Hδ
       Hβ Hreg hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
@@ -958,7 +971,8 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
-    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc (hnoprojs := rfl)
+    H HD C Hδ Hβ RecBlockAgreement.of_bot S
     (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
