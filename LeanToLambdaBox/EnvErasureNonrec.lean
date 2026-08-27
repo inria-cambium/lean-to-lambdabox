@@ -487,7 +487,7 @@ the `Δ = []` invariant guard below. -/
 theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -502,7 +502,7 @@ theorem erases_nonrec_const_body {env : VEnv} {Us : List Name} {known : Name →
     (hsupp : Supported known Γ prepbody)
     (hex : ∃ ve, TrExprS env Us [] prepbody ve) :
     Erases env Us Γ [] prepbody body' :=
-  (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv
+  (visitExpr_refines_erases H HD C P Hδ Hβ Hreg henv
     _ _ _ _ _ _ _ _ _ hrun _ hinv hsupp hex).1
 
 /-- **Cold-start closure registration for the non-recursive fragment** (a clean `Prop`

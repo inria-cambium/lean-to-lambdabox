@@ -114,7 +114,7 @@ hypotheses at all. -/
 theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Name → Prop}
     {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -132,7 +132,7 @@ theorem erases_nonrec_const_registered {env : VEnv} {Us : List Name} {known : Na
     LBTerm.envLookup s₁.gdecls (Γ.constants n) = some (.constantDecl ⟨some t⟩) ∧
       Erases env Us Γ [] pe t ∧ NoFix t ∧ LBClosed t 0 := by
   obtain ⟨hnf, hcl⟩ := visitExpr_noFix_closed hvis
-  refine ⟨?_, erases_nonrec_const_body H HD C Hδ Hβ Hreg henv hvis hinv hsupp hex, hnf, hcl⟩
+  refine ⟨?_, erases_nonrec_const_body H HD C P Hδ Hβ Hreg henv hvis hinv hsupp hex, hnf, hcl⟩
   rw [hpost.gdecls, hknames n]
   exact envLookup_cons_self _ _ _
 
@@ -454,7 +454,7 @@ neither a residue any more: `huni` is `ErasesUniform.erases_uniform_of_nil` (δ-
 theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -482,7 +482,7 @@ theorem registeredClosureData_step_nonrec {env : VEnv} {Us : List Name}
     · subst hm
       obtain rfl : body = pe := hEsrc hunf
       obtain ⟨hlook, her, -, -⟩ :=
-        erases_nonrec_const_registered H HD C Hδ Hβ Hreg henv hknames hvis hinv hsupp hex
+        erases_nonrec_const_registered H HD C P Hδ Hβ Hreg henv hknames hvis hinv hsupp hex
           hpost
       exact ⟨t, hlook, fun {Δ} => huni (Δ := Δ) her, hnb⟩
     · obtain ⟨body', hlook, her, hnbb⟩ := hold.erase hunf

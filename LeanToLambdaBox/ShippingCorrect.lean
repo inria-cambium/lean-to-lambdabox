@@ -76,7 +76,7 @@ theorem shipping_visitExpr_correct
     (hrec : RecEnvConsistent env Us Γ Esrc E)
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrcδ gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -92,7 +92,7 @@ theorem shipping_visitExpr_correct
     (hev : SEvalβδ Esrc e v) :
     ∃ t' vve, Eval E t t' ∧ TrExprS env Us Δ v vve ∧ Erases env Us Γ Δ v t' :=
   erases_correct henv hΔ hcon hdelta hrec hnfv htr
-    (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+    (visitExpr_refines_erases H HD C P Hδ Hβ Hreg henv.ordered
       e s ctx cctx ref w t s' w' hrun Δ hinv hsup ⟨ve, htr⟩).1
     hev
 
@@ -121,7 +121,7 @@ theorem shipping_visitExpr_correct'
     (hrec : RecEnvConsistent (ves.venv .safe) Us Γ Esrc E)
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
-    (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (R : ResidualHyps env₀ ves Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps (ves.venv .safe) Us known Γ cfg₀ Esrcδ gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -137,7 +137,7 @@ theorem shipping_visitExpr_correct'
     (hev : SEvalβδ Esrc e v) :
     ∃ t' vve, Eval E t t' ∧ TrExprS (ves.venv .safe) Us Δ v vve ∧
       Erases (ves.venv .safe) Us Γ Δ v t' :=
-  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta hrec hnfv (R.toBridgeHyps wf) HD C Hδ
+  shipping_visitExpr_correct wf.tr.wf hΔ hcon hdelta hrec hnfv (R.toBridgeHyps wf) HD C P Hδ
     Hβ Hreg hrun hinv hsup htr hev
 
 /-! ## Non-vacuity guard
@@ -156,7 +156,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (cfg : ErasureConfig)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
-    (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps .empty [] Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps .empty [] (fun _ => False) Γ cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -184,7 +184,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     (Lean4Lean.TrLCtx.nil (env := .empty) (Us := [])).wf
     (fun h _ => nomatch h) (fun h => nomatch h)
     (recEnvConsistent_of_noRec (Γ := Γ) hΓrec) hΓfv
-    H HD C Hδ Hβ RecBlockAgreement.of_bot (known := fun _ => False) hrun
+    H HD C P Hδ Hβ RecBlockAgreement.of_bot (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
       lparams := rfl
       cfg := rfl

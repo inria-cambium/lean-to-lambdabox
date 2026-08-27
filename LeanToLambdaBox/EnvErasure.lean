@@ -113,7 +113,7 @@ theorem shipping_erase_correct_firstorder_registered
     (hrec : RecEnvConsistent env Us Γ Esrc E)
     (hnfv : Γ.fixvars = fun _ => none)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -135,7 +135,7 @@ theorem shipping_erase_correct_firstorder_registered
       ∀ tu, Erases env Us Γ [] v tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder henv hcon
     (erasesEnvDeltaData_of_registeredClosureData hregdelta)
-    hctorenv hcc hrec hnfv H HD C Hδ Hβ Hreg hrun hinv hsup htr hnb hev hfo
+    hctorenv hcc hrec hnfv H HD C P Hδ Hβ Hreg hrun hinv hsup htr hnb hev hfo
 
 /-! ## Non-vacuity guard
 
@@ -150,7 +150,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       BlockHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) cc rf)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
-    (C : CasesBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw) (P : ProjBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) gw cc rf)
     (s s' : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
@@ -168,7 +168,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (E := EFOd) ?_ ⟨?_, ?_⟩ ΓFOd_envctor ?_
     (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl)        -- ΓFOd registers no recursion
     rfl                                                -- …and installs no fixvar map
-    H HD C Hδ Hβ RecBlockAgreement.of_bot hrun hinv hsup envFO_trC hnb ?_
+    H HD C P Hδ Hβ RecBlockAgreement.of_bot hrun hinv hsup envFO_trC hnb ?_
     (envFO_foC_d harity)
   · intro Δ n us body cve h; exact absurd h (by simp)   -- SEnvConsistent, vacuous
   · intro n body h; exact absurd h (by simp)            -- RegisteredClosureData.disj, vacuous

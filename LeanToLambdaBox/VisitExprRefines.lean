@@ -2,6 +2,7 @@ import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.Bridge
 import LeanToLambdaBox.DataBridgeHyps
 import LeanToLambdaBox.CasesBridgeHyps
+import LeanToLambdaBox.ProjBridgeHyps
 import LeanToLambdaBox.DeltaHyps
 import LeanToLambdaBox.RecBlockErasure
 import LeanToLambdaBox.EraseCore
@@ -1046,14 +1047,14 @@ theorem BridgeInv.withFixvars {env : VEnv} {Us : List Name} {known known' : Name
   knames := h.knames
   consts := h.consts
 
-/-! ### The three trust bundles at a block-local `Γ`
+/-! ### The four trust bundles at a block-local `Γ`
 
 `ErasureCtx.withFixvars` moves exactly one field, and none of `BridgeHyps`,
-`DataBridgeHyps`, `CasesBridgeHyps` reads it: they speak about `Γ.ctors`, `Γ.casesOns`,
-`Γ.ctorArities`, `Γ.casesDiscrPos` and `Γ.ctorFields`, every one of which is `rfl` at
-`Γ.withFixvars fv`. So each transports field-by-field, with no proof obligation at all —
-which is the concrete form of the design's claim that the three bundles are
-`rfl`-invariant under the block instantiation. -/
+`DataBridgeHyps`, `CasesBridgeHyps`, `ProjBridgeHyps` reads it: they speak about
+`Γ.ctors`, `Γ.casesOns`, `Γ.ctorArities`, `Γ.casesDiscrPos`, `Γ.ctorFields` and
+`Γ.projs`, every one of which is `rfl` at `Γ.withFixvars fv`. So each transports
+field-by-field, with no proof obligation at all — which is the concrete form of the
+design's claim that the bundles are `rfl`-invariant under the block instantiation. -/
 
 theorem BridgeHyps.withFixvars {env : VEnv} {Us : List Name} {Γ : ErasureCtx}
     {gw : Void IO.RealWorld → NameGenerator} (H : BridgeHyps env Us Γ gw)
@@ -1080,6 +1081,12 @@ theorem CasesBridgeHyps.withFixvars {Γ : ErasureCtx}
   casesind_run := C.casesind_run
   casesreg_run := C.casesreg_run
   infer_lam_run := C.infer_lam_run
+
+theorem ProjBridgeHyps.withFixvars {Γ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} (P : ProjBridgeHyps Γ gw)
+    (fv : Name → Option FVarId) : ProjBridgeHyps (Γ.withFixvars fv) gw where
+  projind_run := P.projind_run
+  projreg_run := P.projreg_run
 
 /-! ### …and at a motive-local `Γ`
 
@@ -1125,6 +1132,11 @@ theorem CasesBridgeHyps.of_coh {Γ Γ₀ : ErasureCtx}
     {gw : Void IO.RealWorld → NameGenerator} (C : CasesBridgeHyps Γ₀ gw)
     (hΓ : Γ = Γ₀.withFixvars Γ.fixvars) : CasesBridgeHyps Γ gw := by
   rw [hΓ]; exact C.withFixvars _
+
+theorem ProjBridgeHyps.of_coh {Γ Γ₀ : ErasureCtx}
+    {gw : Void IO.RealWorld → NameGenerator} (P : ProjBridgeHyps Γ₀ gw)
+    (hΓ : Γ = Γ₀.withFixvars Γ.fixvars) : ProjBridgeHyps Γ gw := by
+  rw [hΓ]; exact P.withFixvars _
 
 /-- Extend the invariant across `Erasure.withLocalDecl`'s context extension
 (the `visitLambda` case). Needs the fresh fvar `x` reserved both by the target
@@ -1841,7 +1853,7 @@ lemma wide, and is what consumers of the conjunct actually apply. -/
 theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ₀ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
+    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw) (P : ProjBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
     (Hβ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
@@ -3512,7 +3524,7 @@ what the run actually does. -/
 theorem visitExpr_refines_erases {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg₀ Esrc gw cctx ref)
     (Hβ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
@@ -3525,7 +3537,7 @@ theorem visitExpr_refines_erases {env : VEnv} {Us : List Name}
         Supported known Γ e → (∃ ve, TrExprS env Us Δ e ve) →
         Erases env Us Γ Δ e t ∧ RunConclδ env Us Γ Esrc s s' ∧ gw w ≤ gw w' :=
   fun e s ctx cctx ref w t s' w' hrun Δ =>
-    (visitExpr_refines_erases_core H HD C Hδ Hβ Hreg henv).1.1
+    (visitExpr_refines_erases_core H HD C P Hδ Hβ Hreg henv).1.1
       e s ctx cctx ref w t s' w' hrun Γ (ErasureCtx.withFixvars_self Γ).symm Δ
 
 /-- **The bridge, instantiated *inside* a mutual block** (slice δ-D8).
@@ -3575,7 +3587,7 @@ block case directly, at the local `Γ` its motives carry. -/
 theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
     {known : Name → Prop} {Γ : ErasureCtx} {cfg₀ : ErasureConfig} {Esrcb : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
              (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us (fun _ => False) (Γ.withFixvars fv) cfg₀ Esrcb gw cc rf)
@@ -3601,14 +3613,14 @@ theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
   have hinv' : BridgeInv env Us (fun _ => False) (Γ.withFixvars fv) cfg₀ (gw w) ctx' s Δ :=
     (hinv.mono hgen).withFixvars hlctx hlp hcfg hfvm hagree hfresh
   have h := visitExpr_refines_erases (H.withFixvars fv) (HD.withFixvars fv)
-    (C.withFixvars fv) (Hδ' fv) (Hβ' fv) RecBlockAgreement.of_bot henv
+    (C.withFixvars fv) (P.withFixvars fv) (Hδ' fv) (Hβ' fv) RecBlockAgreement.of_bot henv
     e s ctx' cctx ref w t s' w' hrun Δ hinv' hsupp hex
   exact ⟨h.1, h.2.1.rc, h.2.2⟩
 
 /-! ## Non-vacuity guards
 
-The `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps` fields quantify over opaque
-runtime primitives, so their global satisfiability is not in-logic decidable —
+The `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`/`ProjBridgeHyps` fields quantify
+over opaque runtime primitives, so their global satisfiability is not in-logic decidable —
 that is the documented trust boundary. Everything *else* is checked non-vacuous
 here: `BridgeInv` is satisfiable, and the theorem's full non-run premise set is
 jointly instantiable at a concrete context/term. (The ι fragment's own
@@ -3691,7 +3703,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
     (gw : Void IO.RealWorld → NameGenerator) (w w' : Void IO.RealWorld)
     (x : FVarId) (hres : (gw w).Reserves x)
     (H : BridgeHyps env Us ΓfixRec gw) (HD : DataBridgeHyps ΓfixRec gw)
-    (C : CasesBridgeHyps ΓfixRec gw)
+    (C : CasesBridgeHyps ΓfixRec gw) (P : ProjBridgeHyps ΓfixRec gw)
     (Hδ' : ∀ (fv : Name → Option FVarId) (cc : Core.Context)
              (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us (fun _ => False) (ΓfixRec.withFixvars fv) cfg (fun _ => none) gw cc rf)
@@ -3707,7 +3719,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
       = .ok (t, s') w') :
     Erases env Us (ΓfixOpen x) [] (.const `f []) t ∧
       Erasure.RunConcl {} s' ∧ gw w ≤ gw w' :=
-  visitExpr_refines_erases_block H HD C Hδ' Hβ' henv
+  visitExpr_refines_erases_block H HD C P Hδ' Hβ' henv
     (Γ := ΓfixRec) (fv := fun n => if n = `f then some x else none)
     (ctx := ⟨{}, none, Us, cfg⟩) (known := fun _ => False)
     (ctx' := ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩)
@@ -3832,7 +3844,7 @@ that is not trivial. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
     {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
-    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
+    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw) (P : ProjBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -3863,9 +3875,9 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
     RunConclδ env Us Γ₀ Esrc s₀ s₁ ∧ gw w ≤ gw w₁ ∧ (s₁.constants.get? n).isSome :=
   rec_exit_refines_erases H (Hδ cctx ref) (Hβ cctx ref) henv
     (fun e s ctx' w' t s' w'' hr =>
-      (visitExpr_refines_erases_core H HD C Hδ Hβ Hreg henv).1.1
+      (visitExpr_refines_erases_core H HD C P Hδ Hβ Hreg henv).1.1
         e s ctx' cctx ref w' t s' w'' hr)
-    (visitExpr_refines_erases_core (cfg₀ := cfg₀) H HD C Hδ Hβ Hreg henv).1.2
+    (visitExpr_refines_erases_core (cfg₀ := cfg₀) H HD C P Hδ Hβ Hreg henv).1.2
     (ErasureCtx.withFixvars_self Γ₀).symm hkn hnd hnmem hinv
     (Hreg cctx ref hkn hnd hinv) hrun
 
@@ -3989,7 +4001,7 @@ Note what is *not* re-proved: the three trust bundles and `Hδ` are the ambient 
 unchanged. Only `Γ` moved. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
     {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw)
+    (H : BridgeHyps env Us Γ₀ gw) (HD : DataBridgeHyps Γ₀ gw) (C : CasesBridgeHyps Γ₀ gw) (P : ProjBridgeHyps Γ₀ gw)
     (Hδ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ₀ cfg₀ Esrc gw cctx ref)
     (Hβ : ∀ (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State),
@@ -4003,7 +4015,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
         Erases env Us (Γ₀.withFixvars fv) Δ e t ∧
           RunConclδ env Us Γ₀ Esrc s s' ∧ gw w ≤ gw w' :=
   fun e s ctx cctx ref w t s' w' hrun Δ =>
-    (visitExpr_refines_erases_core H HD C Hδ Hβ Hreg henv).1.1
+    (visitExpr_refines_erases_core H HD C P Hδ Hβ Hreg henv).1.1
       e s ctx cctx ref w t s' w' hrun (Γ₀.withFixvars fv) rfl Δ
 
 /-- (ii) The non-run premises of `visitExpr_refines_erases` are jointly
@@ -4018,7 +4030,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
     (hkn : ∀ n : Name, Γ.constants n = toKername n) (hfv : Γ.fixvars = fun _ => none)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us (fun _ => False) Γ cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -4070,7 +4082,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
   have hex : ∃ ve, TrExprS env Us
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] (.fvar x) ve :=
     ⟨_, .fvar hfind2⟩
-  exact visitExpr_refines_erases H HD C Hδ Hβ RecBlockAgreement.of_bot henv
+  exact visitExpr_refines_erases H HD C P Hδ Hβ RecBlockAgreement.of_bot henv
     _ _ _ _ _ _ _ _ _ hrun _ hinv (.fvar x) hex
 
 
@@ -4091,7 +4103,7 @@ there. -/
 example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envNatT [] ΓnatLit gw) (HD : DataBridgeHyps ΓnatLit gw)
-    (C : CasesBridgeHyps ΓnatLit gw)
+    (C : CasesBridgeHyps ΓnatLit gw) (P : ProjBridgeHyps ΓnatLit gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envNatT [] (fun _ => False) ΓnatLit cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -4115,7 +4127,7 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
       reserved := fun _ h => nomatch h
       knames := fun _ => rfl
       consts := by intro n k hk; simp at hk }
-  exact visitExpr_refines_erases H HD C Hδ Hβ RecBlockAgreement.of_bot
+  exact visitExpr_refines_erases H HD C P Hδ Hβ RecBlockAgreement.of_bot
     envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _ hinv
     (.natLit 2 (by simp [ΓnatLit]) ΓnatLit_zero ΓnatLit_succ)
     ⟨_, trExprS_natLit 2⟩
@@ -4179,7 +4191,7 @@ the kername the registry holds, and `RunConcl.canon` makes it `Γ`'s. Before thi
 none of that existed and the branch was refuted by fiat. -/
 example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envNatT [] gΓδ gw) (HD : DataBridgeHyps gΓδ gw)
-    (C : CasesBridgeHyps gΓδ gw)
+    (C : CasesBridgeHyps gΓδ gw) (P : ProjBridgeHyps gΓδ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envNatT [] (fun m => m = ``Nat.zero) gΓδ cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -4192,7 +4204,7 @@ example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
     Erases envNatT [] gΓδ [] (.const ``Nat.zero []) t ∧
       RunConclδ envNatT [] gΓδ (fun _ => none) ({} : ErasureState) s' ∧
       gw w ≤ gw w' :=
-  visitExpr_refines_erases H HD C Hδ Hβ Hreg envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _
+  visitExpr_refines_erases H HD C P Hδ Hβ Hreg envNatT_wf.ordered _ _ _ _ _ _ _ _ _ hrun _
     (bridgeInv_cold_known envNatT [] gΓδ (fun _ => rfl) rfl (gw w) cfg
       (fun h => absurd h (by decide)) ``Nat.zero)
     (.const ``Nat.zero [] (Or.inl rfl) rfl rfl)

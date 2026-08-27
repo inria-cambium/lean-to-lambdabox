@@ -654,7 +654,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     -- runtime Hoare bundles
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
     -- the recursion premises (Γ-W3.6b/Γ-W4): the block-local scope bundle, and the
@@ -713,7 +713,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
   -- entry-state instance (nothing is recorded yet), and the bridge's `RunConclδ` — the
   -- state-side conclusion every motive carries since D4b — transports it to `sf`.
   have hmem : DeltaMem env [] Γ Esrc sf :=
-    (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+    (visitExpr_refines_erases H HD C P Hδ Hβ Hreg henv.ordered
       pe {} { «config» := cfg } cctx ref wp t sf wt hvis [] hinv hsup
       ⟨ve, htr⟩).2.1.δ DeltaMem.empty
   -- …converted, at the walk-restricted source environment, into the record the data
@@ -759,7 +759,7 @@ theorem shipping_erase_correct_firstorderι_coldstart
         (hshape.registeredCases (Hr.satCases hvis))
         (hshape.registeredCtorFieldsAll (Hr.satCases hvis)))
       (projFieldsCoherent_of_noProjs hnoprojs)
-      hiacoh hrel hcc hrecc hnfv hshape.closed H HD C Hδ
+      hiacoh hrel hcc hrecc hnfv hshape.closed H HD C P Hδ
       Hβ Hreg hvis hinv hsup htr (visitExpr_noBlock hvis) hcl (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, hclv, huniq⟩
 
@@ -781,7 +781,7 @@ theorem shipping_erase_correct_firstorder_coldstart
     (hcc : ∀ {cn : Name} {iid : InductiveId} {cidx : Nat},
              Γ.ctors cn = some (iid, cidx) → Γ.casesOns cn = none)
     {gw : Void IO.RealWorld → NameGenerator}
-    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw)
+    (H : BridgeHyps env Us Γ gw) (HD : DataBridgeHyps Γ gw) (C : CasesBridgeHyps Γ gw) (P : ProjBridgeHyps Γ gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps env Us known Γ cfg Esrc gw cc rf)
     -- the recursion premises (Γ-W3.6b/Γ-W4): the block-local scope bundle, and the
@@ -823,7 +823,7 @@ theorem shipping_erase_correct_firstorder_coldstart
     gBridgeInv_nil env [] known Γ Hr.knames hnfv (gw wp) cfg hnat
   obtain ⟨hsup, ve, htr⟩ := S.supported hpr
   have hmem : DeltaMem env [] Γ Esrc sf :=
-    (visitExpr_refines_erases H HD C Hδ Hβ Hreg henv.ordered
+    (visitExpr_refines_erases H HD C P Hδ Hβ Hreg henv.ordered
       pe {} { «config» := cfg } cctx ref wp t sf wt hvis [] hinv hsup
       ⟨ve, htr⟩).2.1.δ DeltaMem.empty
   have hdelta : ErasesEnvDeltaData env [] Γ (Esrc.walked Γ sf.gdecls) sf.gdecls :=
@@ -853,7 +853,7 @@ theorem shipping_erase_correct_firstorder_coldstart
       hcon.walked
       hdelta
       (erasesEnvCtor_of_registeredCtors (hshape.registeredCtors (Hr.satCtors hvis)))
-      hcc hrecc hnfv H HD C Hδ Hβ Hreg
+      hcc hrecc hnfv H HD C P Hδ Hβ Hreg
       hvis hinv hsup htr (visitExpr_noBlock hvis) (hev hpr hvis) hfo
   exact ⟨sf.gdecls, t, t', hp, heval, htrv, herv, hnbv, huniq⟩
 
@@ -950,7 +950,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (hiota : IotaConsistent envFO [] ΓFOι iaFOι) (hrel : IotaRelevant envFO [] ΓFOι)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
-    (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
+    (C : CasesBridgeHyps ΓFOι gw) (P : ProjBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -972,7 +972,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
   shipping_erase_correct_firstorderι_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
     hiota ΓFOι_iotaArityCoherent hrel ΓFOι_cc (hnoprojs := rfl)
-    H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    H HD C P Hδ Hβ RecBlockAgreement.of_bot S
     (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
@@ -982,7 +982,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envFO [] ΓFOι gw) (HD : DataBridgeHyps ΓFOι gw)
-    (C : CasesBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
+    (C : CasesBridgeHyps ΓFOι gw) (P : ProjBridgeHyps ΓFOι gw) (Hr : RegBridgeHyps ΓFOι)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envFO [] (fun _ => False) ΓFOι cfg (fun _ => none) gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -1003,7 +1003,7 @@ example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
       ∀ tu, Erases envFO [] ΓFOι [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envFO_wf rfl hcsimp rfl
     (by simp [ΓFOι]) hstr Hr (by intro Δ n us body cve h; exact absurd h (by simp))
-    ΓFOι_cc H HD C Hδ Hβ RecBlockAgreement.of_bot S
+    ΓFOι_cc H HD C P Hδ Hβ RecBlockAgreement.of_bot S
     (fun _ _ => RecCovered.of_noRec (Γ := ΓFOι) rfl)
     (fun hp _ => by rw [SEnv.walked_bot]; exact hev hp)
     (envFO_foC_ι harity) hrun
@@ -1226,7 +1226,7 @@ every cold-start capstone (`SEnvConsistent`, `ErasesEnvDeltaData`). -/
 example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
-    (C : CasesBridgeHyps ΓFOd gw)
+    (C : CasesBridgeHyps ΓFOd gw) (P : ProjBridgeHyps ΓFOd gw)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -1258,7 +1258,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       by_cases h : cn = `c
       · subst h; rfl
       · simp [ΓFOd, if_neg h] at hc)
-    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C Hδ Hβ Hreg hrun
+    (recEnvConsistent_of_noRec (Γ := ΓFOd) rfl) rfl H HD C P Hδ Hβ Hreg hrun
     (gBridgeInv_nil envδ [] knownδ ΓFOd (fun _ => rfl) rfl (gw w) cfg (by simp [ΓFOd]))
     (.const `g [] (Or.inl rfl) (by simp [ΓFOd]) rfl)
     envδ_trG hnb gSEvalδ (envδ_foC_d harity)
@@ -1274,7 +1274,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
     (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envδ [] ΓFOd gw) (HD : DataBridgeHyps ΓFOd gw)
-    (C : CasesBridgeHyps ΓFOd gw) (Hr : RegBridgeHyps ΓFOd)
+    (C : CasesBridgeHyps ΓFOd gw) (P : ProjBridgeHyps ΓFOd gw) (Hr : RegBridgeHyps ΓFOd)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envδ [] knownδ ΓFOd cfg Esrcδ gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -1302,7 +1302,7 @@ example (harity : ¬ IsArityUpTo envδ 0 [] (.const `I []))
       by_cases h : cn = `c
       · subst h; rfl
       · simp [ΓFOd, if_neg h] at hc)
-    H HD C Hδ Hβ Hreg S (fun _ _ => RecCovered.of_noRec (Γ := ΓFOd) rfl) hev
+    H HD C P Hδ Hβ Hreg S (fun _ _ => RecCovered.of_noRec (Γ := ΓFOd) rfl) hev
     (envδ_foC_d harity) hrun
 
 end DeltaGuard
@@ -1610,7 +1610,7 @@ example (harity : ¬ IsArityUpTo envRec 0 [] (.const `I []))
     (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
     (gw : Void IO.RealWorld → NameGenerator)
     (H : BridgeHyps envRec [] ΓFOrec gw) (HD : DataBridgeHyps ΓFOrec gw)
-    (C : CasesBridgeHyps ΓFOrec gw) (Hr : RegBridgeHyps ΓFOrec)
+    (C : CasesBridgeHyps ΓFOrec gw) (P : ProjBridgeHyps ΓFOrec gw) (Hr : RegBridgeHyps ΓFOrec)
     (Hδ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       DeltaHyps envRec [] knownRec ΓFOrec cfg EsrcRec gw cc rf)
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -1636,7 +1636,7 @@ example (harity : ¬ IsArityUpTo envRec 0 [] (.const `I []))
       Erases envRec [] ΓFOrec [] (.const `c []) t' ∧ NoBlock t' ∧
       ∀ tu, Erases envRec [] ΓFOrec [] (.const `c []) tu → NoBlock tu → tu = t' :=
   shipping_erase_correct_firstorder_coldstart envRec_wf rfl hcsimp rfl
-    (by simp [ΓFOrec]) hstr Hr envRec_senvConsistent ΓFOrec_cc H HD C Hδ Hβ Hreg S hcov hev
+    (by simp [ΓFOrec]) hstr Hr envRec_senvConsistent ΓFOrec_cc H HD C P Hδ Hβ Hreg S hcov hev
     (envRec_foC harity) hrun
 
 end RecursiveGuard
