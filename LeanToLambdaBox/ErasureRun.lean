@@ -635,6 +635,58 @@ theorem mutual_le_of
       (Expr → EraseM LBTerm) ×' _) ⊑ Erasure.visitExpr.mutual :=
   ⟨visitExpr_eq_mutual ▸ h₁, visitLiteral_eq_mutual ▸ h₂, visitConstructor_eq_mutual ▸ h₃, visitConst_eq_mutual ▸ h₄, get_constant_kername_eq_mutual ▸ h₅, visitMutual_eq_mutual ▸ h₆, visitAppArgs_eq_mutual ▸ h₇, visitLet_eq_mutual ▸ h₈, visitLambda_eq_mutual ▸ h₉, visitProj_eq_mutual ▸ h₁₀, visitApp_eq_mutual ▸ h₁₁, visitConstApp_eq_mutual ▸ h₁₂, visitCtorEta_eq_mutual ▸ h₁₃, visitCtorEtaGo_eq_mutual ▸ h₁₄, visitCasesEta_eq_mutual ▸ h₁₅, visitCasesEtaGo_eq_mutual ▸ h₁₆, visitCases_eq_mutual ▸ h₁₇, visitAlt_eq_mutual ▸ h₁₈⟩
 
+/-! ### The recursive exit's sibling loop, transported
+
+`visitMutual`'s recursive exit erases each sibling body through the eraser it was handed.
+Inside the bridge's induction that eraser is abstract; the *registration* premise the exit
+needs is about the block the **shipping** eraser builds. The two are the same block
+whenever the abstract one's run succeeded — which is `run_ok_of_le` at the loop, and the
+loop's monotonicity is what carries `⊑` under the `mapM`. `List.monotone_mapM` and
+`Erasure.withReader_mono` do all of it; nothing about the erasure family is needed, only
+that the eraser occurs in the body **positively**. -/
+set_option synthInstance.maxSize 4000 in
+theorem rec_exit_siblings_mono {names fixnames : List Name}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr} :
+    monotone (fun (v : Expr → EraseM LBTerm) =>
+      ((names.mapM (fun m => do
+        let ci ← getConstInfo m
+        let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); v pe)
+        mkDef (remove_unsafe_rec m) fixnames t)) : EraseM (List (@FixDef LBTerm)))) := by
+  apply List.monotone_mapM
+  apply monotone_of_monotone_apply; intro m
+  apply monotone_bind
+  · exact monotone_const _
+  · apply monotone_of_monotone_apply; intro ci
+    apply monotone_bind
+    · apply withReader_mono
+      apply monotone_bind
+      · exact monotone_const _
+      · apply monotone_of_monotone_apply; intro pe
+        exact monotone_apply pe _ monotone_id
+    · apply monotone_of_monotone_apply; intro t
+      exact monotone_const _
+
+/-- **The sibling loop's run, transported to the shipping eraser.** The form
+`rec_exit_refines_erases` uses to key its registration premise on
+`Erasure.visitExpr` while walking at an abstract one. -/
+theorem run_rec_exit_siblings_le {vE : Expr → EraseM LBTerm}
+    (hle : vE ⊑ Erasure.visitExpr) {names fixnames : List Name}
+    {g : ConstantInfo → ErasureContext → ErasureContext} {val : ConstantInfo → Expr}
+    {s sd : ErasureState} {ctx : ErasureContext} {cctx : Core.Context}
+    {ref : ST.Ref IO.RealWorld Core.State} {w wd : Void IO.RealWorld}
+    {defs : List (@FixDef LBTerm)}
+    (hrun : ((names.mapM (fun m => do
+        let ci ← getConstInfo m
+        let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); vE pe)
+        mkDef (remove_unsafe_rec m) fixnames t)) : EraseM (List (@FixDef LBTerm)))
+        s ctx cctx ref w = .ok (defs, sd) wd) :
+    ((names.mapM (fun m => do
+        let ci ← getConstInfo m
+        let t ← withReader (g ci) (do let pe ← prepare_erasure (val ci); Erasure.visitExpr pe)
+        mkDef (remove_unsafe_rec m) fixnames t)) : EraseM (List (@FixDef LBTerm)))
+      s ctx cctx ref w = .ok (defs, sd) wd :=
+  run_ok_of_le (rec_exit_siblings_mono _ _ hle) hrun
+
 end Approximation
 
 /-! ## Hoare-style loop rules -/

@@ -1358,10 +1358,51 @@ What each piece supplies (recursion wall, slice Γ-W3):
 **The one premise that is not discharged here, and why.** `hreg` — "`Γ₀` records *this*
 block for each of its own names" — is `Erases.fix`'s own registration premise, and it
 cannot be derived: `Γ₀` is fixed before the run builds `defs`. It is irreducible at a
-parameter `Γ` (`ColdStartDelta`'s premise ledger says so), and every attempt to hand it to
-step 6 as a bundle field is *refuted*, not merely unproved — see
-`rec_exit_agreement_eraser_quantified_refuted` in the non-vacuity section. So it stays an
-explicit hypothesis, discharged by whoever holds a concrete run. -/
+parameter `Γ` (`ColdStartDelta`'s premise ledger says so), and it stays an explicit
+hypothesis, discharged by whoever holds a concrete run.
+
+**Where it is stated changed at Γ-W3.5.** Until then it was stated at the abstract eraser
+`vE`, and *there* every phrasing is refuted, not merely strong: two erasers hand back two
+blocks and `Γ₀.recBodies` records one
+(`rec_exit_agreement_eraser_quantified_refuted`). It is now
+`RecBlockRegistered Γ₀ cctx ref names ctx s₀` — keyed on the **shipping**
+`Erasure.visitExpr` — and the walk still consumes it at an abstract eraser, because the new
+premise `hle : vE ⊑ Erasure.visitExpr` (the approximation conjunct every motive carries)
+plus `Erasure.run_rec_exit_siblings_le` transport the sibling loop's successful run from
+one to the other. Guard (iv'') fires the whole thing at exactly the data step 6 holds; what
+step 6 still cannot do is *produce* `hreg`, because its motive quantifies `ctx` and `s₀`
+and a bundle-level premise over readers is not suppliable. -/
+
+/-- **The registration agreement the recursive exit needs, keyed on the shipping eraser**
+(slice Γ-W3.5). `Erases.fix` asks that `Γ₀` record the block a run builds, under each of
+the block's own names. `Γ₀` is fixed before the run builds `defs`, so this is an agreement
+between the context and the eraser, not a fact about the run.
+
+Until Γ-W3.5 `rec_exit_refines_erases` carried this premise at its *abstract* eraser `vE`,
+and there every phrasing is **contradictory**: two erasers hand back two different blocks
+and `Γ₀.recBodies` records one (`rec_exit_agreement_eraser_quantified_refuted`). Keyed on
+`Erasure.visitExpr` there is one block per `(names, ids, ctx, s₀, wi)`, and a caller
+holding a concrete run discharges it — while a walk at an abstract eraser can still *feed*
+it, through the approximation conjunct the motives carry and
+`Erasure.run_rec_exit_siblings_le`.
+
+`ctx` and `s₀` are parameters, deliberately: quantifying them would make the premise speak
+about readers with different `Erasure.Config`s, which erase the same block to different
+`defs`. See guard (iv'') and `ColdStart`'s residue-1 row. -/
+def RecBlockRegistered (Γ₀ : ErasureCtx) (cctx : Core.Context)
+    (ref : ST.Ref IO.RealWorld Core.State) (names : List Name)
+    (ctx : ErasureContext) (s₀ : ErasureState) : Prop :=
+  ∀ {ids : List FVarId} {defs : List (@FixDef LBTerm)} {sd : ErasureState}
+    {wi wd : Void IO.RealWorld},
+    ((names.mapM (fun m => do
+        let cim ← getConstInfo m
+        let t ← withReader (fun e => { e with lparams := cim.levelParams })
+          (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); Erasure.visitExpr pe)
+        mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)) :
+        EraseM (List (@FixDef LBTerm)))
+      s₀ (blockReader (names.map remove_unsafe_rec) ids ctx) cctx ref wi = .ok (defs, sd) wd →
+    ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
+      Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j)
 
 set_option maxHeartbeats 1000000 in
 theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → Prop}
@@ -1379,6 +1420,7 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
       ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' (gw w') ctx' s Δ' → Supported known Γ' e →
       (∃ ve, TrExprS env Us Δ' e ve) →
       Erases env Us Γ' Δ' e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w' ≤ gw w'')
+    (hle : vE ⊑ Erasure.visitExpr)
     (hΓ : Γ = Γ₀.withFixvars Γ.fixvars)
     {names : List Name} {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
     {w w₁ : Void IO.RealWorld} {u₀ : Unit} {n : Name}
@@ -1386,17 +1428,7 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
     (hnd : (names.map remove_unsafe_rec).Nodup)
     (hnmem : n ∈ names.map remove_unsafe_rec)
     (hinv : BridgeInv env Us known Γ (gw w) ctx s₀ Δ)
-    (hreg : ∀ {ids : List FVarId} {defs : List (@FixDef LBTerm)} {sd : ErasureState}
-        {wi wd : Void IO.RealWorld},
-      ((names.mapM (fun m => do
-          let cim ← getConstInfo m
-          let t ← withReader (fun e => { e with lparams := cim.levelParams })
-            (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); vE pe)
-          mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)) :
-          EraseM (List (@FixDef LBTerm)))
-        s₀ (blockReader (names.map remove_unsafe_rec) ids ctx) cctx ref wi = .ok (defs, sd) wd →
-      ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
-        Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j))
+    (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
     (hrun : (do
         let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
         withReader
@@ -1539,7 +1571,9 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
     (obodies := List.ofFn (fun j : Fin defs.length => objf j.1 j.2))
     (defs := defs)
     (by rw [List.length_map, hdlen]) (by omega) (by simp) (by simp) hidnd
-    (fun j h => by obtain ⟨h', hh⟩ := hreg hdefs j h; exact hh)
+    (fun j h => by
+      obtain ⟨h', hh⟩ := hreg (Erasure.run_rec_exit_siblings_le hle hdefs) j h
+      exact hh)
     (fun nm x hx => by
       obtain ⟨k, hk, h1, h2⟩ := blockMap_getElem?_inv hnd hflen hx
       rw [List.length_map] at hk
@@ -2371,7 +2405,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
           Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
           Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl Erasure.approx_rfl
           Erasure.approx_rfl)).2.2.2.2.2.1
-    replace ih1 := ih1.1
+    obtain ⟨ih1, _hap1⟩ := ih1
     intro n s ctx cctx ref w u s₁ w₁ hrun Γ hΓ Δ hinv hkn
     simp only [] at hrun
     -- (1) the declaration fetch. State-transparent; `DeltaHyps.decl_run` pins what it
@@ -2445,29 +2479,39 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
              case isFalse hnr =>
                -- (6c) the recursive exit is out of the fragment: `DeltaHyps.nonrecursive` says
                -- the value does not mention `n`, which forces `nonrecursive` true. That
-               -- field is still the *last* thing refuting this branch — but what it is
-               -- standing in front of has changed, and slice Γ-W3 measured exactly what.
+               -- field is still the *last* thing refuting this branch — but what it stands in
+               -- front of is narrower after Γ-W3.5 than it was after Γ-W3, and the difference
+               -- is exactly one quantifier.
                --
                -- The walk itself is WRITTEN and machine-checked: `rec_exit_refines_erases`
-               -- above takes an abstract eraser and its motive-1 refinement hypothesis —
-               -- which is precisely what `ih1` is here — and derives all three conjuncts of
-               -- this motive from the two loops, the per-sibling `BridgeInv` rebuild at the
-               -- block-local `Γ₀.withFixvars fv` (Γ-W1's instantiation, guard (i''')), the
-               -- `Δ → []` strengthening, `erases_rec_block_of_run` and `RunConclδ.recBlock`.
-               -- Guard (iv') fires it at the shipping eraser through this very induction.
+               -- above takes an abstract eraser, its motive-1 refinement hypothesis AND its
+               -- approximation conjunct — which is precisely the pair `ih1` is here — and
+               -- derives all three conjuncts of this motive from the block's four loops.
+               -- Guard (iv'') fires it at exactly the data this step holds.
                --
-               -- ONE premise of that theorem is not dischargeable here, and it is not a
-               -- matter of more work: `hreg`, the agreement that `Γ₀` records *this* block
-               -- for its own names, is `Erases.fix`'s own registration premise, and `Γ₀` is
-               -- fixed before the run builds `defs`. Handing it to this step as a bundle
-               -- field means quantifying it over the induction's abstract eraser, and
-               -- `rec_exit_agreement_eraser_quantified_refuted` shows every such phrasing is
-               -- *contradictory* — two erasers, two blocks, one `Γ₀.recBodies`. So the last
-               -- premise standing is a `Γ`-side agreement a caller with a concrete run
-               -- supplies, not another scope field. The one route that would dissolve it —
-               -- teaching the motives that the abstract eraser's successful runs are the
-               -- fixpoint's, off `Erasure.visitExpr.mutual._proof_1` — is priced in the
-               -- `ColdStart` ledger's `hnorec` row.
+               -- WHAT Γ-W3.5 DISSOLVED. Its registration premise `hreg` used to be stated at
+               -- the abstract eraser, where every phrasing is *contradictory* — two erasers,
+               -- two blocks, one `Γ₀.recBodies`
+               -- (`rec_exit_agreement_eraser_quantified_refuted`). It is now keyed on the
+               -- **shipping** `Erasure.visitExpr`, and this step can still feed it, because
+               -- the approximation conjunct plus `Erasure.run_rec_exit_siblings_le` transport
+               -- the abstract sibling loop's successful run onto the shipping one. The eraser
+               -- quantification is gone.
+               --
+               -- WHAT IT DID NOT. `hreg` is stated at *a* reader and *a* state — this step's
+               -- `ctx` and `s`, which its motive universally quantifies. A premise handed to
+               -- the induction from outside must therefore quantify them too, and that
+               -- quantification is a second wall, not the same one: two readers differing in
+               -- `config` erase the same block to different `defs`, and `BridgeInv.natcfg` is
+               -- one-directional, so no bundle-level coherence available here pins the
+               -- reader. Such a premise is not provably contradictory — unlike the
+               -- eraser-quantified one, there is only one eraser — but it is not
+               -- *suppliable* either: a caller who built `Γ₀` by running the eraser holds one
+               -- reader and one state, not all of them. Landing it would be the S1d/S1e
+               -- failure mode with the roles of `known` and `ctx` swapped.
+               --
+               -- So the branch stays refuted, and `ColdStart`'s residue-1 row now names the
+               -- reader/state quantification rather than the eraser one.
                exact absurd (by
                  simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
              case isTrue =>
@@ -3592,7 +3636,11 @@ Read together with the refutation beneath it, this is the exact statement of whe
 recursion wall now stands: everything the composition needs is *derived* — the two loops,
 the per-sibling invariant rebuild at the block-local context, the context strengthening,
 the block's closedness, the δ record's extension step — and one registration agreement is
-*assumed*, at a caller who holds a concrete run. -/
+*assumed*, at a caller who holds a concrete run.
+
+Since Γ-W3.5 the walk also takes the eraser's **approximation** conjunct, and the induction
+supplies it here as `.1.2` — trivially, at the fixpoint. Guard (iv'') below is the version
+that is not trivial. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
     {gw : Void IO.RealWorld → NameGenerator}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
@@ -3607,17 +3655,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
     (hnd : (names.map remove_unsafe_rec).Nodup)
     (hnmem : n ∈ names.map remove_unsafe_rec)
     (hinv : BridgeInv env Us known Γ₀ (gw w) ctx s₀ Δ)
-    (hreg : ∀ {ids : List FVarId} {defs : List (@FixDef LBTerm)} {sd : ErasureState}
-        {wi wd : Void IO.RealWorld},
-      ((names.mapM (fun m => do
-          let cim ← getConstInfo m
-          let t ← withReader (fun e => { e with lparams := cim.levelParams })
-            (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); Erasure.visitExpr pe)
-          mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)) :
-          EraseM (List (@FixDef LBTerm)))
-        s₀ (blockReader (names.map remove_unsafe_rec) ids ctx) cctx ref wi = .ok (defs, sd) wd →
-      ∀ (j : Nat), j < defs.length → ∃ h : j < (names.map remove_unsafe_rec).length,
-        Γ₀.recBodies ((names.map remove_unsafe_rec)[j]'h) = some (defs, j))
+    (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
     (hrun : (do
         let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
         withReader
@@ -3637,7 +3675,69 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
   rec_exit_refines_erases H (Hδ cctx ref) Hβ henv
     (fun e s ctx' w' t s' w'' hr => (visitExpr_refines_erases_core H HD C Hδ henv).1.1
       e s ctx' cctx ref w' t s' w'' hr)
+    (visitExpr_refines_erases_core H HD C Hδ henv).1.2
     (ErasureCtx.withFixvars_self Γ₀).symm hkn hnd hnmem hinv hreg hrun
+
+/-- **(iv'') …and it fires at exactly the data a *step* holds** (recursion wall, slice
+Γ-W3.5). Guard (iv') composes the walk with the induction's *conclusion*. Step 6 does not
+have the conclusion; it has a motive, at the induction's abstract fixpoint argument. Since
+Γ-W3.5 that motive is a **pair** — the refinement statement, and `vE ⊑ Erasure.visitExpr` —
+and this guard says the pair is enough: the walk fires, at a registration premise keyed on
+the *shipping* eraser, which is the phrasing `rec_exit_agreement_eraser_quantified_refuted`
+below does **not** refute. This is the fixture Γ-W3 could not state: a block reached through
+the walked exit, with the eraser left abstract.
+
+What is still outside the induction is visible in the binders. `hreg` and `Hβ` are stated at
+*this* `ctx` and *this* `s₀`; step 6's motive quantifies both, so a premise handed to the
+induction from a bundle would have to quantify them too. That is a **different** quantifier
+from the one Γ-W3.5 removed, and a weaker obstruction: it is not provably contradictory —
+there is only one eraser now — but it is not suppliable either, since readers differing in
+`Erasure.Config` erase the same block to different `defs` and `BridgeInv.natcfg` is
+one-directional. `ColdStart`'s residue-1 row names it. -/
+example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ Γ : ErasureCtx} {Esrc : SEnv}
+    {gw : Void IO.RealWorld → NameGenerator}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (H : BridgeHyps env Us Γ₀ gw)
+    (Hδ : DeltaHyps env Us known Γ₀ Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us known Γ₀ Esrc cctx ref)
+    (henv : env.Ordered)
+    {vE : Expr → EraseM LBTerm}
+    (ih1 : (∀ (e : Expr) (s : ErasureState) (ctx' : ErasureContext) (cc : Core.Context)
+          (rf : ST.Ref IO.RealWorld Core.State) (w' : Void IO.RealWorld) (t : LBTerm)
+          (s' : ErasureState) (w'' : Void IO.RealWorld),
+        vE e s ctx' cc rf w' = .ok (t, s') w'' →
+        ∀ (Γ' : ErasureCtx), Γ' = Γ₀.withFixvars Γ'.fixvars →
+        ∀ (Δ' : VLCtx), BridgeInv env Us known Γ' (gw w') ctx' s Δ' → Supported known Γ' e →
+        (∃ ve, TrExprS env Us Δ' e ve) →
+        Erases env Us Γ' Δ' e t ∧ RunConclδ env Us Γ₀ Esrc s s' ∧ gw w' ≤ gw w'') ∧
+      vE ⊑ Erasure.visitExpr)
+    (hΓ : Γ = Γ₀.withFixvars Γ.fixvars)
+    {names : List Name} {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
+    {w w₁ : Void IO.RealWorld} {u₀ : Unit} {n : Name}
+    (hkn : ∀ m ∈ names, known (remove_unsafe_rec m))
+    (hnd : (names.map remove_unsafe_rec).Nodup)
+    (hnmem : n ∈ names.map remove_unsafe_rec)
+    (hinv : BridgeInv env Us known Γ (gw w) ctx s₀ Δ)
+    (hreg : RecBlockRegistered Γ₀ cctx ref names ctx s₀)
+    (hrun : (do
+        let ids ← names.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
+        withReader
+            (fun e => { e with
+              fixvars := some (Std.HashMap.ofList ((names.map remove_unsafe_rec).zip ids)) }) (do
+          let defs ← names.mapM (fun m => do
+            let cim ← getConstInfo m
+            let t ← withReader (fun e => { e with lparams := cim.levelParams })
+              (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); vE pe)
+            mkDef (remove_unsafe_rec m) (names.map remove_unsafe_rec) t)
+          for p in (names.map remove_unsafe_rec).zipIdx do
+            modify (fun st => { st with
+                constants := st.constants.insert p.1 (toKername p.1),
+                gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls })
+          pure ()) : EraseM Unit) s₀ ctx cctx ref w = .ok (u₀, s₁) w₁) :
+    RunConclδ env Us Γ₀ Esrc s₀ s₁ ∧ gw w ≤ gw w₁ ∧ (s₁.constants.get? n).isSome :=
+  rec_exit_refines_erases H Hδ Hβ henv
+    (fun e s ctx' w' t s' w'' hr => ih1.1 e s ctx' cctx ref w' t s' w'' hr)
+    ih1.2 hΓ hkn hnd hnmem hinv hreg hrun
 
 /-- **…and why step 6 of the induction still cannot supply `hreg` itself** (slice Γ-W3) —
 the refutation, in the house style of `bridgeInv_blockReader_refuted`.
