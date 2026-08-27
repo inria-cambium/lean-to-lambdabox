@@ -20,7 +20,9 @@ This file builds the **shape half** of the missing link: a state invariant
   *true* run shapes proved in `ErasureRun.lean` (`run_addAxiom_ok`,
   `run_register_inductive_cold_ok`), not an assumed state-preservation;
 * **collapses at saturation** to the unscoped `RegisteredCtors` / `RegisteredCases` /
-  `RegisteredCtorFieldsAll` / `NoFixEnv` / `ClosedEnv` the capstones ask for.
+  `RegisteredCtorFieldsAll` / `RegisteredProjs` / `RegisteredProjCtorFields` / `NoFixEnv` /
+  `ClosedEnv` the capstones ask for. (The two projection rows arrived at slice P9; they are
+  what lets the ι cold-start capstone drop `hnoprojs : Γ.projs = ⊥`.)
 
 ## Three design points, fixed here rather than later
 
@@ -170,6 +172,28 @@ def RegisteredCtorFieldsOn (Γ : ErasureCtx) (E : GlobalDeclarations)
   ∀ {con : Name} {iid : InductiveId} {np : Nat},
     dom iid → Γ.casesOns con = some (iid, np) → RegisteredCtorFields Γ E iid
 
+/-- `RegisteredProjs`, restricted to the blocks in `dom` (slice P9). The `casesOns`-keyed
+`RegisteredCasesOn` transposed onto the **projection** column: `visitProj` calls the same
+`register_inductive`, so the record consed is the same one, read through a different key.
+The two are genuinely independent as *scoped* records — a projection-only structure never
+produces a `casesOn`, so `Γ.casesOns` is `none` at it and `RegisteredCasesOn` says nothing
+about its block. -/
+def RegisteredProjsOn (Γ : ErasureCtx) (E : GlobalDeclarations)
+    (dom : InductiveId → Prop) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    dom iid → Γ.projs S = some (iid, np) →
+    ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+      LBTerm.envLookup E iid.mutualBlockName = some (.inductiveDecl body) ∧
+      body.bodies[iid.idx]? = some oib ∧
+      body.npars = np ∧
+      oib.propositional = false
+
+/-- `RegisteredProjCtorFields`, restricted to the blocks in `dom` (slice P9). -/
+def RegisteredProjCtorFieldsOn (Γ : ErasureCtx) (E : GlobalDeclarations)
+    (dom : InductiveId → Prop) : Prop :=
+  ∀ {S : Name} {iid : InductiveId} {np : Nat},
+    dom iid → Γ.projs S = some (iid, np) → RegisteredCtorFields Γ E iid
+
 /-- Saturation: once `dom` covers every block `Γ` knows, the scoped record is the
 unscoped one. -/
 theorem registeredCtors_of_on {Γ : ErasureCtx} {E : GlobalDeclarations}
@@ -189,6 +213,20 @@ theorem registeredCtorFieldsAll_of_on {Γ : ErasureCtx} {E : GlobalDeclarations}
     (hsat : ∀ {con iid np}, Γ.casesOns con = some (iid, np) → dom iid) :
     RegisteredCtorFieldsAll Γ E :=
   fun hc => h (hsat hc) hc
+
+/-- Saturation on the projection column: one `Γ`-side completeness fact serves both
+projection records, since they are keyed on the same `Γ.projs` lookup. -/
+theorem registeredProjs_of_on {Γ : ErasureCtx} {E : GlobalDeclarations}
+    {dom : InductiveId → Prop} (h : RegisteredProjsOn Γ E dom)
+    (hsat : ∀ {S iid np}, Γ.projs S = some (iid, np) → dom iid) :
+    RegisteredProjs Γ E :=
+  fun hS => h (hsat hS) hS
+
+theorem registeredProjCtorFields_of_on {Γ : ErasureCtx} {E : GlobalDeclarations}
+    {dom : InductiveId → Prop} (h : RegisteredProjCtorFieldsOn Γ E dom)
+    (hsat : ∀ {S iid np}, Γ.projs S = some (iid, np) → dom iid) :
+    RegisteredProjCtorFields Γ E :=
+  fun hS => h (hsat hS) hS
 
 /-! ## The disjunctive `NoFixEnv` (the recursion-wall interface) -/
 
@@ -281,6 +319,11 @@ structure RegInvShape (Γ : ErasureCtx) (s : ErasureState) : Prop where
   ctors : RegisteredCtorsOn Γ s.gdecls (BlockRegistered s.gdecls)
   cases : RegisteredCasesOn Γ s.gdecls (BlockRegistered s.gdecls)
   fields : RegisteredCtorFieldsOn Γ s.gdecls (BlockRegistered s.gdecls)
+  /-- The two **projection**-column registration records (slice P9), scoped the same way.
+  They are what lets the ι capstone stop being stated at a structure-free `Γ`: the
+  `casesOns`-keyed rows above are silent about a type nothing pattern-matches on. -/
+  projs : RegisteredProjsOn Γ s.gdecls (BlockRegistered s.gdecls)
+  projfields : RegisteredProjCtorFieldsOn Γ s.gdecls (BlockRegistered s.gdecls)
   /-- Target-body shape facts, currently premises of D3/D3ι. Disjunctive: see
   `NoFixEnvD`. -/
   nofix : NoFixEnvD s.gdecls
@@ -294,6 +337,9 @@ theorem RegInvShape.empty (Γ : ErasureCtx) : RegInvShape Γ {} where
   ctors := by intro cn iid cidx hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
   cases := by intro con iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
   fields := by intro con iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
+  projs := by intro S iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
+  projfields := by
+    intro S iid np hdom _; obtain ⟨body, hb⟩ := hdom; simp [LBTerm.envLookup] at hb
   nofix := by intro kn body' hl; simp [LBTerm.envLookup] at hl
   closed := by intro kn body hl; simp [LBTerm.envLookup] at hl
 
@@ -316,6 +362,21 @@ theorem RegInvShape.registeredCtorFieldsAll {Γ : ErasureCtx} {s : ErasureState}
     (hsat : ∀ {con iid np}, Γ.casesOns con = some (iid, np) → BlockRegistered s.gdecls iid) :
     RegisteredCtorFieldsAll Γ s.gdecls :=
   registeredCtorFieldsAll_of_on h.fields hsat
+
+/-- The projection column's saturation accessors (slice P9). One `Γ`-side completeness
+fact — every block `Γ` records a *structure* for was registered by the walk — collapses
+both, which is why `RegBridgeHyps` grows one `satProjs` field and not two. -/
+theorem RegInvShape.registeredProjs {Γ : ErasureCtx} {s : ErasureState}
+    (h : RegInvShape Γ s)
+    (hsat : ∀ {S iid np}, Γ.projs S = some (iid, np) → BlockRegistered s.gdecls iid) :
+    RegisteredProjs Γ s.gdecls :=
+  registeredProjs_of_on h.projs hsat
+
+theorem RegInvShape.registeredProjCtorFields {Γ : ErasureCtx} {s : ErasureState}
+    (h : RegInvShape Γ s)
+    (hsat : ∀ {S iid np}, Γ.projs S = some (iid, np) → BlockRegistered s.gdecls iid) :
+    RegisteredProjCtorFields Γ s.gdecls :=
+  registeredProjCtorFields_of_on h.projfields hsat
 
 theorem RegInvShape.closedEnv {Γ : ErasureCtx} {s : ErasureState} (h : RegInvShape Γ s) :
     ClosedEnv s.gdecls := h.closed
@@ -432,6 +493,15 @@ theorem RegInvShape.addAxiom {Γ : ErasureCtx} {s : ErasureState} {n : Name}
     intro con iid np hdom hc
     obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
     exact (h.fields hdom' hc).cons hne
+  projs := by
+    intro S iid np hdom hS
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    obtain ⟨body, oib, hlk, hbod, hnp, hprop⟩ := h.projs hdom' hS
+    exact ⟨body, oib, envLookup_cons_of_ne hne hlk, hbod, hnp, hprop⟩
+  projfields := by
+    intro S iid np hdom hS
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    exact (h.projfields hdom' hS).cons hne
   nofix := by
     intro kn body' hl
     rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
@@ -513,7 +583,7 @@ theorem RegInvShape.constExt {Γ : ErasureCtx} {s s' : ErasureState}
     intro iid hd
     rw [hpre] at hd
     exact blockRegistered_append_axioms haxp hd
-  refine ⟨fun {n} {k} hk => (hcanon hk).trans (hΓ n).symm, hcover, ?_, ?_, ?_, ?_, ?_⟩
+  refine ⟨fun {n} {k} hk => (hcanon hk).trans (hΓ n).symm, hcover, ?_, ?_, ?_, ?_, ?_, ?_, ?_⟩
   · intro cn iid cidx hdom hc
     obtain ⟨hfr, hdom'⟩ := hlift hdom
     obtain ⟨body, oib, cb, hlk, hbod, hctor, harity⟩ := h.ctors hdom' hc
@@ -526,6 +596,14 @@ theorem RegInvShape.constExt {Γ : ErasureCtx} {s s' : ErasureState}
   · intro con iid np hdom hc
     obtain ⟨hfr, hdom'⟩ := hlift hdom
     obtain ⟨body, oib, hlk, hbod, hfields⟩ := h.fields hdom' hc
+    exact ⟨body, oib, by rw [hpre]; exact envLookup_append_of_fresh hlk hfr, hbod, hfields⟩
+  · intro S iid np hdom hS
+    obtain ⟨hfr, hdom'⟩ := hlift hdom
+    obtain ⟨body, oib, hlk, hbod, hnp, hprop⟩ := h.projs hdom' hS
+    exact ⟨body, oib, by rw [hpre]; exact envLookup_append_of_fresh hlk hfr, hbod, hnp, hprop⟩
+  · intro S iid np hdom hS
+    obtain ⟨hfr, hdom'⟩ := hlift hdom
+    obtain ⟨body, oib, hlk, hbod, hfields⟩ := h.projfields hdom' hS
     exact ⟨body, oib, by rw [hpre]; exact envLookup_append_of_fresh hlk hfr, hbod, hfields⟩
   · intro kn body' hl
     rw [hpre] at hl
@@ -541,9 +619,12 @@ The state is the one `Erasure.run_register_inductive_cold_ok` computes
 *previously* registered blocks and about the target-body shape facts is discharged
 outright — the new entry is an `.inductiveDecl`, so it carries no `NoFix`/`LBClosed`
 obligation and no coverage obligation, and a block whose *current* registration goes
-through the new entry is exactly a block the `hnew…` premises speak about. The three
+through the new entry is exactly a block the `hnew…` premises speak about. The five
 `hnew…` premises are the `Γ`-agreement for the block just registered: slice S4's
-`RegBridgeHyps` obligation, isolated here to exactly one place. -/
+`RegBridgeHyps` obligation, isolated here to exactly one place. Two of them (`hnewP`,
+`hnewPF`, slice P9) key the same agreement on `Γ.projs` — `register_inductive`'s
+`is_struct` gate is what puts a projectable structure in the block, and `visitProj` reads
+the record back through that column. -/
 theorem RegInvShape.registerInd {Γ : ErasureCtx} {sM : ErasureState}
     {indinfo : InductiveVal} {bodies : List OneInductiveBody}
     (h : RegInvShape Γ sM)
@@ -561,6 +642,17 @@ theorem RegInvShape.registerInd {Γ : ErasureCtx} {sM : ErasureState}
     (hnewF : ∀ {con : Name} {iid : InductiveId} {np : Nat},
       Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
       Γ.casesOns con = some (iid, np) →
+      RegisteredCtorFields Γ (registerIndState indinfo bodies sM).gdecls iid)
+    (hnewP : ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) →
+      ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+        LBTerm.envLookup (registerIndState indinfo bodies sM).gdecls iid.mutualBlockName
+          = some (.inductiveDecl body) ∧
+        body.bodies[iid.idx]? = some oib ∧ body.npars = np ∧ oib.propositional = false)
+    (hnewPF : ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) →
       RegisteredCtorFields Γ (registerIndState indinfo bodies sM).gdecls iid) :
     RegInvShape Γ (registerIndState indinfo bodies sM) where
   kn := h.kn
@@ -597,6 +689,25 @@ theorem RegInvShape.registerInd {Γ : ErasureCtx} {sM : ErasureState}
       rcases envLookup_cons_inv hlk with ⟨hb', -⟩ | ⟨-, hpass⟩
       · exact absurd (hb'.symm.trans hb) (by simp)
       · exact (h.fields ⟨body, hpass⟩ hc).cons hb
+  projs := by
+    intro S iid np hdom hS
+    cases hb : Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName with
+    | true => exact hnewP hb hS
+    | false =>
+      obtain ⟨body0, hlk⟩ := hdom
+      rcases envLookup_cons_inv hlk with ⟨hb', -⟩ | ⟨-, hpass⟩
+      · exact absurd (hb'.symm.trans hb) (by simp)
+      · obtain ⟨body, oib, hlk', hbod, hnp, hprop⟩ := h.projs ⟨body0, hpass⟩ hS
+        exact ⟨body, oib, envLookup_cons_of_ne hb hlk', hbod, hnp, hprop⟩
+  projfields := by
+    intro S iid np hdom hS
+    cases hb : Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName with
+    | true => exact hnewPF hb hS
+    | false =>
+      obtain ⟨body, hlk⟩ := hdom
+      rcases envLookup_cons_inv hlk with ⟨hb', -⟩ | ⟨-, hpass⟩
+      · exact absurd (hb'.symm.trans hb) (by simp)
+      · exact (h.projfields ⟨body, hpass⟩ hS).cons hb
   nofix := by
     intro kn body' hl
     rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
@@ -650,6 +761,15 @@ theorem RegInvShape.register_inductive_run {Γ : ErasureCtx} {indinfo : Inductiv
     (hnewF : ∀ {con : Name} {iid : InductiveId} {np : Nat},
       Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
       Γ.casesOns con = some (iid, np) → RegisteredCtorFields Γ s₁.gdecls iid)
+    (hnewP : ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) →
+      ∃ (body : MutualInductiveBody) (oib : OneInductiveBody),
+        LBTerm.envLookup s₁.gdecls iid.mutualBlockName = some (.inductiveDecl body) ∧
+        body.bodies[iid.idx]? = some oib ∧ body.npars = np ∧ oib.propositional = false)
+    (hnewPF : ∀ {S : Name} {iid : InductiveId} {np : Nat},
+      Kername.beq (mutualBlockKn indinfo) iid.mutualBlockName = true →
+      Γ.projs S = some (iid, np) → RegisteredCtorFields Γ s₁.gdecls iid)
     (hrun : Erasure.register_inductive indinfo s ctx cctx ref w = .ok (r, s₁) w₁) :
     RegInvShape Γ s₁ ∧ StateLe s s₁ := by
   cases hi : s.inductives.get? indinfo.name with
@@ -663,7 +783,7 @@ theorem RegInvShape.register_inductive_run {Γ : ErasureCtx} {indinfo : Inductiv
     clear hr hlen hreg
     subst hs1
     have hM : RegInvShape Γ sM := h.constExt hext hΓ
-    refine ⟨hM.registerInd hnewC hnewK hnewF, ?_⟩
+    refine ⟨hM.registerInd hnewC hnewK hnewF hnewP hnewPF, ?_⟩
     obtain ⟨pre, hpre, -⟩ := hext.gdecls
     refine ⟨hext.dom, hgrow, ⟨(mutualBlockKn indinfo,
       GlobalDecl.inductiveDecl { npars := indinfo.numParams, bodies := bodies }) :: pre, ?_⟩⟩
@@ -720,7 +840,7 @@ non-recursive constant exit are here, and the recursive exit (`RegInvShape` unde
 of `Program` dropping that field (`erase` returns `s.inlinings` separately). -/
 theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername}
     (h : RegInvShape Γ s) : RegInvShape Γ { s with inlinings := kn :: s.inlinings } :=
-  ⟨h.kn, h.cover, h.ctors, h.cases, h.fields, h.nofix, h.closed⟩
+  ⟨h.kn, h.cover, h.ctors, h.cases, h.fields, h.projs, h.projfields, h.nofix, h.closed⟩
 
 /-- **The non-recursive constant exit.** The stored body is a `visitExpr` output, so its
 `NoFix`/`LBClosed` obligations (`regInvShape_nonrec_cons_iff`) must be supplied — that is
@@ -756,6 +876,15 @@ theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t
     intro con iid np hdom hc
     obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
     exact (h.fields hdom' hc).cons hne
+  projs := by
+    intro S iid np hdom hS
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    obtain ⟨body, oib, hlk, hbod, hnp, hprop⟩ := h.projs hdom' hS
+    exact ⟨body, oib, envLookup_cons_of_ne hne hlk, hbod, hnp, hprop⟩
+  projfields := by
+    intro S iid np hdom hS
+    obtain ⟨hne, hdom'⟩ := blockRegistered_cons_constantDecl hdom
+    exact (h.projfields hdom' hS).cons hne
   nofix := by
     intro kn body' hl
     rcases envLookup_cons_inv hl with ⟨-, hd⟩ | ⟨-, hpass⟩
