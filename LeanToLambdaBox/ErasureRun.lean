@@ -513,6 +513,13 @@ theorem run_ok_of_le₁ {γ τ : Type} {f g : γ → EraseM τ} (h : f ⊑ g) {a
     g a s ctx cctx ref w = .ok (r, s') w' :=
   run_ok_of_le (h a) hf
 
+/-- **`⊑ c` is admissible.** A chain that stays below `c` has its supremum below `c` —
+`CCPO.csup_le`, which is what makes the new conjunct cost nothing at the eighteen
+admissibility obligations. -/
+theorem admissible_and_le {α : Sort u} [CCPO α] (P : α → Prop) (c : α) (hP : admissible P) :
+    admissible (fun x => P x ∧ x ⊑ c) :=
+  admissible_and _ _ hP (fun _ hc h => csup_le hc h)
+
 /-- **A monotone functional's step stays below its fixpoint.** `fix_eq`, read as an
 inequality. -/
 theorem fix_step_le {α : Sort u} [CCPO α] {F : α → α} (hF : monotone F) {x : α}
