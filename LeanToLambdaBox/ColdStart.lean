@@ -234,6 +234,21 @@ below, three ways.
    accident, but the same irreducibility `ColdStartDelta`'s ledger already names for
    `hreg` at a parameter `Γ`, met one level further in.
 
+   **The one route that would dissolve it, priced.** `hreg` keyed on the block loop at the
+   *shipping* `Erasure.visitExpr` is perfectly satisfiable — it is the same premise
+   `EnvErasureRec.RegisteredClosureRec` has always carried, and a caller with a concrete
+   run discharges it. What blocks step 6 is only that its eraser is abstract. So the fix is
+   to make the induction *know* that its abstract eraser's successful runs are the
+   fixpoint's: add to each motive the conjunct
+   `∀ …, f x … = .ok r → Erasure.visitExpr x … = .ok r`, which is admissible in exactly the
+   `eraseM_admissible_ok₁` sense (its `Q` does not mention `f`), and whose eighteen step
+   obligations are the componentwise monotonicity of the erasure functional — available in
+   the environment as `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …`, together
+   with the fixpoint equation. That is a second Γ-W1-shaped pass over the motives plus
+   order-theoretic plumbing against `Lean.Order`'s product order, and it is the honest
+   price of walking the exit *inside* the induction rather than beside it. Until it is
+   paid, `rec_exit_refines_erases` is the walk and its caller is outside.
+
    The capstone half cannot be landed ahead of that producer either, and for a reason that
    is not effort: it would replace a named scope restriction with an *uninhabited* premise.
    See the section "The `hnorec` trade, and why its capstone half cannot be landed first"

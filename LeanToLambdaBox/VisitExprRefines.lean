@@ -2317,8 +2317,10 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- `rec_exit_agreement_eraser_quantified_refuted` shows every such phrasing is
                -- *contradictory* — two erasers, two blocks, one `Γ₀.recBodies`. So the last
                -- premise standing is a `Γ`-side agreement a caller with a concrete run
-               -- supplies, not another scope field; see the `ColdStart` ledger's `hnorec`
-               -- row for where that leaves the trade.
+               -- supplies, not another scope field. The one route that would dissolve it —
+               -- teaching the motives that the abstract eraser's successful runs are the
+               -- fixpoint's, off `Erasure.visitExpr.mutual._proof_1` — is priced in the
+               -- `ColdStart` ledger's `hnorec` row.
                exact absurd (by
                  simp [hall, (hkey _ hval).1, (hkey _ hval).2]) hnr
              case isTrue =>

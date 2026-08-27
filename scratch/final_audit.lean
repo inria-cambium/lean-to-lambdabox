@@ -2658,3 +2658,14 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.lbClosed_toBvar
 #print axioms LeanToLambdaBox.lbClosed_foldl_zipIdx
 #print axioms LeanToLambdaBox.lbClosed_fix_of_bodies
+
+-- (e) AND THE ROUTE THAT WOULD DISSOLVE `hreg`, recorded because it is now the only one.
+-- Keyed on the block loop at the SHIPPING `Erasure.visitExpr`, `hreg` is satisfiable — it
+-- is the premise `EnvErasureRec.RegisteredClosureRec` has always carried. What blocks step
+-- 6 is only that its eraser is abstract. Teaching the motives that the abstract eraser's
+-- successful runs are the fixpoint's — a conjunct admissible in exactly the
+-- `eraseM_admissible_ok₁` sense, whose eighteen step obligations are the componentwise
+-- monotonicity of the erasure functional, available as
+-- `Erasure.visitExpr.mutual._proof_1 : Lean.Order.monotone …` — is a second Γ-W1-shaped
+-- pass plus order-theoretic plumbing. Priced in `ColdStart`'s residue-1 row; not attempted
+-- here.
