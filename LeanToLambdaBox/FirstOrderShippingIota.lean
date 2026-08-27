@@ -49,9 +49,17 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   form all of the `Γ`/`E` ones are *derived* from the registration records. All of them
   are constructed jointly at one registered inductive in the guard below.
 * **Runtime Hoare assumptions — specs about opaque `IO` primitives, the documented
-  trust boundary.** `BridgeHyps`, `DataBridgeHyps`, `CasesBridgeHyps` (the last one
-  carries `visitCases`' `inferType` spec), plus the run/invariant premises
-  `hrun`/`hinv`.
+  trust boundary.** `BridgeHyps`, `DataBridgeHyps`, `CasesBridgeHyps` (which carries
+  `visitCases`' `inferType` spec) and, since slice P8, the fourth bundle
+  `ProjBridgeHyps` (`visitProj`'s structure fetch and its one trivial argmask), plus the
+  run/invariant premises `hrun`/`hinv`.
+* **The projection layer, added by round P0–P9.** `hprojenv : ErasesEnvProjs` and
+  `hpcoh : ProjFieldsCoherent` are certificates of the first class above (derived from
+  `RegisteredProjs`/`RegisteredProjCtorFields` in the `_registered` form); the interface
+  premise `hproj : ProjConsistent` is `hiota`'s exact analogue and is discharged by
+  `ProjDischarge.projConsistent_of_coh` from two **upstream** `Prop` hypotheses —
+  `ProjDefeqSpec` (`TrEnv.proj_defeq`, a real statement with a deferred proof) and
+  `ProjCtorAgree`. Neither is an axiom; `ColdStart.lean`'s ledger carries the row.
 * **`PatsIotaSpec` — the upstream item, now discharged**: the fork's strengthened rule
   lookup. It is *not* an assumption about our code, and no longer an open obligation —
   `PatsIotaSpec.of_trEnv` (`IotaPattern.lean`) builds it from any `TrEnv`. Only the
@@ -332,9 +340,12 @@ on the first-order constructor `c`. That `c` happens to be nullary is now incide
 no premise of D3ι bounds the arity — and the field-carrying half of the certificate
 block is guarded at `gΓfield_certificates` (`ErasesCorrectIota.lean`).
 
-Left hypothetical, matching the D3 guard's own discipline: the run `hrun`/`hinv`/`hsup`
-and the three runtime bundles `H`/`HD`/`C` (opaque primitives), plus the two ι trust
-items `IotaConsistent` and `IotaRelevant`. -/
+Left hypothetical, matching the D3 guard's own discipline: the run `hrun`/`hinv`/`hsup`,
+the four runtime bundles `H`/`HD`/`C`/`P` (opaque primitives) and the two fragment-keyed
+ones `Hδ`/`Hβ`, plus the two ι trust items `IotaConsistent` and `IotaRelevant`. The
+projection certificates are *not* on this list: they are discharged vacuously below
+(`ΓFOι` registers no structure), which is what makes the projection round additive
+here. -/
 
 /-- The guard's `Γ`: `ΓFOd` (the nullary constructor `c` of `I`, `FirstOrder.lean`)
 **plus** a registered `casesOn` head `con` eliminating the same `I` — zero parameters,
@@ -473,7 +484,8 @@ theorem ΓFOι_certificates :
 /-- **D3ι fires.** On the first-order constructor `c` at the registered inductive above: the source-env hypotheses hold vacuously (empty `Esrc`), the whole
 certificate block is `ΓFOι_certificates`, the source `c` `SEvalDataι`-evaluates to
 itself, and the theorem produces `t'` together with its uniqueness. Hypothetical: the run
-(`hrun`/`hsup`), the three runtime bundles, the target-side structural facts about
+(`hrun`/`hsup`), the four runtime bundles `H`/`HD`/`C`/`P` and the fragment-keyed
+`Hδ`/`Hβ`, the target-side structural facts about
 the run's output `t` (`NoBlock`/`LBClosed`), and the two ι trust items
 (`IotaConsistent`, `IotaRelevant`).
 

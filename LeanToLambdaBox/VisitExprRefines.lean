@@ -24,7 +24,8 @@ family, using the run-lemma library of `ErasureRun.lean`.
 
 ## Architecture
 
-* **`BridgeHyps`** / **`DataBridgeHyps`** / **`CasesBridgeHyps`** — the three
+* **`BridgeHyps`** / **`DataBridgeHyps`** / **`CasesBridgeHyps`** /
+  **`ProjBridgeHyps`** — the four
   trust bundles. `BridgeHyps` carries Hoare-style hypotheses about the four
   opaque runtime primitives the bridge cannot compute with
   (`liftMetaM (isErasable e)`, `mkFreshFVarId`, `getCasesInfo?`,
@@ -35,12 +36,16 @@ family, using the run-lemma library of `ErasureRun.lean`.
   global satisfiability is *not* in-logic decidable — the primitives are
   opaque `ST`/`EIO` operations. This is the documented trust boundary.
   `DataBridgeHyps` (`DataBridgeHyps.lean`) adds the constructor data path's
-  specs and `CasesBridgeHyps` (`CasesBridgeHyps.lean`) the ι (`casesOn`) path's;
-  all three are consumed by the single induction below. A fourth,
+  specs, `CasesBridgeHyps` (`CasesBridgeHyps.lean`) the ι (`casesOn`) path's and
+  `ProjBridgeHyps` (`ProjBridgeHyps.lean`, slice proj-P8) the projection path's;
+  all four are consumed by the single induction below. A fifth,
   `DeltaHyps` (`DeltaHyps.lean`), carries the δ (constant-unfolding) fragment's
   *scope* obligations — it is the scope-side half of the two-part contract whose
   state-side half is `BridgeInv` — and since slice D4a this induction consumes it
   too, in step 6 (see `BridgeInv`'s docstring for the field its arrival replaced).
+  Walking step 6's *recursive* exit (slice Γ-W3.6b) added two more premises of the
+  same class: `BlockHyps` (`DeltaHyps.lean`), the block-local companion keyed on the
+  sibling fetch, and the named `RecBlockAgreement` below.
 * **`BridgeInv`** — the induction invariant: the reader's `LocalContext`
   corresponds to the typing context `Δ` (lean4lean's `TrLCtx`), the reader's
   block-local `fixvars` map agrees with `Γ.fixvars` (and its ids are fresh for `Δ`),
@@ -52,10 +57,12 @@ family, using the run-lemma library of `ErasureRun.lean`.
   other half is the approximation conjunct of slice Γ-W3.5, a tautology at
   the fixpoint).
 
-Trust boundary: results inherit `sorryAx` through lean4lean's `TrExprS`
-structural lemmas exactly as documented in `Erases.lean`, plus lean4lean's
-`Expr`/`PersistentHashMap` modeling axioms (through `Bridge.lean`'s `find?`
-lemmas and `instantiate1_eq`). No `sorry` of our own, no new axioms.
+Trust boundary: since the lean4lean `trproj` re-pin the results are **`sorryAx`-free**
+— `TrProj` has a real definition upstream, so nothing enters through the *type* of a
+`TrExprS`-adjacent statement any more; the audit block at the foot of this file carries
+the measurement. What remains is lean4lean's `Expr`/`PersistentHashMap` modeling axioms
+(through `Bridge.lean`'s `find?` lemmas and `instantiate1_eq`), plus the trust bundles
+above. No `sorry` of our own, no new axioms.
 -/
 
 namespace LeanToLambdaBox
@@ -1095,7 +1102,7 @@ theorem ProjBridgeHyps.withFixvars {Γ : ErasureCtx}
 
 Each step of the induction below holds its own `Γ` together with the coherence equation
 `hΓ : Γ = Γ₀.withFixvars Γ.fixvars` (slice Γ-W1), and re-derives its bundles from the
-ambient ones in one line. The three transports are the ones above, composed with the
+ambient ones in one line. The four transports are the ones above, composed with the
 equation; there is still no proof obligation. -/
 
 /-- The two registration projections a step has to read *across* the coherence equation:
@@ -1372,8 +1379,9 @@ under a reader carrying the block's fixvar map, closes each result with `mkDef`,
 registers one `.fix` entry per name. The theorem below walks all four of those loops and
 composes their outputs into the three conjuncts `visitMutual`'s motive reports, at an
 **abstract** eraser `vE` and its motive-1 refinement hypothesis — which is the form step 6
-of `visitExpr_refines_erases_core` would consume, and the form
-`visitMutual_rec_exit_refines_erases` instantiates at the shipping `Erasure.visitExpr`.
+of `visitExpr_refines_erases_core` consumes (slice Γ-W3.6b; before it, the form step 6
+*would* have consumed), and which guard (iv') instantiates at the shipping
+`Erasure.visitExpr`.
 
 What each piece supplies (recursion wall, slice Γ-W3):
 
@@ -1772,13 +1780,16 @@ theorem rec_exit_refines_erases {env : VEnv} {Us : List Name} {known : Name → 
 
 set_option maxHeartbeats 1000000 in
 set_option synthInstance.maxSize 4000 in
-/-- **The bridge, all 18 motives.** Content motives: 1 (`visitExpr`),
-3 (`visitConstructor`), 4 (`visitConst`), 5 (`get_constant_kername`),
-7 (`visitAppArgs`), 8 (`visitLet`), 9 (`visitLambda`), 11 (`visitApp`),
+/-- **The bridge, all 18 motives — and all 18 now carry content.** 1 (`visitExpr`),
+2 (`visitLiteral`, the peano-`Nat` literal, slice nat-L3), 3 (`visitConstructor`),
+4 (`visitConst`), 5 (`get_constant_kername`), 6 (`visitMutual`: the δ record and the
+registration conclusion, slice D4a), 7 (`visitAppArgs`), 8 (`visitLet`),
+9 (`visitLambda`), 10 (`visitProj`, slice proj-P8), 11 (`visitApp`),
 12 (`visitConstApp`), 13/14 (`visitCtorEta`/`Go`) and — the ι fragment,
 `Supported.casesApp` — 15/16 (`visitCasesEta`/`Go`), 17 (`visitCases`),
-18 (`visitAlt`); the remaining ones carry `True` conclusions in canonical run-ok
-shape (their branches are unreachable from the supported fragment).
+18 (`visitAlt`). No motive concludes `True` any more: motive 10 was the last one that
+did — its branch was unreachable from the supported fragment until `Supported.proj`
+arrived — and proj-P8 gave it the projection arm.
 
 Motive 18 opens the alternative's full λ-telescope (`bridge_alt_telescope`),
 so `Erases.cases`' `harity` premise is met at each constructor's real field
@@ -2686,11 +2697,11 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- `Nodup` and membership side conditions are all read off `hall`/`hstrip`.
                --
                -- WHAT REMAINS, precisely, now that the branch is walked:
-               --   * `hnorec` at the *capstones*. Dropping it means replacing
-               --     `recEnvConsistent_of_noRec` by `ColdStartDelta.recEnvConsistent_of_block`
-               --     and threading this exit's `.fix` registration into the cold-start δ
-               --     record. Nothing here blocks it; it is the next slice
-               --     (`ColdStart`'s `hnorec` row);
+               --   * `hnorec` at the *capstones* — **paid at slice Γ-W4**, and so no
+               --     longer a remainder: `recEnvConsistent_of_noRec` gave way to
+               --     `ColdStartDelta.recEnvConsistent_of_deltaMem_walked`, this exit's
+               --     `.fix` registration travels in the cold-start δ record, and the
+               --     restriction is deleted (`ColdStart`'s `hrec`/`hcov` rows);
                --   * the **single-declaration** scope, which is `DeltaHyps.decl_run`'s
                --     (`ci.all = [m]`), not this branch's. Per Γ-W0's measurement that is
                --     exactly the self-recursive arithmetic the §H benchmarks drag in;
@@ -3577,7 +3588,8 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
 /-! ## The exported theorem -/
 
 /-- **The bridge theorem**: on the supported fragment, under the trust bundles
-`BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps` and the invariant `BridgeInv`,
+`BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`/`ProjBridgeHyps` and the invariant
+`BridgeInv`,
 a successful run of the shipping
 erasure `Erasure.visitExpr` refines the typed erasure relation `Erases`;
 moreover the `ErasureState` only *grows* (`Erasure.RunConcl`: the registries extend,
@@ -3617,8 +3629,8 @@ carrying the block's fixvar map, i.e. against `Γ.withFixvars fv`, not against t
 `Γ`. No motive changes; the whole question is which premises survive `Γ ↦ Γ.withFixvars fv`,
 and the answer is *all but one*:
 
-* `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps` read only registration fields that
-  `withFixvars` leaves alone — `withFixvars` above;
+* `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`/`ProjBridgeHyps` read only registration
+  fields that `withFixvars` leaves alone — `withFixvars` above;
 * `BridgeInv` is rebuilt by `BridgeInv.withFixvars`, whose two new obligations are the
   reader-vs-`fv` agreement the `withReader` establishes by construction and the block
   freshness `BridgeHyps.fresh_run` gives against `BridgeInv.reserved`;
@@ -3768,7 +3780,8 @@ one `visitMutual`'s `withReader` installs. Two things this checks that nothing e
   precisely because slice δ-D8 conditioned `nofixvars` — before that, this premise was
   false (`DeltaHyps.gNofixvars_blocklocal_refuted`).
 
-Hypothetical: the run, the four bundles, and the `TrExprS` witness (the fixture's `env`
+Hypothetical: the run, the six bundle premises (four trust bundles plus the block-local
+`Hδ'`/`Hβ'`), and the `TrExprS` witness (the fixture's `env`
 is a parameter, so nothing here can declare `f`). -/
 example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
     (gw : Void IO.RealWorld → NameGenerator) (w w' : Void IO.RealWorld)
@@ -3830,8 +3843,10 @@ theorem supported_const_fixOpen_not_ambient :
   · simp [ΓfixRec] at hc
 
 /-- (i''') **…and the same instantiation is *not* available inside the induction**
-(slice δ-D8e) — the negative guard for `visitExpr_refines_erases_block`, and the exact
-obstruction the cold-start `hnorec` premise is waiting on.
+(slice δ-D8e) — the negative guard for `visitExpr_refines_erases_block`, and, when it was
+written, the exact obstruction the cold-start `hnorec` premise was waiting on. Both ends of
+that sentence have since been paid: step 6 walks the exit (Γ-W3.6b) and `hnorec` itself is
+deleted (Γ-W4).
 
 `visitExpr_refines_erases_block` reads the bridge theorem at a second `Γ`. That works
 because the theorem binds `Γ` as a plain implicit, so it is Γ-polymorphic **as a
@@ -4068,7 +4083,7 @@ precisely the instantiation step 6's recursive exit needs and precisely what the
 theorems above show a *fixed*-`Γ` motive cannot supply — and the coherence hypothesis is
 discharged by `rfl`, since `(Γ₀.withFixvars fv).fixvars` is `fv`.
 
-Note what is *not* re-proved: the three trust bundles and `Hδ` are the ambient ones,
+Note what is *not* re-proved: the four trust bundles and `Hδ` are the ambient ones,
 unchanged. Only `Γ` moved. -/
 example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCtx} {Esrc : SEnv}
     {cfg₀ : ErasureConfig} {gw : Void IO.RealWorld → NameGenerator}
@@ -4093,7 +4108,7 @@ example {env : VEnv} {Us : List Name} {known : Name → Prop} {Γ₀ : ErasureCt
 instantiable: a concrete one-fvar context (with `TrLCtx` *constructed*, not
 assumed) and the supported term `.fvar x` satisfy every premise except the run
 itself and the trust bundles, which stay hypothetical because the primitives
-are opaque. The fourth bundle (`DeltaHyps`, slice D4a) is hypothetical for exactly the
+are opaque. The fifth bundle (`DeltaHyps`, slice D4a) is hypothetical for exactly the
 same reason and no other: at this guard's `known = ⊥` its whole *scope* half is free
 (`DeltaHyps.of_bot`), and what is left is the generator bookkeeping for the five
 primitives only `visitMutual` reaches. -/
@@ -4166,7 +4181,7 @@ the tower and `ErasesCorrectData.lean` runs it on both sides); the `BridgeInv`, 
 the source translation `∃ ve, TrExprS envNatT [] [] (.lit (.natVal 2)) ve`, at the
 three-axiom `envNatT` in which `Nat`'s constructors are declared *and typed*
 (`trExprS_natLit`, `Erases.lean`). *Hypothetical*, as in (ii) and for the same reason:
-the run equation and the three trust bundles, which speak about opaque primitives.
+the run equation and the four trust bundles, which speak about opaque primitives.
 
 So the shipping eraser, run on the raw literal node `2` in peano mode, lands inside
 `Erases` — and by `Erases.lit_inv` only the box rule or `Erases.lit` can have put it
@@ -4248,7 +4263,8 @@ theorem old_known_dom_cold_refuted (n : Name) :
 /-- (v) **The bridge fires on a δ-reference, at the cold-start entry state** (δ-inclusion,
 slice D4a) — the payoff guard, and the one the whole slice exists for.
 
-Everything except the run and the four trust bundles is *constructed*, at a genuinely
+Everything except the run, the four trust bundles and the δ/block/agreement premises
+(`Hδ`/`Hβ`/`Hreg`) is *constructed*, at a genuinely
 non-empty fragment: the invariant at the empty state and a `known` that holds of
 `Nat.zero` (`bridgeInv_cold_known` — refutable before this slice,
 `old_known_dom_cold_refuted`); the `Supported.const` derivation, whose `known n`
@@ -4404,6 +4420,8 @@ end NonVacuity
 /- Axiom audit (2026-07-07, via temporary `#print axioms`, since removed;
 re-checked 2026-08-10 after the ι widening, 2026-08-12 after the cold-start S2
 widening and again after the Nat-literals L3 widening — **unchanged** every time.
+Re-measured 2026-08-27, after the Γ-XL recursion wave, the projection round and
+the two lean4lean re-pins: the lists below are current.
 L3 added no axiom either: the literal path introduces no primitive and no trust
 clause (`visitLiteral` calls `visitConstructor`, whose `DataBridgeHyps` clauses are
 keyed on `Γ.ctors` and already cover `Nat.zero`/`Nat.succ`), and `BridgeInv.natcfg` is
@@ -4422,6 +4440,8 @@ axioms):
   `[propext, Classical.choice, Quot.sound, Expr.instantiate1_eq,
     PersistentArray.toList'_push, PersistentHashMap.WF.find?_eq,
     PersistentHashMap.WF.toList'_insert]`
+* `rec_exit_refines_erases` (the walked recursive exit, Γ-W3/Γ-W3.6b): the same
+  list one item smaller — no `Expr.instantiate1_eq`;
 * pure helpers (`VLCtx.find?_bvar_none_of_noBV`, `Supported.getAppFn`,
   `supported_foldl_app_inv`, `getAppArgs_spine`, `run_fvar_to_name`):
   `[propext, Classical.choice, Quot.sound]` or less;

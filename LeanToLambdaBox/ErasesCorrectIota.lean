@@ -7,7 +7,8 @@ import LeanToLambdaBox.IotaBridge
 
 `erases_correct_dataι` is the ι counterpart of `erases_correct_data`: forward simulation
 at MetaRocq's non-block `appliedFlags` over `SEvalDataι` (β + δ + saturated constructors +
-the corrected ι), with the same conclusion shape. It is **additive** —
+the corrected ι, and since projection round slice P5 structure projections as well), with
+the same conclusion shape. It is **additive** —
 `erases_correct_data` / `erases_correct_data_zeta` are untouched.
 
 It lives in its own file because it needs `SEvalDataι_defeq`, and `SubjectReductionIota`
@@ -237,8 +238,8 @@ theorem SEvalDataι_partial_cases_lam_elim {Γ : ErasureCtx} {ia : IotaArities} 
 
 /-! ## The ι forward simulation -/
 
-/-- **Erasure correctness — forward simulation, β + δ + saturated constructors + ι, at
-MetaRocq's non-block `appliedFlags`.**
+/-- **Erasure correctness — forward simulation, β + δ + saturated constructors + ι +
+projections, at MetaRocq's non-block `appliedFlags`.**
 
 The ι counterpart of `erases_correct_data`: same conclusion shape, over `SEvalDataι`
 (which has no `zeta` rule), plus the `LBClosed` thread and the ι-specific side conditions

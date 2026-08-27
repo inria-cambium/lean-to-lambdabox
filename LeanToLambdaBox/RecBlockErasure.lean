@@ -243,11 +243,11 @@ block. The companion below reads it *backwards*, and is the only fact about `Era
 counts fvars: a derivation whose **source** is fvar-free has a **target** whose free
 variables are all fixvars of `Γ`.
 
-Thirteen of the fourteen rules make this trivial. Eleven are structural or have fvar-free
+Fourteen of the fifteen rules make this trivial. Twelve are structural or have fvar-free
 targets outright; `const_fix` and `fix` carry the inertness equality
 `htobv : ∀ x l, toBvar x l (.fix defs idx) = .fix defs idx`, which
 `not_hasFVar_of_toBvar_eq_self` (`FixUnfold`) converts into outright fvar-freeness of the
-block they emit. The fourteenth, `Erases.fvar`, is the one rule that would manufacture a
+block they emit. The fifteenth, `Erases.fvar`, is the one rule that would manufacture a
 target fvar out of nothing — and it is exactly the rule the source-side hypothesis kills,
 since `FVarsIn (fun _ => False) (.fvar y)` *is* `False`.
 
@@ -495,8 +495,11 @@ content) ⟹ `instFixvars` instantiates the fixvars ⟹ `closeFix_substList_fixS
 environment-level walk that supplies the per-sibling run facts: slice D6
 (`ColdStartRun.run_rec_exit_siblings`) produces the runs, but at the block-local
 `Γ.withFixvars fv`. Slice δ-D8 consumed them with no motive change
-(`VisitExprRefines.visitExpr_refines_erases_block`); what §W3.2/D8 is still wanted for is
-the *capstone* half, priced in `ColdStart.lean`'s residue 1.
+(`VisitExprRefines.visitExpr_refines_erases_block`) — true of *that* route, from outside
+the induction. Reaching it from **inside** step 6 did need the motives to quantify `Γ`
+(slice Γ-W1), and since Γ-W3.6b step 6 walks the recursive exit itself: the capstone half
+is no longer wanting, and what `ColdStart.lean`'s residue 1 now prices is
+`RecBlockAgreement`'s outright discharge.
 `ColdStartDelta`'s recursion section is the premise-by-premise ledger.
 
 ## The `hopen` repair (slice `rec`)
@@ -729,7 +732,16 @@ Fvar-freeness of the stored block is **derived** here rather than assumed: it is
 independent fact about `defs` but a consequence of the block-local erasures plus the
 closing — `erases_target_fvars` says every free variable of an opened body is a fixvar of
 `Γ.withFixvars fv`, `hfv` identifies those with the run's own `ids`, and
-`not_hasFVar_closeFix` observes that `closeFix ids 0` abstracts precisely the `ids`. -/
+`not_hasFVar_closeFix` observes that `closeFix ids 0` abstracts precisely the `ids`.
+
+**The scope restriction the recursion feature makes is this theorem's `hopen`.** The
+block's inner runs are taken at `known = ⊥`, so a sibling body's erasure is derivable only
+while it stays inside the block: **a block's bodies call only its own siblings** (reached
+through `Γ.withFixvars fv` rather than through the fragment), **registered constructors and
+registered `casesOn`s** — an external constant is out of scope. That is the one restriction
+recursion genuinely still costs, and it is *inside* a block rather than about the program;
+`DeltaHyps`' scope-restriction list and `ColdStart`'s `Hβ` row both name this theorem for
+it. -/
 theorem erases_rec_block_of_run {env : VEnv} (henv : env.Ordered) {Us : List Name}
     {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)
     {fv : Name → Option FVarId}

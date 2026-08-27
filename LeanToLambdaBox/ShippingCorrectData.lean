@@ -25,9 +25,12 @@ exactly as the WS-F brief prescribes.
 
 ## Trust boundary
 
-The union of `BridgeHyps` (β+δ oracle/fresh/classifier specs) and `DataBridgeHyps`
-(the constructor data-path primitive specs — `getConstInfo`/`register_inductive`/
-`getEnv`/`inferType`), plus the WS-F environment-consistency premises
+The union of the **four** runtime bundles the bridge now threads — `BridgeHyps` (β+δ
+oracle/fresh/classifier specs), `DataBridgeHyps` (the constructor data-path primitive
+specs — `getConstInfo`/`register_inductive`/`getEnv`/`inferType`), `CasesBridgeHyps` (the
+ι path's `inferType` spec) and `ProjBridgeHyps` (the projection path's structure fetch and
+argmask, slice P8) — plus the fragment-keyed `DeltaHyps`/`BlockHyps` and the registration
+agreement `RecBlockAgreement`, plus the WS-F environment-consistency premises
 (`SEnvConsistent`/`ErasesEnvDeltaData`/`ErasesEnvCtor`) and lean4lean's model
 (`env.WF`, `TrExprS`). Everything else — the traversal, the de Bruijn↔fvar
 reconciliation, the constructor spine reconstruction, the semantics — is proved.
@@ -87,8 +90,9 @@ theorem shipping_visitExpr_correct_data
 Reuses the concrete nullary first-order constructor `c : I` of `FirstOrder.lean`
 (`envFO`/`ΓFOd`/`EFOd`): the source-env hypotheses hold vacuously (empty `Esrc`),
 `ErasesEnvCtor` by `ΓFOd_envctor`, and the source `c` `SEvalDataC`-evaluates to
-itself. The run and the two trust bundles stay hypothetical (opaque primitives);
-everything else — including the `NoBlock` witness — is constructed. -/
+itself. The run and the six trust bundles stay hypothetical (`H`/`HD`/`C`/`P` on the
+opaque primitives, `Hδ`/`Hβ` on the fragment); everything else — `Hreg` by
+`RecBlockAgreement.of_bot`, including the `NoBlock` witness — is constructed. -/
 example {cfg₀ : ErasureConfig}
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
       BlockHyps envFO [] (fun _ => False) ΓFOd cfg₀ (fun _ => none) cc rf)

@@ -28,9 +28,14 @@ transpiler: the erased program `Eval`-uates to an erasure of the source value.
   (`PROJECT_STATUS_HANDOFF.md`, Task C), stated here as premises — not
   axiomatized away.
 * `H : BridgeHyps`: Hoare-style specs of the four opaque runtime primitives the
-  supported fragment exercises (the relevance oracle, `mkFreshFVarId`,
+  *term* path exercises (the relevance oracle, `mkFreshFVarId`,
   `getCasesInfo?`, `getCtorArity?`), relative to a ghost name-generator measure
-  `gw`. **The oracle's kernel path is now discharged, not assumed**
+  `gw`. It is one of **four** such bundles the bridge threads: `HD : DataBridgeHyps`
+  (the constructor data path), `C : CasesBridgeHyps` (the ι path) and
+  `P : ProjBridgeHyps` (the projection path, slice P8) carry the primitives their own
+  fragments reach and nothing this one already covers. `Hδ`/`Hβ`/`Hreg` are a different
+  class — fragment- and block-keyed rather than primitive-keyed (`DeltaHyps.lean`,
+  `VisitExprRefines.lean`). **The oracle's kernel path is now discharged, not assumed**
   (`shipping_visitExpr_correct'` below): its soundness is *proved* from
   `isErasable.WF` via the generalized run-adequacy `M.WF.run'`
   (`CheckerAdequacy.lean`, `kernel_isErasable_sound`), leaving as trust only the

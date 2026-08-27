@@ -17,7 +17,8 @@ the β+δ+ctor stack's premise set stays pinned: `DataBridgeHyps` is byte-unchan
 and every theorem stated against it keeps its exact meaning.
 
 Four clauses, over the same ghost world-measure `gw : Void IO.RealWorld →
-NameGenerator` used by the other two bundles. All the runtime primitives they
+NameGenerator` used by the other three bundles (`ProjBridgeHyps`, the projection
+round's fourth, arrived after this one). All the runtime primitives they
 spec (`getCasesInfo?`, `getConstInfo`, `register_inductive`, `Meta.inferType`)
 are **real** — not part of the `visitExpr` mutual block — so their Hoare specs
 are usable directly inside the fixpoint induction.

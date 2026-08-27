@@ -17,7 +17,7 @@ body closed at level `k` to one closed at `k + 1` — plus the fold forms for th
 multi-binder closings (`mkAlt` over an alternative's fields, `mkDef` over a mutual
 block's fixpoint variables), which apply `toBvar` at levels `0, 1, 2, …` in turn.
 
-Since slice δ-D7a the same three shapes are here for **`NoBlock`** (applied form), which
+Since slice δ-N the same three shapes are here for **`NoBlock`** (applied form), which
 the shape induction now carries as a third output conjunct — see `ShapeC`. That is why
 this file imports `ErasesCorrectData`, where `NoBlock` is defined next to its de-Bruijn
 metatheory (`noBlock_shift`/`noBlock_subst`); the import is free in practice, the only

@@ -74,9 +74,12 @@ witness (context-uniform, `∀ Δ`) that a full DAG walk would produce — here 
 `.fix defs idx` shape. Its non-vacuity guard constructs that `Erases` witness through the
 `erases_fix_of_closed` reconciliation, exercising the whole chain.
 
-**DEMOTED at slice δ-D8**, and never a capstone premise — `hnorec` stood in for it. The
-`erase` field is now derived from the run (`RecBlockErasure.erases_rec_block_of_run`); what
-survives is the registration agreement. Read the structure's docstring below. -/
+**DEMOTED at slice δ-D8**, and never a capstone premise — `hnorec : Γ.recBodies = ⊥` stood
+in for it, and *that* is gone too since Γ-W4b, so neither the record nor the restriction it
+was traded against is a capstone premise any more (`ColdStart.lean`'s `hcov` row is what
+took the restriction's place). The `erase` field is now derived from the run
+(`RecBlockErasure.erases_rec_block_of_run`); what survives is the registration agreement.
+Read the structure's docstring below. -/
 
 /-- **Cold-start closure registration for the recursive fragment** (a clean `Prop`
 hypothesis; the deferred DAG walk P3.13 discharges it). For every source constant `n`

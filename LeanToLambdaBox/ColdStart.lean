@@ -101,14 +101,14 @@ Four classes, and nothing falls outside them:
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
 | `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec`. **A second scope conjunct, unnamed until Γ-U**: the predicate quantifies the call site's levels `us` and its conclusion never mentions them, while a `VEnv`'s defining equation (`VEnv.IsDefEq.extra`) instantiates *both* sides. So at a polymorphic constant this row is not the kernel fact but a strictly stronger, false one — it collapses the constant's instantiations (`SEnvConsistent.levels_collapse`). It is sound exactly where `hUs` already puts us, which is why nothing moved; but it means the universe restriction is pinned in two places, and a Γ-U that relaxed only the bundle would move the vacuity here |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
-| `P : ProjBridgeHyps` | H | the fourth bundle (proj-P8), two clauses for `visitProj`'s two calls. Both are Γ↔environment *registration* agreements and both are `env`/`Us`-free, so **the projection round adds no typing assumption** — it is the same class as `CasesBridgeHyps`, one call site smaller. At `Γ.projs = ⊥` it is a theorem (`ProjBridgeHyps.of_bot`), which is why the eight pre-projection call sites instantiate it rather than assuming it |
+| `P : ProjBridgeHyps` | H | the fourth bundle (proj-P8), two clauses for `visitProj`'s two calls. Both are Γ↔environment *registration* agreements and both are `env`/`Us`-free, so **the projection round adds no typing assumption** — it is the same class as `CasesBridgeHyps`, one call site smaller. At `Γ.projs = ⊥` it is a **theorem** (`ProjBridgeHyps.of_bot`), which is what makes threading it through the pre-projection cone cost nothing: at every `Γ` predating the round the bundle is derivable, so the premise adds no assumption to any statement that had none. [Corrected in the coherence pass, 2026-08-27: this row used to say "the eight pre-projection call sites *instantiate* it rather than assuming it". They do not — the cone threads `P` as a hypothesis like the other three bundles, and `of_bot` is applied at exactly one place, the guard at `ProjBridgeHyps.lean`. The claim that cost nothing is *derivability*, not inlining; the guard is what measures it, and `ProjectionGuard` below is where `of_bot` stops applying.] |
 | `hproj : ProjConsistent env Us Γ` (ι) | H | the projection interface premise, `hiota`'s exact analogue: the source-side ι rule for `.proj`, stated about `env`. `ProjDischarge.projConsistent_of_coh` discharges it from `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, a real statement with a **deferred proof** (commission item A2), so this row is *upstream-gated* in the same sense `PatsIotaSpec` was before `of_trEnv` — plus `ProjCtorAgree`, the `env.pats`↔`Γ.ctors` constructor agreement that `ProjShape` provably cannot supply (`ProjDischarge.lean`'s module docstring), plus the `ProjFieldsCoherent` this capstone now derives from the walk. At `Γ.projs = ⊥` it is `projConsistent_of_noProjs`, which is how both `known = ⊥` guards pick it up unchanged. **Not an axiom** at any point: `ProjDefeqSpec` and `ProjCtorAgree` are `Prop` hypotheses |
 | `Hδ : DeltaHyps` | H + S | mixed by field, and deliberately: the five `…_run` clauses are H (generator bookkeeping for the `visitMutual`-only primitives); `esrc_sub`/`disj`/`kinj`/`nofixvars`/`decl_run`/`prepared`/`prep_esrc`/`axiom_free`/`esrc_shape` are S (the fragment's own closure conditions). Three field-level changes are worth the ledger: `uniform` is **gone** (δ-D7b) — context-uniformity is now a theorem; `nofixvars` is **conditioned on the fragment** (δ-D8), which makes the bundle inhabitable at a block-local `Γ.withFixvars fv` and costs nothing at a top-level one; and the recursion exclusion `nonrecursive` is **gone** (Γ-W3.6b), traded for the bridge's `Hreg` — the bundle no longer excludes recursive fragment constants. `prep_esrc` also gained a config gate at Γ-W3.6a, which *weakens* what a producer must believe, and `esrc_shape` was weakened at proj-P2 from `NoProj` to `NoProjBinders` — the typeclass layer's prepared bodies are projections, so the strong predicate made the field uninhabitable for all of them; the strong one now sits on `BlockHyps.block_lam`, for the sibling bodies only |
 | `Hβ : BlockHyps` | H + S | the block-local companion (Γ-W2), and a premise of the capstones since Γ-W3.6b because step 6 walks the recursive exit. Two run-keyed clauses (H: the sibling fetch's `levelParams`, and `block_esrc` — config-gated at Γ-W3.6a), one scope fact (S: a block source is a projection-free λ — the `NoProj` half arrived at proj-P2, out of `DeltaHyps.esrc_shape`, and keeps this path on the `sorryAx`-free strengthening) and the two residues recursion drags in, `strengthen` (= `hstr`, already in this table) and `nonest`. At `known = ⊥` all three fragment-keyed fields are free (`BlockHyps.of_bot`), which is why the block instantiation pays only the residues. Its scope restriction is named at `RecBlockErasure.erases_rec_block_of_run`: **a block's bodies call only its own siblings, registered constructors and registered `casesOn`s** — the block's inner runs are taken at `known = ⊥`, so an external call is out of scope. That is the one restriction the recursion feature genuinely still makes, and it is *inside* a block rather than about the program |
 | `Hreg : RecBlockAgreement` | H | **the walk's registration agreement** (Γ-W3.6b): `Γ` records the block the recursive exit stores, at the readers and states the bridge's induction quantifies. `Erases.fix`'s own premise, and irreducible at a parameter `Γ` fixed before the run builds the block. Its quantifiers are *gated* — on the fragment, and on `BridgeInv`, whose `cfg` field pins the config (Γ-W3.6a) and whose `consts`/`knames` pin the registry — so the two refutations that could be written are closed, and what is left free (`ctx.lctx`, `s.inductives`, the world) is the class every run-keyed field already carries. At `known = ⊥` it is a **theorem** (`RecBlockAgreement.of_bot`). `gRecAgreement` is the suppliability guard; residue 1 records the route that would make it a theorem outright (read `Γ.recBodies` off the run's final `gdecls`, priced at "re-index the erasure relation") |
 | `S : ColdStartSubject` | S | one field left. `supported` — the prepared term is in the fragment and lean4lean-translatable, the same premise `DeltaHyps.prepared` makes for the callees. `noBlock`/`noBlockEnv` retired at δ-N |
 | `hev : SEvalData{C,ι} … (Esrc.walked Γ sf.gdecls) pe v` | S | the source evaluation, stated about `prepare_erasure e` (what the run erases) and at the walk-restricted environment (what the run registered) |
-| `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents |
+| `hfo : FirstOrderValue env Us Γ [] v` | S, C at the guards | first-order *result*. Constructed at every guard modulo `harity`, the one lean4lean-blocked side condition `FirstOrder.lean` documents — except at the projection guard (P9), where `ΓprojQ` registers no first-order constructor at all, so no value of the fragment can be exhibited and the premise is taken hypothetically |
 | `hiota : IotaConsistent` (ι) | H | the interface premise; `…ι_of_shape` discharges it from `PatsIotaSpec + SEnvConsistent + IotaShape`, at eight further lean4lean *modelling* axioms and no axiom of ours |
 | `hrel : IotaRelevant` (ι) | S | excludes `Erases` derivations that box a proper prefix of an ι redex; the shipping `visitCases` emits none |
 | `hiacoh : IotaArityCoherent` (ι) | C | `ΓFOι_iotaArityCoherent` |
@@ -403,12 +403,14 @@ Nothing in this ledger is an axiom of ours. The measured axiom sets of both caps
 `sorryAx` and the four `Lean.Expr`/`PersistentHashMap` modelling axioms, all inherited
 through lean4lean.
 
-## THE INHERITED BOUNDARY — what `sorryAx` means here (re-measured 2026-08-27, `fee3ada`)
+## THE INHERITED BOUNDARY — what `sorryAx` means here (re-measured 2026-08-27, `fee3ada`/`7a5e96d`)
 
-The pin moved from the ι head `1a1ebe8` to `fee3ada`, head of the fork's `trproj` branch,
-where **`TrProj` stops being a `sorry`**. That single change is worth stating precisely,
-because for a year the honest answer to "what does the `sorryAx` in these capstones stand
-for?" was partly wrong.
+The pin moved from the ι head `1a1ebe8` to `fee3ada` and then to `7a5e96d`, head of the
+fork's `trproj` branch, where **`TrProj` stops being a `sorry`** (and, at `7a5e96d`, its
+motive is pinned to the constant — a step that discharged no `sorry` and added no axiom,
+so every measurement in this section stands at both revisions). That single change is
+worth stating precisely, because for a year the honest answer to "what does the `sorryAx`
+in these capstones stand for?" was partly wrong.
 
 **What it never was.** `TrProj` used to be a `sorry`-valued *definition*, so `sorryAx`
 entered through the **type** of `TrExprS` — every statement mentioning `Erases` or
@@ -429,14 +431,18 @@ unchanged, and the `sorryAx` in it is **unique typing**, not projections:
   `.uniq` downstream — 31 in `ErasesCorrectData.lean`, then `ErasesCorrect.lean` (11),
   `ErasesCorrectIota.lean` (7), `ErasesUniform.lean` (4), `FirstOrder.lean` (2),
   `ErasesStrengthen.lean` (2), `SubjectReductionFull.lean` (1). The densest single line of
-  inherited debt we carry. Slice proj-P2 added one more call site, deliberately and
+  inherited debt we carry. [Census flagged in the coherence pass, 2026-08-27: taken at the
+  `fee3ada` re-pin, the per-file figures sum to 58 rather than 69 and a grep today
+  disagrees with both — `ErasesUniform.lean` alone now leads, on the proj-P2 sites named
+  just below. **Due a re-measure**; nothing about the attribution in this bullet depends on
+  the number.] Slice proj-P2 added one more call site, deliberately and
   *without* widening the reach: admitting projections into the fragment means the
   `Δ → []` strengthening can no longer use the `sorry`-free `TrExprS.unique` (uniqueness
   at `.proj` is false, not unproved), so the weak-predicate lemma
   `Erases.strengthen_fvlift_binders` uses `.uniq` — while the equational lemma is **kept**
   for the recursive exit, which is what leaves `visitExpr_refines_erases` and
-  `rec_exit_refines_erases` `sorryAx`-free. The 750-entry audit prefix is byte-identical
-  across that slice.
+  `rec_exit_refines_erases` `sorryAx`-free. The audit prefix was byte-identical across that
+  slice, at its size then (750 entries; the audit has grown to 856 since).
 * `Lean4Lean.VEnv.IsDefEq.uniqU`, sorried through `IsDefEqU.weakN_iff` (= C1, see residue
   2) and through the ι fork's `pat` cases. It reaches us via `TrProj.defeqDFC`,
   `TrExpr.app`/`TrExpr.proj` and `TrExprS.instL`.
@@ -934,7 +940,7 @@ plus one that is specific to the entry point:
 * **the run** — no successful run of the erasure family is constructible in-logic (every
   branch passes through opaque `CoreM`/`MetaM` primitives and needs a real
   `ST.Ref`/world token), so `hrun` stays hypothetical, exactly as in the D3/D3ι guards;
-* **the four runtime bundles** `H`/`HD`/`C`/`Hr` and the two ι trust items
+* **the five runtime bundles** `H`/`HD`/`C`/`P`/`Hr` (`P` since proj-P8) and the two ι trust items
   (`IotaConsistent`, `IotaRelevant`) — same discipline;
 * **the prepared subject** (`ColdStartSubject`, `hev`) — *new here*, and unavoidable: the
   entry point erases `prepare_erasure e`, which is the output of three opaque elaborator
@@ -952,7 +958,7 @@ scope restriction on the theorem; the guard that exercises the other side is
 /-- **The cold-start capstone fires.** At the registered inductive of the ι guard, on a
 source whose prepared form evaluates to the first-order constructor `c`: `Erasure.erase`
 returns a `Program` whose term reaches *the* unique applied-form erasure of `c`, in an
-environment the run built. Hypothetical: the run, the four bundles, the two ι trust
+environment the run built. Hypothetical: the run, the five bundles, the two ι trust
 items, and the prepared-subject facts — see the section docstring. -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     (cfg : ErasureConfig) (hcsimp : cfg.csimp = false)
@@ -1047,7 +1053,7 @@ development that premise is met at a non-empty `Esrc`), its well-formedness, the
 the `Supported.const` derivation, the bridge invariant, the δ record and its walk
 restriction, the source evaluation's δ step, and the value's first-orderness.
 
-Hypothetical, all pre-existing classes: the run; the four runtime bundles; `NoBlock t`
+Hypothetical, all pre-existing classes: the run; the five runtime bundles; `NoBlock t`
 (a statement about the run's output); and `harity` — the single lean4lean-blocked side
 condition `FirstOrder.lean` documents, here restated at this environment. -/
 
@@ -1367,7 +1373,7 @@ whose only kernel form is `_unsafe_rec`.
 
 ### What stays hypothetical, and why each one has to
 
-The run, the four runtime bundles (`H`/`HD`/`C`/`Hr`), the two recursion premises
+The run, the five runtime bundles (`H`/`HD`/`C`/`P`/`Hr`), the two recursion premises
 (`Hβ`/`Hreg`), the residue `hstr` and the prepared subject (`S`/`hev`) — every one of them
 a class the δ guard already leaves open, for reasons its own section docstring gives — and
 one that is specific here:
@@ -1608,7 +1614,7 @@ peano-config pins, the constructor/`casesOn` disjointness, the value's first-ord
 and — the one that was not expected to be constructible here — the source-side δ trust
 item `hcon`, by η (`envRec_senvConsistent`).
 
-**Hypothetical**: the run, the four runtime bundles, the two recursion premises
+**Hypothetical**: the run, the five runtime bundles, the two recursion premises
 `Hβ`/`Hreg`, the residue `hstr`, the prepared subject `S`/`hev`, and `hcov`. Each is a
 class the δ guard already leaves open; `hcov` speaks about the run's final state, which no
 in-logic term can name at a cold start, and `gRecCoveredFO` is its suppliability check at
@@ -1672,7 +1678,7 @@ fixvar and peano-config pins; the constructor/`casesOn` disjointness; the source
 item at the empty fragment; and the two recursion premises at `⊥`.
 
 **Hypothetical**, and each in a class this file already carries: the run; the five runtime
-bundles; `Hr : RegBridgeHyps ΓprojQ`; the residue `hstr`; the ι trust items; the prepared
+bundles `H`/`HD`/`C`/`P`/`Hr`; the residue `hstr`; the ι trust items; the prepared
 subject `S`/`hev`; and `henv`/`hfo`, which are *newly* hypothetical here — `ΓprojQ` records
 no first-order constructor at all (its only constructor is the structure's, whose arguments
 are the two type parameters), so no value of the fragment can be exhibited, and the guard is

@@ -12,17 +12,20 @@ longer as bare premises — the environment-consistency hypotheses that the forw
 simulations (`erases_correct`, `erases_correct_data`) assume, for the fragment with **no
 value recursion**:
 
-* `ErasesEnvCtor` (`ErasesCorrectData.lean:529`) and the `casesOn`-analogue
+* `ErasesEnvCtor` (`ErasesCorrectData.lean:935`) and the `casesOn`-analogue
   `ErasesEnvCases` (defined here), from `register_inductive`'s local arity computation;
-* `ErasesEnvDelta` (`ErasesCorrect.lean:247`) / `ErasesEnvDeltaData`
-  (`ErasesCorrectData.lean:537`) for **non-recursive** constants, via the shipping
+* since the projection round's slice P0, the same pair transposed onto the `Γ.projs`
+  column — `ErasesEnvProjs` and `ProjFieldsCoherent`, Part 1b below;
+* `ErasesEnvDelta` (`ErasesCorrect.lean:449`) / `ErasesEnvDeltaData`
+  (`ErasesCorrectData.lean:943`) for **non-recursive** constants, via the shipping
   `visitExpr → Erases` bridge (`visitExpr_refines_erases`).
 
 It composes **no** final cold-start theorem (that is P3-v2b) and touches **no**
 forward-simulation theorem, no `Erases` constructor, and no `.fix` reasoning. The
 cold-start DAG registration (which constants/inductives actually land in `E`, and that
 each entry is consistent) is isolated behind clean `Prop` hypotheses
-(`RegisteredCtors`, `RegisteredCases`, `RegisteredClosure`, `RegisteredClosureData`) —
+(`RegisteredCtors`, `RegisteredCases`, `RegisteredCtorFieldsAll`, `RegisteredProjs`,
+`RegisteredProjCtorFields`, `RegisteredClosure`, `RegisteredClosureData`) —
 the analogues of `PrepareHyps`/`BridgeHyps`, and what P3-v2b will discharge. These are
 `Prop` hypotheses, **never axioms**.
 
@@ -181,9 +184,12 @@ runs — asks the environment for two things: that `p.indType` resolve to an
 **non-propositional** (a propositional one collapses under `proj_prop`, which
 `with_prop_case = false` kills).
 
-That is `ErasesEnvCases`'s contract with `casesOns` replaced by `projs`, so the four
+That is `ErasesEnvCases`'s contract with `casesOns` replaced by `projs`, so four of the
 declarations below are `ErasesEnvCases` / `RegisteredCases` /
 `erasesEnvCases_of_registeredCases` / `ErasesEnvCases.nonProp` transposed line for line.
+The other two — `RegisteredProjCtorFields` and `projFieldsCoherent_of_registered` — are the
+`projs`-keyed twins of the field-count record and its coherence discharge, needed because a
+projection-only structure never produces a `casesOn` to key them on.
 Nothing about the *structure*-ness of `S` is asked here: single-constructor-ness and the
 field count live in `Γ.ctorFields iid = some [nf]`, which is `register_inductive`'s own
 `is_struct` gate expressed in data `Γ` already carries. -/

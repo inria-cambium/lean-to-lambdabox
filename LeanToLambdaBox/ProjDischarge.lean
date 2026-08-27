@@ -49,10 +49,11 @@ hand.
 So the agreement is named here, as `ProjCtorAgree`, in the same idiom and for the same
 reason `ProjDefeqSpec` itself is named: it is the *interface*, `TrEnv` is the (future)
 implementation, and naming it keeps the obligation one declaration instead of an
-assumption smuggled through a certificate that provably cannot carry it. It is a `Prop`
-hypothesis, never an axiom, and it is **not** a new trust item of a new kind: it is the
-`VEnv`-side half of the same `TrEnv.proj_defeq` statement correction this round already
-escalates upstream.
+assumption smuggled through a certificate that provably cannot carry it. Like
+`ProjDefeqSpec` it is a `Prop` hypothesis, **never an axiom** — the round's two
+upstream-gated items are both premises — and it is **not** a new trust item of a new
+kind: it is the `VEnv`-side half of the same `TrEnv.proj_defeq` statement correction this
+round already escalates upstream.
 
 `ProjShape` still earns its place — `projConsistent_of_shape` takes it, and its
 `ctorAgreement` accessor is what pins `Γ.ctorArities cn = some (np + nf)` — but it

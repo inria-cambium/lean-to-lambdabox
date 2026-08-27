@@ -22,14 +22,16 @@ the step goal is about the fixpoint's abstract `visitExpr` argument rather than 
 one. `RunClosed Q` collects the six closure facts `visitMutual`'s four exits and the two
 registration primitives need — none of them with a freshness side condition, see the S1e
 note below; `ShapeC Q s s' t` is the per-call conclusion
-"`Q` survives, and the produced term is fix-free and closed".
+"`Q` survives, and the produced term is fix-free, de-Bruijn closed, and in applied form" —
+three output conjuncts since slice δ-N, where `NoBlock` joined the other two.
 
 Two motives deviate from `ShapeC`, because their results are not λ□ terms produced from
 nothing:
 
-* motive 7 (`visitAppArgs`) additionally **takes** `NoFix`/`LBClosed` of the accumulator
-  seed — the fold starts at a term the caller built (`.construct …`, a `visitConst`
-  output, …), so the seed's shape is an input, not something the loop establishes;
+* motive 7 (`visitAppArgs`) additionally **takes** all three output conjuncts
+  (`NoFix`/`LBClosed`/`NoBlock`) of the accumulator seed — the fold starts at a term the
+  caller built (`.construct …`, a `visitConst` output, …), so the seed's shape is an input,
+  not something the loop establishes;
 * motive 18 (`visitAlt`) concludes `LBClosed r.2 r.1.length`, not `LBClosed r.2 0`: an
   alternative's body is closed *below its own field binders*, which is precisely the level
   `LBClosedAlts` asks for at the `.case` node that consumes it.
@@ -182,13 +184,18 @@ structure RunClosed (Q : ErasureState → Prop) : Prop where
 /-- The per-call conclusion: from `Q` at entry, `Q` at exit **and** the produced λ□ term is
 fix-free, de-Bruijn closed, and in applied form.
 
-The third conjunct is slice δ-D7a's. It was carried as a *premise* of the two cold-start
+The third conjunct is slice δ-N's. It was carried as a *premise* of the two cold-start
 capstones (`ColdStartSubject.noBlock`/`.noBlockEnv`) on the stated grounds that the shape
 induction cannot conclude it. That was a misdiagnosis: `NoBlock` says nothing about boxing
 — it forbids exactly one node, `.construct _ _ (_ :: _)` — and the eraser has exactly one
 `.construct` construction site (`Erasure.visitConstructor`), nullary by explicit design
 ("in the stage of λbox I am targeting constructor application is function application").
-So the predicate rides along as a third conjunct, and both fields retire. -/
+So the predicate rides along as a third conjunct, and both fields retire.
+
+[Provenance corrected in the coherence pass, 2026-08-27: this paragraph used to credit the
+third conjunct to slice δ-D7a. It landed at δ-N (`6ed32e6`), which is what every other
+record of `NoBlock` says — `ColdStart`'s residue list and trust ledger, and
+`ColdStartDelta`'s two retirement notes.] -/
 def ShapeC (Q : ErasureState → Prop) (s s' : ErasureState) (t : LBTerm) : Prop :=
   Q s → Q s' ∧ NoFix t ∧ LBClosed t 0 ∧ NoBlock t
 
@@ -255,11 +262,11 @@ Per-motive notes on where the content sits:
   ways: the overflow branch panics, and a panic *succeeds*.
 * 3 `visitConstructor` — `H.reg` for the block registration, then the four-way
   `(config.nat, ctorname)` dispatch; the `.construct` seed handed to `visitAppArgs` is
-  fix-free and closed for free (no arguments are stored in the node).
+  fix-free, closed and in applied form for free (no arguments are stored in the node).
 * 6 `visitMutual` — `run_visitMutual_ok`'s script inlined against the *abstract* fixpoint
   argument, via the `vE`-generalized `run_nonrec_exit_ok`/`run_rec_exit_ok`.
-* 7 `visitAppArgs` — `run_array_foldlM_ok`, invariant "`Q` ∧ the accumulator is fix-free and
-  closed".
+* 7 `visitAppArgs` — `run_array_foldlM_ok`, invariant "`Q` ∧ the accumulator is fix-free,
+  closed and in applied form".
 * 8/9/14/16 — the binder cases, closed by `toBvar`'s metatheory
   (`noFix_toBvar`, `lbClosed_toBvar`).
 * 17 `visitCases` — three branches. The machine-`Nat`/`Int` arms build `.letIn`/`.case`
@@ -1093,7 +1100,7 @@ theorem runClosed_true : RunClosed (fun _ => True) where
 term that contains no `.fix`, has no loose de Bruijn index, and is in applied form. No
 hypotheses: not on the state, not on the source expression, not on the configuration.
 
-The third conjunct is slice δ-D7a's; see `ShapeC`. -/
+The third conjunct is slice δ-N's; see `ShapeC`. -/
 theorem visitExpr_shape_all {e : Expr} {s : ErasureState} {ctx : ErasureContext}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State} {w : Void IO.RealWorld}
     {t : LBTerm} {s' : ErasureState} {w' : Void IO.RealWorld}
@@ -1169,7 +1176,8 @@ environment-plumbing obligation is *proved*:
 
 ### Scope: what a hostile `Γ` can still do
 
-`Γ` is a *parameter*, and the invariant's `ctors`/`cases`/`fields` are its specification.
+`Γ` is a *parameter*, and the invariant's `ctors`/`cases`/`fields` — and, since slice P9,
+`projs`/`projfields` — are its specification.
 A `Γ` that records a constructor for a block the walk registers *empty* falsifies the
 invariant at the post-state, hence falsifies the bundle: with `ii.all = []` the cold branch
 degenerates to a constructible run that conses `.inductiveDecl ⟨_, []⟩` under
@@ -1421,8 +1429,9 @@ theorem gVisitExpr_regInvShape
 /-! ## The superseded record
 
 `RegShapeHyps` is slice S1d's version of the bundle above. It is **inconsistent** —
-`ColdStart.regShapeHyps_fresh_refuted` and `ColdStart.regShapeHyps_recClosed_refuted`
-prove it two independent ways — and it is kept, unused, as the negative guard those
+`ColdStart.regShapeHyps_fresh_refuted`, `ColdStart.regShapeHyps_recClosed_refuted` and
+`ColdStart.regShapeHyps_regCtors_refuted` prove it three independent ways, the third
+arriving at slice S1e — and it is kept, unused, as the negative guard those
 refutations are about: the repo's standing rule is that a refuted statement stays with its
 refutation, so that the record of *why* an interface changed is machine-checked rather
 than narrated.
@@ -1433,7 +1442,8 @@ Its defects, one line each:
   nothing tying it to the call. Refuted. The deeper problem was the `keys` field they were
   serving: `runClosed_keysDistinct_refuted`.
 * `regKeys`/`regCtors`/`regCases`/`regFields` — no cold guard, so the constructible *hit*
-  run instantiates them at a hand-made state with empty `gdecls`.
+  run instantiates them at a hand-made state with empty `gdecls`. Refuted at slice S1e,
+  through `regCtors`.
 * `recClosed` — `LBClosed (.fix defs j) 0` for every `defs`. Refuted at `.bvar 5`.
 * `knames`/`prep` — sound; they survive into `RegBridgeHyps`. -/
 

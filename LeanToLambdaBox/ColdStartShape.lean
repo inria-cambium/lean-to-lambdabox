@@ -300,8 +300,14 @@ theorem ConstKeysCovered.cons {s : ErasureState} {n : Name} {cb : ConstantBody}
 /-! ## The invariant -/
 
 /-- **The cold-start registry invariant, shape half.** Everything a partial
-`Erasure.erase` run has registered is `Γ`-consistent, key-distinct, and target-shape
+`Erasure.erase` run has registered is `Γ`-consistent, key-**covered**, and target-shape
 sound. Every field is *vacuous* at the empty state (`RegInvShape.empty`).
+
+[Corrected in the coherence pass, 2026-08-27: the middle adjective used to read
+"key-distinct". Slice S1e traded the `keys : KeysDistinct` field for `cover :
+ConstKeysCovered` — coverage, not distinctness — because no state predicate can carry
+distinctness along the walk (`ColdStartInduction.runClosed_keysDistinct_refuted`); see
+`cover`'s own docstring below.]
 
 Deliberately absent: any `Erases` content. That is the δ half (`RegInvDelta`, slice S3),
 kept separate so the shape argument is independent of the term bridge. -/
@@ -844,8 +850,10 @@ theorem RegInvShape.inlinings {Γ : ErasureCtx} {s : ErasureState} {kn : Kername
 
 /-- **The non-recursive constant exit.** The stored body is a `visitExpr` output, so its
 `NoFix`/`LBClosed` obligations (`regInvShape_nonrec_cons_iff`) must be supplied — that is
-`hnf`/`hcl`, the output-shape facts `LeanToLambdaBox.OutputShape` and the (still open)
-result induction produce. Everything else mirrors `RegInvShape.addAxiom`. -/
+`hnf`/`hcl`, the output-shape facts `LeanToLambdaBox.OutputShape` and the result induction
+produce — the latter landed as R11, `ColdStartInduction.visitExpr_noFix_closed` (off
+`visitExpr_shape_all`), so this docstring's "still open" is retired. Everything else
+mirrors `RegInvShape.addAxiom`. -/
 theorem RegInvShape.constCons {Γ : ErasureCtx} {s : ErasureState} {n : Name} {t : LBTerm}
     (h : RegInvShape Γ s) (hΓ : Γ.constants n = toKername n)
     (hnf : NoFix t ∨ ∃ (defs : List (@FixDef LBTerm)) (j : Nat), t = .fix defs j)

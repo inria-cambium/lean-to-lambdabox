@@ -45,6 +45,10 @@ artifacts). The directory itself is tracked because `#erase … to` does not cre
 `csimp := false` broke nothing: all five erase exactly as far as they do with the shipping
 default. The one failure below reproduces under both settings.
 
+These are a 2026-08-26 **record**, not a claim about the current pin: the `trproj` re-pins
+moved lean4lean to `7a5e96d`, and the relevance oracle runs lean4lean's typechecker
+(`Erasure.lean:178`), so the five runs would have to be repeated to be re-asserted.
+
 ## FINDING — `visitCases` panics on Lean's sparse `casesOn`, and emits a wrong program
 
 Erasing `Quicksort` prints
@@ -96,16 +100,19 @@ substitution of this kind is invisible downstream: `peregrine` sees a well-forme
 
 ## Gap to the benchmarks, per program
 
-Resolved for all five by the landed work and by this directory:
+Resolved for all five by the landed work and by this directory — except the last row, which
+was not on this list at all until Γ-U named it:
 
 | Was a disqualifier | Status |
 |---|---|
 | `csimp := true` in the `#erase` lines (D1) | **resolved here** — these copies erase with `csimp := false` |
 | pattern matching → ι | resolved (`erases_correct_dataι`, `Supported.casesApp`) |
-| recursion → fix-unfolding | resolved *in the simulations* (W0–W3.1; `RecEnvConsistent` replaced `NoFixEnv`) |
+| recursion → fix-unfolding | resolved — *in the simulations* at W0–W3.1 (`RecEnvConsistent` replaced `NoFixEnv`), and *in the cold-start capstones* at Γ-W4, where the scope restriction `hnorec : Γ.recBodies = ⊥` was deleted |
+| typeclass projections → `tProj` | resolved (P0–P9: `Erases.proj`, `Supported.proj`, the fourth trust bundle `ProjBridgeHyps`; the ι capstone's `hnoprojs : Γ.projs = ⊥` deleted) |
 | raw `Nat` literals | resolved (L1–L4: `Erases.lit` unfolds `.lit (.natVal n)` to the peano tower) |
 | machine `Nat` | pre-dodged — the originals already pass `nat := .peano` |
 | first-order result | holds — all five return `Nat` |
+| universe-polymorphic dependencies | **not resolved** — `hUs : Us = []`, and it is *doubly* pinned. The one scope restriction that still excludes all five outright; costed at Γ-U, plan of record Γ-U1–Γ-U4. See the reading below |
 
 What remains, measured from the erased output rather than asserted:
 
@@ -145,6 +152,23 @@ Reading the table:
   `hcov` and the block-local bundle `Hβ` instead. The restriction that remains is *inside*
   a block rather than about the program: a walked block's bodies call only its own
   siblings, registered constructors and registered `casesOn`s.
+- **Universes are what blocks all five now — and it is the `tProj` column read again.**
+  Every class method in that column is universe-polymorphic, measured at this toolchain:
+  `OfNat.ofNat.{u}`, `Add.add.{u}`, `Max.max.{u}`, `BEq.beq.{u}`, `HAdd.hAdd.{u,v,w}`,
+  `HAppend.hAppend.{u,v,w}`, and beside them `List.filter.{u}`, `List.append.{u_1}`,
+  `Prod.mk.{u,v}`; of the constants these programs lean on, only `Nat.add` and
+  `instOfNatNat` come back with `levelParams = []`. The capstones take `hUs : Us = []`
+  and `DeltaHyps.decl_run` demands `ci.levelParams = Us` of every *dependency*, so a
+  polymorphic callee makes the bundle uninhabited — `Erases.proj` admits
+  `OfNat.ofNat`'s **body** while `decl_run` keeps its **declaration** out. Γ-U costed the
+  relaxation and found the restriction pinned in two independent places: `SEnvConsistent`
+  quantifies the call site's levels and its conclusion never mentions them, so at a
+  polymorphic constant it is a strictly stronger, *false* demand — it collapses the
+  constant's instantiations (`SEnvConsistent.levels_collapse`) — and the model's δ step is
+  universe-blind (`SEvalDataι.delta_level_blind`). Relaxing only the bundle would move the
+  vacuity into an unnamed capstone premise rather than remove it. Plan of record
+  Γ-U1–Γ-U4 (`LeanToLambdaBox/DeltaHyps.lean`), of which Γ-U3 (`Erases.instL`) is the risk
+  and Γ-U4 the content.
 - **Nothing exotic is in the way.** No program touches `String`, `Int`, `Array`, `Float`,
   `UInt*`, well-founded recursion, `brecOn` residue or `sorry`. The *data* inductives in the
   erased environments are `Nat`, `List`, `Prod`, `Option`, `Bool`, `Decidable`, `PUnit`,
@@ -156,13 +180,21 @@ Reading the table:
   seen from the environment side: the classes are registered, and every class method erases
   to a projection out of one.
 
-Priority order, re-read after the Γ-XL wave and the projection round (2026-08-27). The two
-items that headed the 2026-08-26 list are **done**: the class-projection route landed as
-P0–P9, and the `Γ`-inside-the-motives generalisation as Γ-W0–Γ-W4. What is left, in order:
-(1) `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, the one deferred proof the projection
-layer rests on (`../lean4lean/trproj-commission.md`), with `ProjCtorAgree` beside it;
-(2) the `visitCases` sparse-`casesOn` bug, which blocks `Quicksort` outright and is cheap
-only for the panic, not for the wrong output; (3) the per-program residue in the table —
+Priority order, re-read after the Γ-XL wave, the projection round and the Γ-U analysis
+(2026-08-27). The two items that headed the 2026-08-26 list are **done**: the
+class-projection route landed as P0–P9, and the `Γ`-inside-the-motives generalisation as
+Γ-W0–Γ-W4. What is left, in order:
+(1) **the universe restriction** — with recursion and projections both inside, `hUs : Us =
+[]` is the one *scope* restriction that still excludes all five outright, and Γ-U measured
+rather than guessed what lifting it costs: two pinned places, four slices, `Erases.instL`
+the risk;
+(2) `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, the deferred proof the projection
+layer rests on (`../lean4lean/trproj-commission.md`), with `ProjCtorAgree` beside it — the
+*trust* item, where (1) is the scope one. Note it is a **statement** correction before it
+is a proof: as written the lemma's two `ctorName`s are unrelated, so the standing
+`PROJ-TODO` should not be attempted against it (commission §4.5);
+(3) the `visitCases` sparse-`casesOn` bug, which blocks `Quicksort` outright and is cheap
+only for the panic, not for the wrong output; (4) the per-program residue in the table —
 Fannkuch's `Eq.rec` axiom, and the fragment-scope bundles each program's dependency cone
 has to satisfy (`DeltaHyps`/`BlockHyps`), which is where "measured, not argued" has to be
 re-run program by program rather than claimed from this table.

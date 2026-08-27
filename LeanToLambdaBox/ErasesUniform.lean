@@ -66,8 +66,8 @@ definitional equality (`TrExprS.uniq` + `Erasable.defeq`) and therefore for the 
 `sorryAx`, and asks `WF`+`VLCtx.WF` for it. Keeping both is what makes the slice cost
 *nothing*: the consumers of the weak one (`erases_strengthen_closed` downwards) carried
 that `sorryAx` already, and the consumer of the strong one — the bridge's recursive exit,
-via `DeltaHyps.BlockHyps.block_lam` — stays clean. The whole 750-entry audit is
-byte-identical across the slice.
+via `DeltaHyps.BlockHyps.block_lam` — stays clean. The whole audit was
+byte-identical across the slice, at its size then (750 entries; it has grown since).
 
 ## Shape of the strengthening argument, and why it is not lean4lean's `weakFV_inv`
 
@@ -715,8 +715,9 @@ theorem erases_strengthen_closed {env : VEnv} (henv : env.WF) {Us : List Name}
 /-! ## The two-sided composition -/
 
 /--
-**Context uniformity for a closed, fvar-free, projection-free constant body** — the
-statement `DeltaHyps.uniform` names, for the fragment the consumers run in.
+**Context uniformity for a closed, fvar-free constant body whose *binders* are
+projection-free** (`NoProjBinders`, since slice P2 — the typeclass layer's own bodies
+qualify) — the statement `DeltaHyps.uniform` names, for the fragment the consumers run in.
 
 The route is `Δ → [] → Δ'`: `erases_strengthen_closed` for the first leg,
 `erases_weak_any` (`ErasesStrengthen.lean`) for the second.
@@ -757,7 +758,7 @@ also come back down from the call site's `Δ`, and which is what replaced the de
 
 Recording this separately is the point: it isolates how much of the `uniform` residue was
 ever a residue. The `[]`-shaped consumers cost nothing; the `∀ Δ Δ'` one costs
-`ErasableStrengthen` plus `NoProj` plus a small-context translation.
+`ErasableStrengthen` plus `NoProjBinders` plus a small-context translation.
 -/
 theorem erases_uniform_of_nil {env : VEnv} (henv : env.Ordered) {Us : List Name}
     {Γ : ErasureCtx} (hnfv : Γ.fixvars = fun _ => none)

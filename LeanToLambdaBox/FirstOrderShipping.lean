@@ -96,8 +96,10 @@ theorem shipping_erase_correct_firstorder
 The concrete nullary first-order constructor `c : I` (`FirstOrder.lean`): `c`
 `SEvalDataC`-evaluates to itself, is a `FirstOrderValue` (modulo the one
 lean4lean-blocked arity side condition `harity`, exactly as in `FirstOrder.lean`),
-and D3 *fires* — producing `t'` and its uniqueness. The run and the two trust
-bundles stay hypothetical (opaque primitives); everything else is constructed. -/
+and D3 *fires* — producing `t'` and its uniqueness. The run and the six trust
+bundles stay hypothetical (`H`/`HD`/`C`/`P`, the opaque-primitive specs, and the
+fragment-keyed `Hδ`/`Hβ`); everything else is constructed — `Hreg` included, by
+`RecBlockAgreement.of_bot`. -/
 example (harity : ¬ IsArityUpTo envFO 0 [] (.const `I []))
     {cfg₀ : ErasureConfig}
     (Hβ : ∀ (cc : Core.Context) (rf : ST.Ref IO.RealWorld Core.State),
@@ -139,20 +141,28 @@ in peano mode. Everything the literal fragment contributes is *constructed* — 
 config), the source translation (`trExprS_natLit`, at the three-axiom `envNatT` where
 `Nat`'s constructors are declared and typed), the source evaluation
 (`sevalDataC_natLit`), the arity link (`erasesEnvCtor_natLit`) and the value's
-first-orderness. Hypothetical: the run and the three trust bundles (opaque primitives),
+first-orderness. Hypothetical: the run and the six trust bundles (`H`/`HD`/`C`/`P` on the
+opaque primitives, `Hδ`/`Hβ` on the fragment),
 `NoBlock t` (a statement about the run's output), and the single lean4lean-blocked side
 condition `harity` — *exactly* the one `FirstOrder.lean`'s `envFO` guard carries, for the
 same reason (`.const`-vs-arity defeq injectivity is not exposed by the pinned lean4lean).
 
 Note the scope, and do not over-read it: this covers the `Expr.lit` node itself. A
 *source-level numeral* `(5 : Nat)` elaborates to `@OfNat.ofNat Nat (lit 5) (instOfNatNat
-(lit 5))`, whose `OfNat.ofNat` body erases to an `LBTerm.proj` — and `Erases` is
-projection-free by design, so the numeral does not δ-unfold in the model. Raw literals —
-what `csimp`, matcher expansion and `Nat`-internals produce — are what this covers.
-[Justification corrected at the `fee3ada` re-pin, 2026-08-27: the parenthetical used to
-read "(lean4lean's `TrProj` is a `sorry`)", giving the upstream gap as the reason. That
-gap is closed; `Erases`'s projection-freeness is now purely our own scope decision
-(`Supported` has no `.proj` rule). The scope claim itself is unchanged.] -/
+(lit 5))`, whose `OfNat.ofNat` body erases to an `LBTerm.proj` — and the numeral still does
+not δ-unfold in the model. Raw literals — what `csimp`, matcher expansion and
+`Nat`-internals produce — are what this covers.
+
+[The scope claim has been stable across two corrections of its *justification*; both are
+kept, because the reason has now moved twice. (i) At the `fee3ada` re-pin, 2026-08-27, the
+parenthetical read "(lean4lean's `TrProj` is a `sorry`)", giving the upstream gap as the
+reason; that gap is closed. (ii) It then read "`Erases` is projection-free by design", which
+the **projection round** falsified: `Erases.proj` landed at P1 over the `Γ.projs` column and
+the bridge reaches it from P8 via `Supported.proj` (`Erases.lean`'s own header records the
+same). What keeps the numeral out is now the **universe** restriction: `OfNat.ofNat` is
+`{u}`-polymorphic, `DeltaHyps.decl_run` demands `ci.levelParams = Us` of every dependency
+and the capstones take `Us = []`, so its declaration is outside the fragment even though its
+body's projection is inside the relation (`DeltaHyps.lean`'s Γ-U analysis).] -/
 
 /-- `Nat : Sort 1` at `envNatT`. -/
 theorem envNatT_NatTypeSort1 :

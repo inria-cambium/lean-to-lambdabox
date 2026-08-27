@@ -6,7 +6,12 @@ re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
 and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
-reported the same 648 entries it did at `fee3ada`. It has grown eleven times since:
+reported the same 648 entries across it that it had reported immediately before it,
+at slice Γ-W3b. [Corrected in the coherence pass, 2026-08-27: that sentence used to
+read "the same 648 entries it did at `fee3ada`", which is false — at `fee3ada` this
+file reported **596** (commit `5069f9d`); 648 is the Γ-W3b/`7a5e96d` figure, and the
+596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown eleven
+times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice

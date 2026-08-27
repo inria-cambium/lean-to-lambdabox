@@ -519,10 +519,11 @@ end Decomp
 
 /-! ## R2 — `prepare_erasure`, csimp off
 
-`PrepareHyps` carries *four* fields: three per-transform soundness statements and their
-composite `prepare_sound`, with the docstring noting the composite is "derivable … under
-a monadic-bind decomposition". This is that decomposition, and `prepareSound_of_transforms`
-is the derivation — so the composite field stops being an independent assumption.
+`PrepareHyps` used to carry *four* fields: three per-transform soundness statements and
+their composite `prepare_sound`, with the docstring noting the composite is "derivable …
+under a monadic-bind decomposition". This is that decomposition, and
+`prepare_sound_of_prepareHyps` is the derivation — so the composite field stopped being an
+independent assumption, and the structure is down to three.
 
 Two facts come out, both needed by the entry point:
 

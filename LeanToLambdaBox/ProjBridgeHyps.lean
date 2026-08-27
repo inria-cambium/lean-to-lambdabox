@@ -138,12 +138,20 @@ structure ProjBridgeHyps (Γ : ErasureCtx) (gw : Void IO.RealWorld → NameGener
     gw w ≤ gw w₁ ∧ r.1 = iid ∧ r.2.length = 1 ∧
       r.2[0]! = Array.replicate nf ConstructorArgRelevance.keep
 
-/-- **A projection-free `Γ` satisfies the bundle outright** — the `of_bot`-style
-instance every pre-projection call site uses. Both clauses are keyed on
+/-- **A projection-free `Γ` satisfies the bundle outright.** Both clauses are keyed on
 `Γ.projs S = some _`, which at the default `fun _ => none` is uninhabited, so the
 bundle is a *theorem* at every context predating the round rather than a new
-assumption on it. This is what keeps the eight existing consumers of the bridge
-mechanical: they instantiate it, they do not assume it. -/
+assumption on it. That is what keeps the round's cost at zero for the existing
+consumers: they thread `P` exactly as they thread the other three bundles, and at
+their `Γ` it is derivable rather than assumed.
+
+[Corrected in the coherence pass, 2026-08-27: this docstring used to say "the
+`of_bot`-style instance every pre-projection call site uses … they instantiate it,
+they do not assume it". Measured, that is false — `of_bot` is applied at exactly one
+site, the guard below; every consumer takes `(P : ProjBridgeHyps …)` as a hypothesis,
+including the guards at the concrete pre-projection contexts. What is true, and what
+the round actually bought, is **derivability** at those contexts, not inlining at
+them.] -/
 theorem ProjBridgeHyps.of_bot {Γ : ErasureCtx} {gw : Void IO.RealWorld → NameGenerator}
     (h : Γ.projs = fun _ => none) : ProjBridgeHyps Γ gw where
   projind_run := by intro S _ _ _ _ _ _ _ _ _ _ hS; rw [h] at hS; exact absurd hS (by simp)

@@ -21,17 +21,18 @@ the relation threads a lean4lean `VLCtx` (extended under binders exactly as
 
 ## Scope (documented, deliberate)
 
-* **Projection-free.** `.proj`/`LBTerm.proj` are excluded. The original reason was
-  that lean4lean's projection translation `TrProj` was a `sorry`, so including them
-  would have made every downstream result rest on lean4lean sorries. **That reason
-  expired at the `fee3ada` re-pin (2026-08-27):** `TrProj` now has a real definition —
-  an ι-pattern membership in `env.pats` plus a `HasType` conjunct — and measures
-  `[propext]`. A projection rule for `Erases` is therefore *writable*, which is the
-  unlock the typeclass-method layer (6–10 `tProj` per VerifyBench program) has been
-  waiting on. What still blocks it is downstream and ours: `Supported` has no `.proj`
-  rule (`Bridge.lean`), and `TrProj.uniq` — the lemma an inversion would want — is one
-  of the two remaining upstream `PROJ-TODO`s. Adding the rule is a design call, not a
-  mechanical follow-on; until it is made, the fragment stays as documented here.
+* ~~**Projection-free.**~~ — **RETIRED, projection round (slices P1/P8).** The
+  restriction excluded `.proj`/`LBTerm.proj`, on the ground that lean4lean's projection
+  translation `TrProj` was a `sorry`, so including them would have made every downstream
+  result rest on lean4lean sorries. That ground expired at the `fee3ada` re-pin
+  (2026-08-27) — `TrProj` has a real definition, an ι-pattern membership in `env.pats`
+  plus a `HasType` conjunct, measuring `[propext]` — and the rule was then written:
+  `Erases.proj` landed at slice P1 over the `Γ.projs` column, and the shipping bridge
+  reaches it from slice P8 (`Supported.proj` + motive 10, `Bridge.lean` /
+  `VisitExprRefines.lean`). That is the unlock the typeclass-method layer (6–10 `tProj`
+  per VerifyBench program) was waiting on. `TrProj.uniq` — the lemma an *inversion*
+  would want, one of the three remaining upstream `PROJ-TODO`s — is still unproved, and
+  the rule is stated so as not to need it (no `TrExprS` premise; see `Erases.proj`).
 * **Constructors / `casesOn` / structural recursion ARE modelled** (aligning the
   relation with what `visitExpr` emits), via dedicated `ctor`/`cases`/`fix` rules
   producing `.construct`/`.case`/`.fix`. In real `Expr` these heads are applied

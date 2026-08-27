@@ -176,7 +176,7 @@ whereas MetaRocq's `iota_red np args br = substl (rev (skipn np args)) br.2` dro
 * the branch is applied to the constructor's **fields only** `cargs.drop np`.
 
 This is the β+δ+saturated-constructor+ι fragment (data `SEvalDataC` extended with the
-corrected `iota`). -/
+corrected `iota`) — plus, since projection round slice P5, the `proj` arm below. -/
 inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr → Expr → Prop
   | lam (n : Name) (ty b : Expr) (bi : BinderInfo) :
       SEvalDataι Γ ia E (.lam n ty b bi) (.lam n ty b bi)

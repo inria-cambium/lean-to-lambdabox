@@ -8,8 +8,9 @@ import Lean4Lean.Verify.NameGenerator
 # The δ-closure bundle: `DeltaHyps`
 
 This structure sits *beside* `BridgeHyps` (`VisitExprRefines.lean`), `DataBridgeHyps`
-(`DataBridgeHyps.lean`) and `CasesBridgeHyps` (`CasesBridgeHyps.lean`), and carries what it
-costs to let an erased program **call** something — the δ (constant-unfolding) fragment.
+(`DataBridgeHyps.lean`), `CasesBridgeHyps` (`CasesBridgeHyps.lean`) and `ProjBridgeHyps`
+(`ProjBridgeHyps.lean`, slice proj-P8), and carries what it costs to let an erased program
+**call** something — the δ (constant-unfolding) fragment.
 
 ## Why a bundle and not an invariant field
 
@@ -37,7 +38,8 @@ first two run-keyed and cold-branch-guarded like `regCases`/`regFields`, the thi
 none of them belongs to the `visitExpr` mutual block, so their specs are usable directly
 inside `Erasure.visitExpr.mutual_fixpoint_induct`. Because they quantify over opaque
 runtime primitives their global satisfiability is not in-logic decidable — the documented
-trust boundary, exactly as for `BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`.
+trust boundary, exactly as for
+`BridgeHyps`/`DataBridgeHyps`/`CasesBridgeHyps`/`ProjBridgeHyps`.
 
 `mkFreshFVarId` is deliberately **absent**: `BridgeHyps.fresh_run` already specs it, and the
 recursive exit's block ids are the only place the registration path mints one.
@@ -52,12 +54,13 @@ fire there however much they look like they should. `BlockHyps` below is the com
 that second pair; it is a separate structure so that `of_bot` and the whole non-recursive
 path stay untouched and the recursion feature's price stays legible as one ledger row.
 
-## The four scope restrictions this bundle makes operational
+## The five scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
 violates one makes the bundle *unsatisfiable* — the right failure mode, but only because it
-is written down. There were **five** until slice Γ-W3.6b, and the fifth — "no fragment
-constant is recursive" (`nonrecursive`) — is gone: it existed only to make `visitMutual`'s
+is written down. The numbering is historical: the live five are 1–4 and 6, and slot 5 is
+retired and kept struck below. That fifth — "no fragment constant is recursive"
+(`nonrecursive`) — went at slice Γ-W3.6b: it existed only to make `visitMutual`'s
 `nonrecursive` test come out `true`, so that the bridge's step 6 could refute the recursive
 exit. Step 6 now *walks* that exit, and the field is deleted. See `decl_run`'s docstring for
 what took its place (`VisitExprRefines.RecBlockAgreement`, a named premise of the bridge,
@@ -93,6 +96,15 @@ siblings, registered constructors and registered `casesOn`s.
 4. **Fragment names are distinguished by their kernames.** `Erasure.toKername` is not
    injective, so without `kinj` the δ *record* below is false whenever two fragment names
    collide on a key. It is the fragment-scoped form of the capstone's `hkinj`.
+5. ~~**No fragment constant is recursive.**~~ — **RETIRED, slice Γ-W3.6b** (`nonrecursive`,
+   the paragraph above). The slot is kept so the numbers the fields below carry keep
+   reading.
+6. **A fragment body is projection-free at its binders, and translates at the empty
+   context.** `esrc_shape`, the S-class residue slice δ-D7b left where the `uniform` field
+   had been. **Weakened from `NoProj` to `NoProjBinders` at slice proj-P2**, which is what
+   lets the typeclass-dispatch layer into the fragment at all (`OfNat.ofNat`'s prepared
+   body is `fun α x self => self.1`); the recursive exit keeps the strong predicate for its
+   own siblings (`BlockHyps.block_lam`).
 
 ## Γ-U — what lifting scope restriction 1 would actually cost (analysis, 2026-08-27)
 
@@ -195,8 +207,9 @@ gone (slice δ-D7b). The weakening half is a theorem outright
 `ErasesUniform.erases_strengthen_closed`, modulo ONE named `VExpr`-level obligation
 (`ErasableStrengthen`) that is a premise of the *capstones* rather than a field here,
 because it speaks about `env` alone. What this bundle owes it is the S-class `esrc_shape`
-field: the fragment's bodies are projection-free and translate at the empty context, which
-prepared top-level constant bodies are.
+field: the fragment's bodies are projection-free *at their binders* (`NoProjBinders`, since
+slice proj-P2) and translate at the empty context, which prepared top-level constant bodies
+are.
 -/
 
 namespace LeanToLambdaBox
@@ -416,7 +429,8 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
 
   [Provenance corrected at the `fee3ada` re-pin, 2026-08-27: this used to read
   "lean4lean's `TrProj` is `sorry` upstream". `TrProj` now has a real definition; what is
-  still `sorry` is `TrProj.uniq` specifically, one of the two remaining `PROJ-TODO`s. That
+  still `sorry` is `TrProj.uniq` specifically, one of the three remaining `PROJ-TODO`s
+  (`ColdStart.lean`'s trio). That
   is the route the weakened field pays for — `erases_strengthen_closed` consumed it
   already, so no axiom set moved at P2.]
 
@@ -431,10 +445,11 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     NoProjBinders pe ∧ ∃ ve, TrExprS env Us [] pe ve
 
 /-- **What the bundle costs at the empty fragment** — the honest accounting for every
-consumer that still runs at `known = ⊥` (all of them, until the capstone rewiring).
+consumer that runs at `known = ⊥` (the block instantiation and the `known = ⊥` guards; it
+was *all* of them until the capstone rewiring of slices δ-D5/δ-D6).
 
-The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `decl_run`,
-`prepared`, `prep_esrc` and `esrc_shape` all have `known n` or
+The *scope* half is free there and is discharged below: `esrc_sub`, `disj`, `kinj`,
+`decl_run`, `prepared`, `prep_esrc` and `esrc_shape` all have `known n` or
 `(Esrc n).isSome`
 in their premises, and `axiom_free`'s conclusion is `none = none`. Since slice δ-D8 `nofixvars`
 joins them — it is conditioned on `known n` too, which is why this lemma no longer takes
@@ -911,8 +926,9 @@ theorem RunConclδ.of_runConcl_gdecls {env : VEnv} {Us : List Name} {Γ : Erasur
 The run-keyed clauses stay hypothetical, for the same reason `BridgeHyps`' do: they speak
 about opaque runtime primitives. What is checked here is that the **scope** half is
 satisfiable at a *non-empty* fragment — that `esrc_sub`, `disj` and `nofixvars` are not
-true merely because `known` is `⊥`, which is the configuration every cold-start capstone is
-pinned to today. -/
+true merely because `known` is `⊥`, which is the configuration the block instantiation and
+the `known = ⊥` guards stand at, and the one every cold-start capstone was pinned to until
+slice δ-D5. -/
 
 section NonVacuity
 
