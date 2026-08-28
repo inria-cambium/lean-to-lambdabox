@@ -406,10 +406,16 @@ theorem Erases.instL {env : VEnv} {Us ps : List Name} {ls : List Level}
 
 /-! ### Guards
 
-The positive one is the shape Γ-U4 will consume: a `{u}`-polymorphic dependency body,
+The positive one is the shape Γ-U4 consumes: a `{u}`-polymorphic dependency body,
 instantiated at a **closed** level, landing in a `Us = []` subject's scope. The negative
 ones bound the claim: they refute the plan's route (b) — closedness is not the cut — and
-exhibit the `max` node that route (b) would have had to survive. -/
+exhibit the `max` node that route (b) would have had to survive.
+
+[**Consumed at Γ-U4**, 2026-08-28. `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope` is the real
+consumer — it turns a dependency's erasure at *its own* level scope into the clause the ι
+simulation's δ case wants at the caller's — and `ErasesDeltaL.gErasesDeltaInstL` is this
+fixture again with the level list read off `ErasureCtx.lparams` instead of written by hand.
+`hnorec` is what the ι simulation's `hrecmono` premise pays for.] -/
 
 /-- The fixture's instantiation: `[u] ↦ [0]`, read into the empty scope. Both sides are
 `rfl`, which is the level layer's whole content at a closed instantiation. -/

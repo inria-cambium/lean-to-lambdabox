@@ -907,7 +907,10 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
   instantiation weakened and nothing became vacuous; at `Us ≠ []` it admits a
   prefix-scoped dependency of a polymorphic subject. It does *not* admit a polymorphic
   dependency of a closed subject — `[u] <+: []` is false — which is the instantiation
-  story Γ-U3/Γ-U4 owe. -/
+  story. Γ-U3 and Γ-U4 delivered its two halves — a strict `Erases.instL`, and a δ rule and
+  consistency premise stated at `body.instantiateLevelParams (Γ.lparams n) us` — and what is
+  still owed is the walk's own δ record at each dependency's own scope, which is
+  `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope`'s missing input. -/
   lparams : ctx.lparams <+: Us
   /-- **The run's config is the bridge's config** (recursion wall, slice Γ-W3.6a).
 

@@ -165,7 +165,11 @@ and the capstones take `Us = []`, so its declaration is outside the fragment eve
 body's projection is inside the relation (`DeltaHyps.lean`'s Γ-U analysis). Slice Γ-U2's
 prefix does not reach it and cannot: `[u] <+: []` is false, and at `Us = []` the body has
 no `TrExprS` at all (`DeltaHyps.gEsrcShape_polymorphic_dep_refuted`). The numeral waits on
-instantiation — Γ-U3/Γ-U4 — not on weakening.] -/
+instantiation — Γ-U3/Γ-U4 — not on weakening. **Both landed** (2026-08-28) and the numeral
+still waits, one step further along: the transport exists (`Erases.instL`), the model says
+what the kernel says (`SEvalDataι.delta`, `SEnvConsistentL`), and what is missing is the
+cold-start δ record at the dependency's *own* level scope — `ColdStartDelta` builds it at
+the ambient `Us`, so `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope` has no producer yet.] -/
 
 /-- `Nat : Sort 1` at `envNatT`. -/
 theorem envNatT_NatTypeSort1 :
