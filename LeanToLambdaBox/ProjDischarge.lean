@@ -55,6 +55,25 @@ upstream-gated items are both premises — and it is **not** a new trust item of
 kind: it is the `VEnv`-side half of the same `TrEnv.proj_defeq` statement correction this
 round already escalates upstream.
 
+## ✅ …and the implementation arrived (re-pin `b6a5a38`)
+
+The prediction above — *"`TrEnv` is what the eventual discharge will have in hand"* — is
+now a theorem. `projCtorAgree_of_trEnv` derives `ProjCtorAgree` from a `TrEnv` plus
+`ProjRecRules`, on upstream's new `TrEnv.pats_iota_inv` (the converse of `pats_iota'`,
+delivered **fully proved and `sorryAx`-free**). The derivation is `sorryAx`-free too.
+
+The one thing upstream did *not* deliver is the specialization that would have made the
+discharge premise-free: `pats_iota_ctor`, folding in the recursor-rules ↔ `ival.ctors`
+correspondence, is blocked because `VInductDecl.WF` does not pin the recursor/rule shape
+at the inductive-translation boundary. So the fact moves rather than vanishes — but it
+moves *from* the `VEnv`, where no downstream certificate can reach it, *to* `kenv`, where
+`ProjShape` already states facts of exactly that class. That is the whole content of the
+trade, and it is the one the round-2 ask sanctioned in advance.
+
+`ProjDefeqSpec` is therefore the projection round's **single** remaining upstream-gated
+premise. Its statement was corrected at the same re-pin (upstream adopted `TrProjCtor`
+verbatim); only its proof is outstanding.
+
 `ProjShape` still earns its place — `projConsistent_of_shape` takes it, and its
 `ctorAgreement` accessor is what pins `Γ.ctorArities cn = some (np + nf)` — but it
 reaches a caller's constructor only through a `Γ`-side uniqueness side condition (`hone`
@@ -93,6 +112,65 @@ makes it a *hypothesis about the environment* rather than a fact about `Γ`. -/
 theorem projCtorAgree_of_noPats {env : VEnv} {Γ : ErasureCtx}
     (hp : ∀ (p : Pattern) r, ¬ env.pats p r) : ProjCtorAgree env Γ :=
   fun _ _ h => absurd h (trProjCtor_refuted hp)
+
+/-! ### The positive discharge (re-pin `b6a5a38`)
+
+The module docstring's finding stands — `ProjShape` cannot reach the `env.pats`-side
+name — but the *route* it named as future work is now open. `TrEnv.pats_iota_inv`, the
+converse of `pats_iota'`, is the `kenv`↔`env` alignment the informal argument was
+silently using: from a registered ι pattern it recovers the kernel recursor `rval` under
+`recName` and the rule keyed by the pattern's constructor. That turns the agreement from a
+fact about an opaque `VEnv` into a fact about `kenv`'s recursor rules — which is the class
+of fact `ProjShape` already carries, and which a certificate *can* state. -/
+
+/-- **The kernel-side half of the agreement.** For every structure `S` that `Γ` registers,
+`S`'s recursor is resolvable in `kenv` and every one of its ι rules is keyed by the
+constructor `Γ` registers at index `0`.
+
+This is a `kenv` fact of exactly the class `ProjShape`'s `find?` conjuncts are, and it is
+the *one* ingredient upstream did not deliver: the round-2 ask proposed a specialization
+`TrEnv.pats_iota_ctor` folding in the recursor-rules ↔ `ival.ctors` correspondence, and it
+came back **not landed**, because lean4lean's `VInductDecl.WF` does not pin the
+recursor/rule shape at the inductive-translation boundary. The ask sanctioned this
+fallback explicitly ("2a alone is acceptable: downstream can bridge with a kernel-side
+rules↔ctors fact, at the cost of an extra premise"), and this is that premise.
+
+For a real Lean structure it is a kernel well-formedness triviality — `S.rec` has one rule
+per constructor and a structure has one constructor — but a `Kernel.Environment` is opaque
+in-logic, so it is stated rather than computed, exactly like `ProjShape.shape`. -/
+def ProjRecRules (kenv : Lean.Kernel.Environment) (Γ : ErasureCtx) : Prop :=
+  ∀ {S ctor : Name} {iid : InductiveId} {np : Nat},
+    Γ.projs S = some (iid, np) → Γ.ctors ctor = some (iid, 0) →
+    ∃ rval : Lean.RecursorVal,
+      kenv.find? (mkRecName S) = some (.recInfo rval) ∧
+      ∀ rule ∈ rval.rules, rule.ctor = ctor
+
+/-- **`ProjCtorAgree` is a theorem at a translated environment.** The upstream-gated row it
+used to be is discharged here, from a `TrEnv` — the `kenv`↔`env` alignment the module
+docstring identified as the missing ingredient — plus the kernel certificate above.
+
+The proof is the four-step bridge: destructure `TrProjCtor` for its `env.pats` membership
+and `recName = mkRecName S`; invert it with `TrEnv.pats_iota_inv` to a kernel recursor and
+the rule keyed by the witness's constructor `c`; match that recursor against the
+certificate's; and read `c = ctor` off `List.find?`. Nothing here is deferred: it is
+`sorryAx`-free, and so is `pats_iota_inv` itself.
+
+What this does **not** discharge is `ProjDefeqSpec` — that is the other half of the same
+statement correction, and its proof is still `sorry` upstream. So a `TrEnv`-holding caller
+now supplies one of `projConsistent_of_coh`'s two upstream-gated premises for real, and
+takes the other on trust. -/
+theorem projCtorAgree_of_trEnv {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
+    {env : VEnv} {Γ : ErasureCtx} (H : TrEnv safety kenv env)
+    (hrr : ProjRecRules kenv Γ) : ProjCtorAgree env Γ := by
+  intro _ _ S ctor c _ _ _ _ _ hs hctor hw
+  obtain ⟨recName, _, _, fieldTys, np, _, _, r, rfl, hp, -⟩ := hw
+  obtain ⟨rval, rule, hrec, hfind, -, -⟩ := H.pats_iota_inv hp
+  have hmem := List.mem_of_find?_eq_some hfind
+  have hctc : rule.ctor = c := by simpa using List.find?_some hfind
+  obtain ⟨rval', hrec', hall⟩ := hrr hs hctor
+  rw [hrec'] at hrec
+  obtain rfl : rval' = rval := Lean.ConstantInfo.recInfo.inj (Option.some.inj hrec)
+  exact hctc.symm.trans (hall rule hmem)
 
 /-! ## The payoff -/
 
@@ -188,14 +266,50 @@ theorem projConsistent_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.
       obtain rfl : ctor' = _ := hone hctor' hctor
       exact harc)
 
+/-- **The registration route, at a translated environment** — the shape a `TrEnv`-holding
+caller should quote after the `b6a5a38` re-pin. `ProjCtorAgree` is gone from the premise
+list, discharged by `projCtorAgree_of_trEnv`; what is left is the kernel certificate
+`ProjRecRules` (in-logic-unconstructible, like `ProjShape`'s `find?` conjuncts, but a
+kernel triviality), the registration-side `ProjFieldsCoherent`, and `ProjDefeqSpec` —
+**the one genuinely upstream-gated premise of the projection round**, and the only one
+whose implementation is still `sorry`. -/
+theorem projConsistent_of_coh_trEnv {safety : DefinitionSafety}
+    {kenv : Lean.Kernel.Environment} {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Γ : ErasureCtx} (H : TrEnv safety kenv env)
+    (hspec : ProjDefeqSpec safety kenv env)
+    (hrr : ProjRecRules kenv Γ)
+    (hpcoh : ProjFieldsCoherent Γ) :
+    ProjConsistent env Us Γ :=
+  projConsistent_of_coh henv hspec (projCtorAgree_of_trEnv H hrr) hpcoh
+
 /-! ### Guards
 
-`ProjDefeqSpec` cannot be constructed — that is the point of a named premise, and its one
-implementation is upstream's deferred lemma — so the guards are at the halves, exactly as
-the ι round's are (`IotaDischarge.lean` records the same boundary for
-`iotaConsistent_of_shape`). What is shown here is that the *composition* is not vacuous
-in the trivial way: the agreement premise is inhabited at both polarities, and the
-`Γ`-side inputs of the discharge fire at the round's fixture. -/
+`ProjDefeqSpec` cannot be constructed *soundly* — its one implementation is upstream's
+still-deferred lemma, and `ProjDefeqSpec.of_trEnv` (`ProjPattern.lean`) exists only to
+price that deferral — so the guards are at the halves, exactly as the ι round's are
+(`IotaDischarge.lean` records the same boundary for `iotaConsistent_of_shape`). What is
+shown here is that the *composition* is not vacuous in the trivial way: the agreement
+premise is inhabited at both polarities, and the `Γ`-side inputs of the discharge fire at
+the round's fixture.
+
+Since the re-pin the agreement is no longer only inhabited — it is **derived**
+(`projCtorAgree_of_trEnv`), so the guard that matters for it is that its new kernel
+premise costs nothing where the round's old `hnoprojs` guard sat. -/
+
+/-- **`ProjRecRules` is free at a `Γ` that registers no structure.** The premise
+`projCtorAgree_of_trEnv` trades `ProjCtorAgree` for is vacuous exactly where the whole
+projection column is, so threading it through the pre-projection cone costs nothing — the
+same property `ProjBridgeHyps.of_bot` has, and the reason the trade is a trade rather than
+a new assumption. -/
+theorem projRecRules_of_noProjs {kenv : Lean.Kernel.Environment} {Γ : ErasureCtx}
+    (h : Γ.projs = fun _ => none) : ProjRecRules kenv Γ := by
+  intro S _ _ _ hs _; rw [h] at hs; exact absurd hs (by simp)
+
+/-- **…and it is not free at `Γproj`**, which does register one — so the premise has
+content exactly where the discharge needs it, and the guard above is measuring vacuity
+rather than asserting it. -/
+example : ¬ (Γproj.projs = fun _ => none) := by
+  intro h; have := congrFun h `AC; rw [Γproj_projs] at this; simp at this
 
 /-- **The agreement holds vacuously at a `pats`-free `env`** — and at `Γproj`, which is a
 `Γ` that really does register a structure, so the vacuity is the environment's and not

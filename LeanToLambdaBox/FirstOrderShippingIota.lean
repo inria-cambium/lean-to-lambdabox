@@ -57,9 +57,11 @@ Beyond D3's own bundle, the ι fragment adds nothing that is an axiom. Precisely
   `hpcoh : ProjFieldsCoherent` are certificates of the first class above (derived from
   `RegisteredProjs`/`RegisteredProjCtorFields` in the `_registered` form); the interface
   premise `hproj : ProjConsistent` is `hiota`'s exact analogue and is discharged by
-  `ProjDischarge.projConsistent_of_coh` from two **upstream** `Prop` hypotheses —
-  `ProjDefeqSpec` (`TrEnv.proj_defeq`, a real statement with a deferred proof) and
-  `ProjCtorAgree`. Neither is an axiom; `ColdStart.lean`'s ledger carries the row.
+  `ProjDischarge.projConsistent_of_coh` from `ProjDefeqSpec` (`TrEnv.proj_defeq`, a real
+  statement with a deferred proof) and `ProjCtorAgree`. Neither is an axiom;
+  `ColdStart.lean`'s ledger carries the row. Since the `b6a5a38` re-pin only the first is
+  upstream-gated: `ProjCtorAgree` is a theorem at a translated environment
+  (`projCtorAgree_of_trEnv`, off upstream's `TrEnv.pats_iota_inv`).
 * **`PatsIotaSpec` — the upstream item, now discharged**: the fork's strengthened rule
   lookup. It is *not* an assumption about our code, and no longer an open obligation —
   `PatsIotaSpec.of_trEnv` (`IotaPattern.lean`) builds it from any `TrEnv`. Only the

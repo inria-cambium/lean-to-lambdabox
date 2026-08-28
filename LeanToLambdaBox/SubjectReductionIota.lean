@@ -238,7 +238,10 @@ Since the projection round (slice P6) the same treatment covers `ProjConsistent`
 discharged here by `projConsistent_of_coh` (`ProjDischarge.lean`) from the upstream
 interface `ProjDefeqSpec`, the constructor agreement `ProjCtorAgree` — the link
 `ProjShape` provably cannot supply, see that module's docstring — and the registration
-fact `ProjFieldsCoherent`.
+fact `ProjFieldsCoherent`. Since the `b6a5a38` re-pin the middle one is no longer a bare
+premise: `projCtorAgree_of_trEnv` derives it from a `TrEnv` plus a `kenv`-side
+certificate, on upstream's `TrEnv.pats_iota_inv`. `ProjDefeqSpec` is the one that stays,
+its statement corrected upstream and its proof still deferred.
 
 **`hlp` is new at slice Γ-U4, and it is the honest cost of the discharge route.** The
 general theorem above takes the universe-aware `SEnvConsistentL`; this one takes the
