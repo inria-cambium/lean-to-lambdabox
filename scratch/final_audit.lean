@@ -16,9 +16,9 @@ to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 7
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
 proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5, to 910 at slice Γ-U1, to 923 at
-slice Γ-U2 and to 944 at slice Γ-U3, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1, Γ-U2 and Γ-U3 the whole
-inherited prefix is (800, 818, 850, 856, 886, 910 and 923 entries respectively),
+slice Γ-U2, to 944 at slice Γ-U3 and to 962 at slice Γ-U4, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1, Γ-U2, Γ-U3 and Γ-U4 the whole
+inherited prefix is (800, 818, 850, 856, 886, 910, 923 and 944 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
 Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
@@ -43,6 +43,24 @@ worth one line: the pure `VExpr`-side lemmas take nothing, the level layer takes
 branches on), and the `Expr.instantiateLevelParams` wrappers inherit that function's
 `Expr`-model set, including the two `bv_decide` natives the lakefile already records
 against `TrExprS.instL`. No axiom of ours, no `sorry`, no `native_decide`.
+Γ-U4 earned it the Γ-U2 way, and it is the harder of the two cases: it edits real
+signatures — `SEvalDataι`'s δ *constructor*, the ι simulation's `hcon` plus two new
+premises, the ι capstone's new `hlp` row, `SEvalDataι_defeq_of_shape`'s — and the 944-entry
+prefix still came back byte-identical. The reason is one `rfl`:
+`Expr.instantiateLevelParams` short-circuits on `paramNames.isEmpty`, so at the universe
+column's default (`ErasureCtx.lparams := fun _ => []`) the restated δ rule and the restated
+consistency premise *are* the old ones definitionally, and none of the four
+`SEnvConsistent` discharges, none of the δ records and none of the walk conversions had to
+move. Of its eighteen entries, fifteen are new declarations and three are the crown
+re-print; fourteen of the fifteen are `sorryAx`-free. The fifteenth is
+`SEnvConsistentL.levels_collapse`, which carries the same inherited unique-typing item
+(`TrExprS.uniq`) that its `Ups = ⊥` corollary `SEnvConsistent.levels_collapse` has carried
+since slice Γ-U — the entry for that corollary is in the byte-identical prefix, which is
+the check that the reframing changed nothing but the framing. Four entries carry the
+`Expr`-model set (`mkData_eq`, `mkAppData_eq`, `replace_eq`, `Level.hasParam_eq` and the
+two `bv_decide` natives the lakefile already records) and carry it for the reason Γ-U3
+recorded: they go through `Expr.instantiateLevelParams_eq`. No axiom of ours, no `sorry`,
+no `native_decide`.
 The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
@@ -4119,6 +4137,127 @@ open LeanToLambdaBox
 -- (h) THE CROWN, UNMOVED — AND THE WHOLE INHERITED FILE AGAIN. Like Γ-U1, this slice adds
 --     one file and one import line and edits no existing declaration; unlike Γ-U1 it has
 --     the fixture its consumer will need. The 923-entry prefix comes back byte-identical.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-U4 — THE MODEL PAIR: THE δ RULE INSTANTIATES, AND THE PREMISE SAYS SO
+-- ============================================================================
+--
+-- Γ-U's finding (e) was that the model's δ step is UNIVERSE-BLIND — every δ rule binds the
+-- call site's `us` and then discards it, unfolding to the uninstantiated body — while a
+-- real `VEnv` supplies `.const n us ≡ ⟦body⟧.instL us` (`VEnv.IsDefEq.extra` instantiates
+-- BOTH sides). So `SEnvConsistent` was the kernel fact only at a monomorphic constant, and
+-- at a polymorphic one it was a stronger, false demand that collapses the constant's
+-- instantiations. This slice repairs both halves.
+--
+-- (a) WHERE `Ups` LIVES, AND WHY IT COST NOTHING. `ErasureCtx.lparams : Name → List Name`,
+--     defaulted `fun _ => []`. The two alternatives were measured and rejected: an
+--     `Esrc`-side pairing moves every `Esrc n = some body` site, a new parameter of the
+--     evaluation relations moves all 110 `SEvalDataι Γ ia E` occurrences. A DEFAULTED `Γ`
+--     column moves nothing — four positional `⟨…⟩` literals in guard `example`s were the
+--     entire literal cost — and `Γ` is already in scope at both rules that read the map and
+--     already stores every other per-name kernel datum the model reads (`ctorArities`,
+--     `ctorFields`, `casesDiscrPos`).
+--
+--     The equation that makes the slice cheap is `instantiateLevelParams_nil`, and it is
+--     `rfl`: `Expr.instantiateLevelParams` short-circuits on `paramNames.isEmpty`, and the
+--     left disjunct reduces WITHOUT looking at the call site's levels. So at the default
+--     column the restated rule and the restated premise ARE the old ones, definitionally,
+--     and finding (d)'s predicted ripple through `DeltaMem`/`RunConclδ`/
+--     `ErasesEnvDeltaData`/`RecEnvConsistent`/`ColdStartDelta` never started.
+#print axioms LeanToLambdaBox.instantiateLevelParams_nil
+#print axioms ErasureCtx.withFixvars_lparams
+--
+-- (b) THE δ RULE. `SEvalDataι.delta` unfolds at
+--     `body.instantiateLevelParams (Γ.lparams n) us` — the kernel's step. Only this
+--     relation moved, and the choice is recorded rather than defaulted: `SEval`,
+--     `SEvalβδ`, `SEvalβζδ`, `SEvalβζδι`, `SEvalData` and `SEvalDataC` have no `Γ` to read
+--     the map from, no ι rule and no capstone, while `SEvalDataι` has all three and its
+--     subject reduction reads the consistency premise DIRECTLY (no forgetful map to
+--     `SEvalβζδ`). `delta_mono` is the degeneracy every producer goes through;
+--     `delta_level_blind` is Γ-U's guard restated — the blindness of the others, and of
+--     this rule only under `Γ.lparams n = []`; `delta_level_polymorphic` is the refutation
+--     that makes the premise non-cosmetic (at `{u}` the reducts of `us = [0]` and
+--     `us = [1]` really differ).
+#print axioms LeanToLambdaBox.SEvalDataι.delta_mono
+#print axioms LeanToLambdaBox.SEvalDataι.delta_level_blind
+#print axioms LeanToLambdaBox.SEvalDataι.delta_level_polymorphic
+--
+-- (c) THE PREMISE. `SEnvConsistentL env Us Ups Esrc` is `VEnv.IsDefEq.extra`'s conclusion
+--     on the source side; `SEnvConsistent` is its `Ups = fun _ => []` instance ON THE NOSE
+--     (`senvConsistent_iff_l` is `Iff.rfl`), which is the machine-checked form of "the old
+--     premise was the kernel fact restricted to a monomorphic fragment". `toL`/`toMono`
+--     are the two one-line conversions the consumers take, and they are why not one of the
+--     four `SEnvConsistent` discharges (`envδ_senvConsistent`, `envRec_senvConsistent`,
+--     `gRecSEnvConsistent`, `SEnvConsistent.walked`) moved.
+#print axioms LeanToLambdaBox.senvConsistent_iff_l
+#print axioms LeanToLambdaBox.SEnvConsistent.toL
+#print axioms LeanToLambdaBox.SEnvConsistentL.toMono
+--
+-- (d) THE COLLAPSE, REFRAMED. `SEnvConsistentL.levels_collapse` carries `hlp : Ups n = []`
+--     explicitly, which says what the repair is for: THE COLLAPSE IS THE PRICE OF THE
+--     MONOMORPHISM CLAIM, not of the predicate. Drop `hlp` and the proof does not go
+--     through — the two `TrExprS`es are then translations of two different expressions, so
+--     `TrExprS.uniq` has nothing to say. `SEnvConsistent.levels_collapse` keeps its old
+--     signature and becomes the `Ups = ⊥` corollary; its entry above is unchanged, which is
+--     part of the byte-identical prefix claim.
+#print axioms LeanToLambdaBox.SEnvConsistentL.levels_collapse
+--
+-- (e) THE ERASURE-SIDE CLAUSE, AND `Erases.instL`'s FIRST CONSUMER. The δ case of
+--     `erases_correct_dataι` needs the recorded target body to erase the INSTANTIATED
+--     source body; `ErasesEnvDeltaData` does not say that. `ErasesEnvDeltaL` does, and it
+--     quantifies the target body OUTSIDE the call site's levels — one target serves every
+--     instantiation, which is finding (a) (λ□ is level-free) as a statement rather than a
+--     hope. `.toL` is the monomorphic degeneracy (one line, keeps every capstone green);
+--     `.of_ownScope` is the content: from the dependency's erasure at ITS OWN level scope,
+--     which is what `visitMutual` produces under
+--     `withReader (… lparams := ci.levelParams)`, the Γ-U3 transport lands it at the
+--     caller's scope with the target unchanged. Note the axiom sets: `.of_ownScope`
+--     inherits `Erases.instL`'s `Expr`-model set (`Expr.instantiateLevelParams_eq` and the
+--     two `bv_decide` natives the lakefile already records), and nothing else.
+#print axioms LeanToLambdaBox.ErasesEnvDeltaData.toL
+#print axioms LeanToLambdaBox.ErasesEnvDeltaL.of_ownScope
+--
+-- (f) THE COHERENCE OBLIGATION, CONSTRUCTED AND REFUTED. `LparamsArity` is the fact the
+--     column cannot state for itself: it declares the constant at the arity the ENVIRONMENT
+--     does. `gLparamsArity_poly` builds it at a `{u}`-declared constant;
+--     `gLparamsArity_bot_refuted` shows it is NOT free at the default column — a `Γ` saying
+--     `g` is monomorphic while `env` declares it at one universe parameter fails it. That
+--     refutation is the exact configuration in which the OLD, level-blind rule silently
+--     modelled an unfolding the kernel never performs.
+#print axioms LeanToLambdaBox.gLparamsArity_poly
+#print axioms LeanToLambdaBox.gLparamsArity_bot_refuted
+--
+-- (g) THE POSITIVE GUARDS — the shape Γ-U4 exists for, one layer up from Γ-U3's.
+--     `gErasesDeltaInstL` is `gErasesInstLClosed` with the level list read off the universe
+--     column instead of written by hand, i.e. the step the restated δ rule takes.
+--     `gSEvalDeltaPoly` is the δ STEP itself: `g.{0}` evaluates to the identity at `Sort 0`
+--     and `g.{1}` to the identity at `Sort 1` — two instantiations, two values, which the
+--     rule this slice replaced could not distinguish.
+#print axioms LeanToLambdaBox.gErasesDeltaInstL
+#print axioms LeanToLambdaBox.gSEvalDeltaPoly
+--
+-- (h) WHAT IS STILL OUT, NAMED — three things, each a premise rather than a silence.
+--     (i) `hrecmono` on `erases_correct_dataι`: a `Γ`-RECURSIVE fragment constant is
+--     monomorphic, because `Erases.instL` refutes rather than transports its two recursive
+--     arms (Γ-U3's `∀ Δf` gap). (ii) `hlp` on `SEvalDataι_defeq_of_shape`: the ι DISCHARGE
+--     route δ-unfolds a `casesOn` and then reasons about the uninstantiated recursor value,
+--     so lifting it means restating `IotaShape`. (iii) `ColdStartDelta` builds its δ record
+--     at the ambient `Us`, so `.of_ownScope`'s input is not yet produced by a cold start —
+--     that is the campaign's completion criterion, and it is what the capstones'
+--     `hlp : Γ.lparams = ⊥` row stands in for meanwhile.
+--
+--     `NoMaxLevels` was MEASURED rather than assumed: over the value-cone of two
+--     `VerifyBench` programs plus the dispatch heads, 48 of 52 constants with values are
+--     `max`-free, the four exceptions are `Nat.below`/`List.below` (`Sort`-valued, so a use
+--     site is `Erases.box`) and `Nat.brecOn.go`/`List.brecOn.go`, and NONE of the four
+--     occurs in any of the five committed `VerifyBench/ast/*.ast` files.
+--
+-- (i) THE CROWN, UNMOVED. The slice edits real signatures — the ι simulation's `hcon` and
+--     two new premises, the ι capstone's `hlp` row, `SEvalDataι`'s δ constructor — so the
+--     byte-identical prefix here is earned the Γ-U2 way and not the Γ-U1 way.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

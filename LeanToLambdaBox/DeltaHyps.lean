@@ -268,6 +268,54 @@ and the last two are corrections to this analysis.
   `Meta` fallback. At `Us = []` that conjunct is free, so the verified relevance check
   covers exactly what it covered before.
 
+### Γ-U4, landed: the model pair, and where the restriction went instead (2026-08-28)
+
+The plan's fourth slice is the δ rule instantiating and `SEnvConsistent` restated. Both
+are done, and finding (e) — "this is a change of semantics, not of scope" — is the finding
+that shaped how.
+
+* **`Ups` lives in `Γ`.** `ErasureCtx.lparams : Name → List Name`, defaulted `fun _ => []`.
+  Two homes were rejected and the reasons are the measurement: an `Esrc`-side pairing
+  (`SEnv := Name → Option (List Name × Expr)`) moves every `Esrc n = some body` site in the
+  development, and a fresh parameter of the evaluation relations moves all 110 occurrences
+  of `SEvalDataι Γ ia E`. A defaulted `Γ` column moves **nothing** — `Γ` is already in
+  scope at the two rules that read the map, it is already where every other per-name kernel
+  datum the model reads lives (`ctorArities`, `ctorFields`, `casesDiscrPos`), and four
+  positional `⟨…⟩` literals in guard `example`s were the entire literal cost.
+* **The degeneracy is `rfl`, and that is why finding (d)'s ripple never started.**
+  `Expr.instantiateLevelParams` short-circuits on `paramNames.isEmpty`, so at the default
+  column `body.instantiateLevelParams (Γ.lparams n) us` **is** `body`, definitionally, at an
+  arbitrary `us` (`instantiateLevelParams_nil`). `SEvalDataι.delta` and `SEnvConsistentL`
+  could therefore be restated without touching one discharge: `DeltaMem`, `RunConclδ`,
+  `ErasesEnvDeltaData`, `RecEnvConsistent`, `ColdStartDelta`'s six conversions and all four
+  `SEnvConsistent` discharges are byte-unchanged.
+* **The rest of the βζδ tower was left blind, deliberately.** `SEval`, `SEvalβδ`,
+  `SEvalβζδ`, `SEvalβζδι`, `SEvalData` and `SEvalDataC` have no `Γ`, no ι rule and no
+  capstone; `SEvalDataι` has all three and its subject reduction reads the consistency
+  premise directly, with no forgetful map to `SEvalβζδ`. So the repair is exactly where the
+  theorems are, and `SEvalDataι.delta_level_blind` now states the blindness of the others
+  and, of `SEvalDataι`, only under `Γ.lparams n = []`.
+* **Where the restriction went.** Into `ColdStart`'s new `hlp : Γ.lparams = fun _ => []`
+  row — a `rfl`-checkable equation on a `Γ` column — out of `SEnvConsistent`'s quantifier
+  structure, where it was a consequence of binding `us` and never using it. The ledger
+  reading changes accordingly: `hUs : Us = []` bounds the *subject*'s scope and `hlp`
+  bounds the *dependencies*', and neither doubles the other any more.
+* **`Erases.instL` got a consumer.** `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope` builds the
+  δ case's erasure clause from the dependency's erasure at *its own* level scope — which is
+  what `visitMutual` produces — through the Γ-U3 transport, with the target body unchanged.
+  It is an implementation of the interface, not yet a discharge from a cold start: the walk's
+  record is built at the ambient `Us`, so producing its input is the campaign's completion
+  criterion. Its coherence obligation, `LparamsArity` ("the column declares the constant at
+  the arity the environment does"), is constructed and refuted at a fixture — it is not free
+  at the default column, which is the point.
+* **What is still out, named.** (i) The *recursive* half: `Erases.instL` refutes rather than
+  transports its two recursive arms (Γ-U3's `∀ Δf` gap), so the ι simulation carries
+  `hrecmono` — a `Γ`-recursive constant is monomorphic. (ii) The ι *discharge* route:
+  `iotaConsistent_of_shape` δ-unfolds a `casesOn` and then reasons about the uninstantiated
+  value, so `SEvalDataι_defeq_of_shape` carries `hlp` too; lifting it means restating
+  `IotaShape` at the instantiated recursor value. (iii) `NoMaxLevels`, measured rather than
+  assumed on the benchmarks — see `ErasesDeltaL`'s docstring.
+
 ## Two environments, deliberately: the fragment and the evaluation's
 
 `Esrc` here is a **scope** — the collection of prepared bodies the erased program is
