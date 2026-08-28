@@ -107,7 +107,7 @@ was not on this list at all until Γ-U named it:
 |---|---|
 | `csimp := true` in the `#erase` lines (D1) | **resolved here** — these copies erase with `csimp := false` |
 | pattern matching → ι | resolved (`erases_correct_dataι`, `Supported.casesApp`) |
-| recursion → fix-unfolding | resolved — *in the simulations* at W0–W3.1 (`RecEnvConsistent` replaced `NoFixEnv`), and *in the cold-start capstones* at Γ-W4, where the scope restriction `hnorec : Γ.recBodies = ⊥` was deleted |
+| recursion → fix-unfolding | resolved — *in the simulations* at W0–W3.1 (`RecEnvConsistent` replaced `NoFixEnv`), and *in the cold-start capstones* at Γ-W4, where the scope restriction `hnorec : Γ.recBodies = ⊥` was deleted. Γ-W5 removed the last arity restriction with it (`DeltaHyps.decl_run`'s `ci.all = [m]`, i.e. self-recursion only); it moves none of these five, see the measurement below |
 | typeclass projections → `tProj` | resolved (P0–P9: `Erases.proj`, `Supported.proj`, the fourth trust bundle `ProjBridgeHyps`; the ι capstone's `hnoprojs : Γ.projs = ⊥` deleted) |
 | raw `Nat` literals | resolved (L1–L4: `Erases.lit` unfolds `.lit (.natVal n)` to the peano tower) |
 | machine `Nat` | pre-dodged — the originals already pass `nat := .peano` |
@@ -152,6 +152,17 @@ Reading the table:
   `hcov` and the block-local bundle `Hβ` instead. The restriction that remains is *inside*
   a block rather than about the program: a walked block's bodies call only its own
   siblings, registered constructors and registered `casesOn`s.
+- **Mutual blocks are in scope since Γ-W5, and it moves none of these five.** Until then
+  `DeltaHyps.decl_run` pinned `ci.all = [m]` — self-recursion only, anywhere in a
+  dependency cone — a restriction that never appeared in this table because it lived
+  inside a five-conjunct field rather than in a named ledger row. Measured on the erased
+  output rather than asserted: **every `tFix` block in all five programs holds exactly one
+  definition** (Arith 4 blocks, Sieve 10, BinaryTrees 10, Quicksort 11, Fannkuch 15; the
+  arity histogram is `{1: n}` in each case). So Γ-W5 is the Γ-U pattern in reverse — a
+  restriction removed rather than costed, and zero programs moved either way. It is worth
+  having anyway, and for a reason this table cannot show: the restriction was on the whole
+  *dependency cone*, so a single mutual pair anywhere below a program would have excluded
+  it outright, and nothing was checking.
 - **Universes are what blocks all five now — and it is the `tProj` column read again.**
   Every class method in that column is universe-polymorphic, measured at this toolchain:
   `OfNat.ofNat.{u}`, `Add.add.{u}`, `Max.max.{u}`, `BEq.beq.{u}`, `HAdd.hAdd.{u,v,w}`,

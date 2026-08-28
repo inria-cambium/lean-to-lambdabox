@@ -222,7 +222,9 @@ old `DeltaHyps.decl_run` wrongly pinned to `n`. Slice Γ-W2a relaxed that conjun
 `ci.all = [m] ∧ remove_unsafe_rec m = n`, after which the registration lands on the
 caller's own name and the fragment *gains* every declaration that comes back suffixed —
 which slice Γ-W0 measured to be all of the §H benchmarks' arithmetic
-(`DeltaHyps.rec_exit_registers_name`).
+(`DeltaHyps.rec_exit_registers_name`). Slice Γ-W5 took the surviving `ci.all = [m]` with
+it: the field now states `n ∈ ci.all.map remove_unsafe_rec`, so the registration lands on
+the caller's name at *any* block arity (`DeltaHyps.gRecExitRegistersBoth`).
 
 The second: **removing `nonrecursive` lets the run *reach* the exit; it does not let the
 bridge *walk* it** (slice δ-D8e). Step 6 has no outside to read the Γ-polymorphic bridge

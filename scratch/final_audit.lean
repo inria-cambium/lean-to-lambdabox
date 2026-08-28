@@ -3766,11 +3766,21 @@ open LeanToLambdaBox
 --     one. The single-declaration arm got shorter too, losing the three `have`s that
 --     built `hkn'`/`hnd`/`hnmem` out of `ci.all = [mn]`.
 --
--- (e) WHAT IT DID NOT BUY, stated so the ledger stays honest. `hcon : SEnvConsistent` and
---     `hUs : Us = []` are untouched, so the §H benchmarks are no closer: their blocker is
---     universe polymorphism (Γ-U), not arity. What this slice removes is a restriction
---     that was invisible in the ledgers precisely because it was inside a five-conjunct
---     field — the same reason δ-D8e split `nonrecursive` out before trading it.
+-- (e) WHAT IT DID NOT BUY, MEASURED. `hcon : SEnvConsistent` and `hUs : Us = []` are
+--     untouched, so the §H benchmarks are no closer: their blocker is universe
+--     polymorphism (Γ-U), not arity. And the measurement is stronger than that. Reading
+--     the arity of every `tFix` block in the five erased programs
+--     (`VerifyBench/ast/*.ast`): Arith 4 blocks, Sieve 10, BinaryTrees 10, Quicksort 11,
+--     Fannkuch 15, and the defs-per-block histogram is `{1: n}` in EVERY case — not one
+--     mutual block among the fifty. So this slice moves ZERO programs into the fragment,
+--     which is the Γ-U finding in reverse (a restriction removed rather than costed, with
+--     the same null effect on coverage) and is recorded here rather than left to be
+--     inferred. It is worth having regardless, for a reason the table cannot show: the
+--     restriction was on the whole DEPENDENCY CONE, so one mutual pair anywhere below a
+--     program excluded it outright, and nothing was checking. What the slice really
+--     removes is a restriction that was invisible in the ledgers precisely because it sat
+--     inside a five-conjunct field — the same reason δ-D8e split `nonrecursive` out
+--     before trading it.
 --
 -- (f) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. Twenty new declarations plus five
 --     crown re-prints (856 → 881), and every one of the twenty measures

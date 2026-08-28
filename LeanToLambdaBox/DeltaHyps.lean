@@ -54,11 +54,11 @@ fire there however much they look like they should. `BlockHyps` below is the com
 that second pair; it is a separate structure so that `of_bot` and the whole non-recursive
 path stay untouched and the recursion feature's price stays legible as one ledger row.
 
-## The five scope restrictions this bundle makes operational
+## The six scope restrictions this bundle makes operational
 
 They were latent in the development before; here each is a field, so a `Γ`/`known` that
 violates one makes the bundle *unsatisfiable* — the right failure mode, but only because it
-is written down. The numbering is historical: the live five are 1–4 and 6, and slot 5 is
+is written down. The numbering is historical: the live six are 1–4, 6 and 7, and slot 5 is
 retired and kept struck below. That fifth — "no fragment constant is recursive"
 (`nonrecursive`) — went at slice Γ-W3.6b: it existed only to make `visitMutual`'s
 `nonrecursive` test come out `true`, so that the bridge's step 6 could refute the recursive
@@ -105,6 +105,17 @@ siblings, registered constructors and registered `casesOn`s.
    lets the typeclass-dispatch layer into the fragment at all (`OfNat.ofNat`'s prepared
    body is `fun α x self => self.1`); the recursive exit keeps the strong predicate for its
    own siblings (`BlockHyps.block_lam`).
+7. **The fragment is closed under block membership, and a block's names are distinct.**
+   `decl_run`'s first two conjuncts, and **new in name only at slice Γ-W5**: they replace
+   an *unnumbered* and strictly stronger restriction that lived inside the same field —
+   `ci.all = [m]`, i.e. no genuine mutual block anywhere in the dependency cone. At arity
+   one the new conjuncts are implied by the old pair together with `known n`
+   (`gDeclRunMutual_of_single`), so nothing is newly demanded of a self-recursive
+   fragment; at arity two and above they are what the recursive walk needs and the old
+   pair was simply false (`gDeclRunSingle_mutual_refuted`). The reading is:
+   `Compiler.LCNF.getDeclInfo?` answers for a *block*, `visitMutual` erases and registers
+   all of it, so a fragment holding one sibling and not the others would have the walk
+   register a constant outside its own scope.
 
 ## Γ-U — what lifting scope restriction 1 would actually cost (analysis, 2026-08-27)
 
@@ -572,9 +583,10 @@ of what the walk already carries, and are proved rather than assumed
   now the second conjunct of `block_lam`, for the trust reason spelled out there;
 * `stripped` (`known n → remove_unsafe_rec n = n`) — the fragment restriction slice δ-D8e
   predicted the recursive exit would cost. It does not: the relaxed `decl_run` supplies
-  `remove_unsafe_rec m = n` for the *fetched* name, which is the equation the registration
-  actually needs, and it is true where `stripped` plus the old `decl_run` was jointly
-  unsatisfiable. See `rec_exit_registers_name`.
+  `n ∈ ci.all.map remove_unsafe_rec` for the *fetched* block, which is the fact the
+  registration actually needs, and it is true where `stripped` plus the old `decl_run` was
+  jointly unsatisfiable. See `rec_exit_registers_name` and, at arity two,
+  `gRecExitRegistersBoth`.
 
 So one genuine scope field survives — the sibling body is a projection-free λ, neither
 half of which any `TrExprS` witness implies — beside two run-keyed clauses and two
@@ -1033,11 +1045,13 @@ read this as a further *fragment* restriction — `remove_unsafe_rec n = n` for 
 `known n`, to be paid as a new field — and that reading has the arrow backwards. The
 caller's `n` is the plain name; what carries the `._unsafe_rec` suffix is the *fetched*
 declaration's `ci.all`, which the old `decl_run` conjunct `ci.all = [n]` wrongly pinned to
-the caller's name. Under the relaxed conjunct `ci.all = [m] ∧ remove_unsafe_rec m = n` the
-registration happens under `remove_unsafe_rec m`, which *is* `n`: no fragment restriction
-is bought, and the fragment gains every name whose declaration comes back suffixed — which
-slice Γ-W0 measured to be all of the §H benchmarks' arithmetic. `rec_exit_registers_name`
-below is that reading, on the same data. -/
+the caller's name. Under the relaxed field the registration happens under
+`ci.all.map remove_unsafe_rec`, a list the caller's `n` is a *member* of
+(`decl_run`'s `hnmem`; at Γ-W2 the same fact read `remove_unsafe_rec m = n`, its arity-one
+form): no fragment restriction is bought, and the fragment gains every name whose
+declaration comes back suffixed — which slice Γ-W0 measured to be all of the §H
+benchmarks' arithmetic. `rec_exit_registers_name` below is that reading, on the same data,
+and `gRecExitRegistersBoth` is its arity-two twin. -/
 theorem rec_exit_registers_stripped_name (defs : List (@FixDef LBTerm)) :
     remove_unsafe_rec (`f ++ `_unsafe_rec) = `f ∧
       ((recConstState [remove_unsafe_rec (`f ++ `_unsafe_rec)] defs {}).constants.get?
