@@ -135,10 +135,17 @@ to some `vve` definitionally equal to `ve`. The λ/β/δ/ctor cases reuse the re
 `SEvalβζδ_defeq` (`SEvalβζδ_defeq_spine` for the constructor spine); the ι case is
 discharged **only** via the `IotaConsistent` hypothesis `hiota` — the pinned fork's ι rule
 (`IsDefEq.pat`) exists but is not yet chainable into a concrete instance (see the module
-docstring). `IotaConsistent` stays a hypothesis, never an axiom. -/
+docstring). `IotaConsistent` stays a hypothesis, never an axiom.
+
+**The δ premise is the universe-aware one since slice Γ-U4**: `SEnvConsistentL env Us
+Γ.lparams Esrc`, matching `SEvalDataι.delta`'s unfolding at
+`body.instantiateLevelParams (Γ.lparams n) us`. The δ *case* did not move a character —
+the restated premise hands back the `TrExprS` of exactly the expression the restated rule
+recursed on, which is the whole reason the two had to be repaired together. A caller with
+the old monomorphic premise passes `hcon.toL rfl`. -/
 theorem SEvalDataι_defeq {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
-    (hcon : SEnvConsistent env Us Esrc) (hiota : IotaConsistent env Us Γ ia)
+    (hcon : SEnvConsistentL env Us Γ.lparams Esrc) (hiota : IotaConsistent env Us Γ ia)
     (hproj : ProjConsistent env Us Γ)
     {e v : Expr} {ve : VExpr}
     (htr : TrExprS env Us Δ e ve)
@@ -231,12 +238,23 @@ Since the projection round (slice P6) the same treatment covers `ProjConsistent`
 discharged here by `projConsistent_of_coh` (`ProjDischarge.lean`) from the upstream
 interface `ProjDefeqSpec`, the constructor agreement `ProjCtorAgree` — the link
 `ProjShape` provably cannot supply, see that module's docstring — and the registration
-fact `ProjFieldsCoherent`. -/
+fact `ProjFieldsCoherent`.
+
+**`hlp` is new at slice Γ-U4, and it is the honest cost of the discharge route.** The
+general theorem above takes the universe-aware `SEnvConsistentL`; this one takes the
+monomorphic `SEnvConsistent`, because `iotaConsistent_of_shape` δ-unfolds the `casesOn`
+head and then reasons about the *uninstantiated* value (`IotaShape.shape`'s `hunfold` is
+stated there). So the ι discharge route is available exactly on a universe-monomorphic
+`Γ` — which every `ErasureCtx` in this development is, the column's default, so `hlp` is
+`rfl` at every call site. Recorded here rather than buried: a `casesOn` is
+universe-polymorphic in the real kernel, and lifting this premise means restating
+`IotaShape` at the instantiated recursor value. -/
 theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
     {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities} {Esrc : SEnv}
     (hspec : PatsIotaSpec safety kenv env)
     (hcon : SEnvConsistent env Us Esrc)
+    (hlp : Γ.lparams = fun _ => [])
     (hshape : IotaShape safety kenv Γ ia Esrc)
     (hpspec : ProjDefeqSpec safety kenv env)
     (hpagree : ProjCtorAgree env Γ)
@@ -245,7 +263,7 @@ theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kern
     (htr : TrExprS env Us Δ e ve)
     (hev : SEvalDataι Γ ia Esrc e v) :
     ∃ vve, TrExprS env Us Δ v vve ∧ env.IsDefEqU Us.length Δ.toCtx ve vve :=
-  SEvalDataι_defeq henv hΔ hcon (iotaConsistent_of_shape henv hspec hcon hshape)
+  SEvalDataι_defeq henv hΔ (hcon.toL hlp) (iotaConsistent_of_shape henv hspec hcon hshape)
     (projConsistent_of_coh henv hpspec hpagree hpcoh) htr hev
 
 /-! ## ι-redex relevance — the two side conditions the model needs

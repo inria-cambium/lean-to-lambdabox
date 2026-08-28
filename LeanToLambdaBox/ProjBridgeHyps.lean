@@ -176,7 +176,7 @@ example : ((Array.replicate 3 ConstructorArgRelevance.keep)[:2]).toArray.count .
 example (gw : Void IO.RealWorld → NameGenerator) :
     ProjBridgeHyps (⟨fun _ => none, fun _ => ⟨.MPfile [], "x"⟩, fun _ => none,
       fun _ => none, fun _ => none, fun _ => none, fun _ => none, false, fun _ => none,
-      fun _ => none, fun _ => none⟩ : ErasureCtx) gw :=
+      fun _ => none, fun _ => none, fun _ => []⟩ : ErasureCtx) gw :=
   ProjBridgeHyps.of_bot rfl
 
 end LeanToLambdaBox

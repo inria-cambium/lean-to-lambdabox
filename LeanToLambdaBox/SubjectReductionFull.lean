@@ -41,6 +41,38 @@ namespace LeanToLambdaBox
 
 open Lean Lean4Lean
 
+/-- **Source-env ↔ `VEnv` consistency for δ-unfolding, at the call site's universe
+instantiation** — the corrected predicate (slice Γ-U4), and the fact a well-formed `VEnv`
+actually supplies.
+
+Whenever `Esrc n = some body` and the constant application `.const n us` translates to a
+`VExpr` `cve`, the **instantiated** body `body.instantiateLevelParams (Ups n) us`
+translates (to some `bve`) and the constant is definitionally equal to it.
+
+This is `VEnv.IsDefEq.extra`'s conclusion transported to the source side. That rule reads
+
+    Γ ⊢ df.lhs.instL ls ≡ df.rhs.instL ls : df.type.instL ls
+
+— **both** sides instantiated at the call site's levels — so what a real `VEnv` gives at a
+`{u}`-polymorphic `n` is `.const n us ≡ ⟦body⟧.instL us`, never `.const n us ≡ ⟦body⟧`.
+`Ups` is the per-constant universe-parameter map; every consumer passes `Γ.lparams`
+(`ErasureContext.lean`), which is where the map lives and where its coherence with the
+kernel's `ci.levelParams` is stated.
+
+`SEnvConsistent` below is this predicate at `Ups = fun _ => []`, definitionally
+(`senvConsistent_iff_l`), and that is the exact sense in which the old premise was the
+kernel fact: a *monomorphic* one. Everything the development ships runs there, because
+`ErasureCtx.lparams` defaults to `fun _ => []`; what changed at Γ-U4 is that the
+restriction is now a named, `rfl`-checkable equation on a `Γ` column instead of a
+silent consequence of a quantifier that binds `us` and never uses it. -/
+def SEnvConsistentL (env : VEnv) (Us : List Name) (Ups : Name → List Name)
+    (Esrc : SEnv) : Prop :=
+  ∀ {Δ : VLCtx} {n : Name} {us : List Level} {body : Expr} {cve : VExpr},
+    Esrc n = some body →
+    TrExprS env Us Δ (.const n us) cve →
+    ∃ bve, TrExprS env Us Δ (body.instantiateLevelParams (Ups n) us) bve ∧
+      env.IsDefEqU Us.length Δ.toCtx cve bve
+
 /-- **Source-env ↔ `VEnv` consistency for δ-unfolding.**
 
 The source environment `Esrc : SEnv` and the lean4lean `VEnv` `env` agree on
@@ -59,50 +91,121 @@ is required (the context is universally quantified so the predicate can be appli
 under binders).
 
 **⚠️ The `us` binder is discarded, and that is the development's universe
-monomorphism** (slice Γ-U; provenance corrected here, 2026-08-27). The docstring
+monomorphism** (slice Γ-U; provenance corrected 2026-08-27; **repaired at slice Γ-U4**,
+2026-08-28, which is what the rest of this docstring now records). The docstring
 used to say the `VEnv` registers `.const n us ≡ ⟦body⟧`. It does not: the rule is
 `VEnv.IsDefEq.extra` (`Lean4Lean/Theory/Typing/Basic.lean`), whose conclusion is
 
     Γ ⊢ df.lhs.instL ls ≡ df.rhs.instL ls : df.type.instL ls
 
 i.e. **both sides are instantiated** at the call site's levels. So the fact a real
-`VEnv` supplies is `.const n us ≡ ⟦body⟧.instL us`, and `SEnvConsistent` above —
+`VEnv` supplies is `.const n us ≡ ⟦body⟧.instL us`, and this predicate —
 which quantifies `us` and then never mentions it — is that fact only when
 `instL us` is the identity, i.e. when `n` is universe-monomorphic. For a genuinely
 polymorphic `n` the predicate is *stronger* than the kernel fact and collapses the
 constant's instantiations to one another; `SEnvConsistent.levels_collapse` below
 states that collapse as a theorem.
 
-Consequence for scope, and it is the point of recording this: universe monomorphism
-is pinned in **two** independent places, not one. `DeltaHyps.decl_run`'s scope conjunct
-(scope restriction 1) makes the *bundle* uninhabited for a polymorphic dependency — a
-named, documented failure. This predicate makes the *simulation's premise* false for one —
-an unnamed one, until now. Relaxing the former without repairing the latter (and
-`SEvalDataι.delta`'s level-blindness, and `Erases`' lack of an `instL` transport) would not
-widen the fragment; it would only move where the vacuity lives. See `DeltaHyps`' Γ-U
-analysis for the full accounting.
+**What Γ-U4 did about it.** The corrected predicate is `SEnvConsistentL` above, at the
+instantiated body; this one is *defined* to be its `Ups = fun _ => []` instance and is
+proved to be (`senvConsistent_iff_l`, `Iff.rfl`). So the reading of this premise is now
+exact and local: **it is the kernel fact restricted to a universe-monomorphic fragment**,
+and the restriction is the `Γ.lparams = fun _ => []` equation the ι capstone carries
+(`ColdStart`'s `hlp` row) rather than an unnamed consequence of a vacuous binder. The
+predicate itself did not change a byte, which is why not one of its ~20 consumers or its
+four discharges moved.
 
-**Of those three, the third is gone since slice Γ-U3**: `ErasesInstL.Erases.instL` is a
-strict level-instantiation transport for erasure on the `max`/`imax`-free non-recursive
-fragment — which contains the typeclass layer the relaxation is aimed at. So what stands
-between the bundles and a polymorphic dependency is now exactly the *model* pair: this
-predicate and `SEvalDataι.delta`'s level-blindness. That is Γ-U4, and it is where the
-content is.
+Consequence for scope, and it is the point of recording this: universe monomorphism
+used to be pinned in **two** independent places, not one. `DeltaHyps.decl_run`'s scope
+conjunct (scope restriction 1) makes the *bundle* uninhabited for a polymorphic
+dependency — a named, documented failure. This predicate made the *simulation's premise*
+false for one — an unnamed one, until Γ-U. Relaxing the former without repairing the
+latter (and `SEvalDataι.delta`'s level-blindness, and `Erases`' lack of an `instL`
+transport) would not widen the fragment; it would only move where the vacuity lives. See
+`DeltaHyps`' Γ-U analysis for the full accounting.
+
+**All three are now addressed.** The third went at slice Γ-U3
+(`ErasesInstL.Erases.instL`, a strict level-instantiation transport for erasure on the
+`max`/`imax`-free non-recursive fragment — the typeclass layer). The model pair went at
+Γ-U4: `SEvalDataι.delta` unfolds at `body.instantiateLevelParams (Γ.lparams n) us`, and
+`SEnvConsistentL` is stated to match, with `SEvalDataι_defeq` and `erases_correct_dataι`
+consuming the general forms. What is *not* done, and is the campaign's completion
+criterion rather than this slice's, is a capstone at `Us ≠ []` with a genuinely
+polymorphic dependency: that needs the walk's δ record at the dependency's own scope
+(`ErasesEnvDeltaL.of_ownScope` shows the step; `ColdStartDelta`'s record does not yet
+supply its input) and, for a *recursive* dependency, it needs `Erases.instL`'s recursive
+arms, which Γ-U3 named as out of scope.
 
 **Slice Γ-U2 relaxed the first place and this one still did not move**, which is worth
 recording because it is the case the warning above was written against. The relaxation is
 to a *prefix* — `ci.levelParams <+: Us` — and the cold-start capstones pin `Us = []`
 (`ColdStart`'s `hUs` row), where a prefix of the empty scope is the empty scope. So the
 bundle is wider at a polymorphic subject, no capstone states one, and this predicate is
-asked for at exactly the constants it was asked for before. The moment a capstone *is*
-stated at `Us ≠ []`, this is the premise that has to be restated at
-`body.instantiateLevelParams (levelParams of n) us` — Γ-U4, and the reason Γ-U2 alone
-buys the bridge layer and not the theorem. -/
+asked for at exactly the constants it was asked for before. -/
 def SEnvConsistent (env : VEnv) (Us : List Name) (Esrc : SEnv) : Prop :=
   ∀ {Δ : VLCtx} {n : Name} {us : List Level} {body : Expr} {cve : VExpr},
     Esrc n = some body →
     TrExprS env Us Δ (.const n us) cve →
     ∃ bve, TrExprS env Us Δ body bve ∧ env.IsDefEqU Us.length Δ.toCtx cve bve
+
+/-- **The old premise is the new one at `Ups = ⊥`, on the nose** (slice Γ-U4).
+
+`Iff.rfl`: `Expr.instantiateLevelParams` short-circuits on `paramNames.isEmpty`, so
+`body.instantiateLevelParams ((fun _ => []) n) us` reduces to `body` without looking at
+`us`. This is the machine-checked form of the docstring's claim that `SEnvConsistent` is
+the kernel fact *restricted to a monomorphic fragment*, and it is what lets both
+directions below be one line each. -/
+theorem senvConsistent_iff_l {env : VEnv} {Us : List Name} {Esrc : SEnv} :
+    SEnvConsistent env Us Esrc ↔ SEnvConsistentL env Us (fun _ => []) Esrc := Iff.rfl
+
+/-- **The monomorphic degeneracy, in the direction the simulations consume.** A `Γ` whose
+universe column is `⊥` — every `ErasureCtx` this development builds, the field's default —
+turns the old premise into the corrected one at that column. One line, which is the
+requirement the Γ-U4 plan attached to the restatement: every current capstone stays green
+without a new obligation. -/
+theorem SEnvConsistent.toL {env : VEnv} {Us : List Name} {Ups : Name → List Name}
+    {Esrc : SEnv} (h : SEnvConsistent env Us Esrc) (hlp : Ups = fun _ => []) :
+    SEnvConsistentL env Us Ups Esrc := by subst hlp; exact h
+
+/-- …and back, which is what the ι discharge route (`iotaConsistent_of_shape`, whose
+`casesOn` unfolding is stated at the uninstantiated value) needs. -/
+theorem SEnvConsistentL.toMono {env : VEnv} {Us : List Name} {Ups : Name → List Name}
+    {Esrc : SEnv} (h : SEnvConsistentL env Us Ups Esrc) (hlp : Ups = fun _ => []) :
+    SEnvConsistent env Us Esrc := by subst hlp; exact h
+
+/-- **The collapse is driven by the monomorphism claim, not by the predicate** (slice
+Γ-U4's restatement of Γ-U's guard).
+
+If the universe column declares `n` monomorphic (`Ups n = []`), then the corrected
+premise's conclusion stops mentioning `us`, and any two level instantiations of `n` are
+forced definitionally equal to one another — both are defeq to the *one* translation of
+the uninstantiated body, which `TrExprS.uniq` pins up to defeq. That is a genuine extra
+demand at a genuinely polymorphic `n`, and one a well-formed `VEnv` does **not**
+discharge: `VEnv.IsDefEq.extra` instantiates both sides of the defining equation, so it
+relates `.const n us` to `⟦body⟧.instL us`, never two different `instL`s to each other.
+
+Stated at `SEnvConsistentL` with `hlp` explicit, the theorem says exactly what the Γ-U4
+repair is for: **the collapse is the price of the `Ups n = []` claim**, and a column that
+tells the truth about a polymorphic constant does not pay it. Drop `hlp` and the proof
+does not go through — `htrb`/`htrb'` are then translations of two *different* expressions
+(`delta_level_polymorphic` exhibits the split at `Sort u`), so `TrExprS.uniq` has nothing
+to say about them. -/
+theorem SEnvConsistentL.levels_collapse {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Ups : Name → List Name} {Esrc : SEnv} (h : SEnvConsistentL env Us Ups Esrc)
+    {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {n : Name} {us us' : List Level} {body : Expr} {cve cve' : VExpr}
+    (hlp : Ups n = []) (hb : Esrc n = some body)
+    (htr : TrExprS env Us Δ (.const n us) cve)
+    (htr' : TrExprS env Us Δ (.const n us') cve') :
+    env.IsDefEqU Us.length Δ.toCtx cve cve' := by
+  obtain ⟨bve, htrb, hd⟩ := h hb htr
+  obtain ⟨bve', htrb', hd'⟩ := h hb htr'
+  rw [hlp] at htrb htrb'
+  simp only [instantiateLevelParams_nil] at htrb htrb'
+  have huniq : env.IsDefEqU Us.length Δ.toCtx bve bve' :=
+    TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htrb'
+  exact VEnv.IsDefEqU.trans henv hΔ.toCtx hd
+    (VEnv.IsDefEqU.trans henv hΔ.toCtx huniq (VEnv.IsDefEqU.symm hd'))
 
 /-- **`SEnvConsistent` collapses a fragment constant's universe instantiations** —
 slice Γ-U's guard on the simulation side, and the companion of
@@ -110,22 +213,24 @@ slice Γ-U's guard on the simulation side, and the companion of
 
 Because the predicate quantifies `us` and its conclusion never mentions it, any two
 level instantiations of the same `Esrc` constant are forced definitionally equal to
-one another (both are defeq to the *one* translation of the uninstantiated body,
-which `TrExprS.uniq` pins up to defeq). For a monomorphic constant this is vacuous —
+one another. For a monomorphic constant this is vacuous —
 `us = []` is the only instantiation — which is exactly the scope
 `DeltaHyps.decl_run` already pins. For a polymorphic one it is a genuine extra
-demand, and one a well-formed `VEnv` does **not** discharge: `VEnv.IsDefEq.extra`
-instantiates both sides of the defining equation, so it relates `.const n us` to
-`⟦body⟧.instL us`, never two different `instL`s to each other.
+demand, and one a well-formed `VEnv` does **not** discharge.
 
 So this is the theorem behind the claim in `SEnvConsistent`'s docstring: a Γ-U slice
 that relaxed `DeltaHyps.decl_run` and `BlockHyps.block_lparams` alone would leave the
 capstones with a premise that is false at exactly the constants the relaxation was
 meant to admit. Γ-U2 did relax those two — to a prefix — and escaped the conclusion
 only because the capstones still pin `Us = []`, where the relaxation is the identity.
-The theorem is therefore still the live obstruction and not a historical one. The repair is to restate the conclusion at
-`body.instantiateLevelParams (levelParams of n) us` — which forces the δ *rule* to
-unfold there too, since subject reduction hands `htrb` straight to the IH. -/
+
+**Since slice Γ-U4 this is a corollary rather than a wall.** It is
+`SEnvConsistentL.levels_collapse` at `Ups = fun _ => []`, i.e. it is what the *monomorphic
+instance* costs; the corrected predicate at a truthful column does not collapse anything,
+and the δ rule that consumes it unfolds at
+`body.instantiateLevelParams (Γ.lparams n) us`. The theorem is kept, at its old
+signature, because it is still the honest statement of what a capstone carrying
+`hlp : Γ.lparams = ⊥` is assuming. -/
 theorem SEnvConsistent.levels_collapse {env : VEnv} (henv : env.WF) {Us : List Name}
     {Esrc : SEnv} (h : SEnvConsistent env Us Esrc)
     {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
@@ -133,13 +238,8 @@ theorem SEnvConsistent.levels_collapse {env : VEnv} (henv : env.WF) {Us : List N
     (hb : Esrc n = some body)
     (htr : TrExprS env Us Δ (.const n us) cve)
     (htr' : TrExprS env Us Δ (.const n us') cve') :
-    env.IsDefEqU Us.length Δ.toCtx cve cve' := by
-  obtain ⟨bve, htrb, hd⟩ := h hb htr
-  obtain ⟨bve', htrb', hd'⟩ := h hb htr'
-  have huniq : env.IsDefEqU Us.length Δ.toCtx bve bve' :=
-    TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb htrb'
-  exact VEnv.IsDefEqU.trans henv hΔ.toCtx hd
-    (VEnv.IsDefEqU.trans henv hΔ.toCtx huniq (VEnv.IsDefEqU.symm hd'))
+    env.IsDefEqU Us.length Δ.toCtx cve cve' :=
+  SEnvConsistentL.levels_collapse henv (senvConsistent_iff_l.1 h) hΔ rfl hb htr htr'
 
 /-- **`SEnvConsistent` collapses a mutual block's two members** (slice Γ-W5) — the
 sibling-side twin of `levels_collapse`, and the fact that stops the mutual cold-start guard

@@ -183,8 +183,25 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
   | beta {f a : Expr} {n : Name} {ty b : Expr} {bi : BinderInfo} {av r : Expr} :
       SEvalDataι Γ ia E f (.lam n ty b bi) → SEvalDataι Γ ia E a av →
       SEvalDataι Γ ia E (b.instantiate1' av 0) r → SEvalDataι Γ ia E (.app f a) r
+  /-- δ: unfold a defined constant **at the call site's universe instantiation** — the
+      kernel's step, `body.instantiateLevelParams ci.levelParams us`, with `ci.levelParams`
+      read off `Γ`'s universe column (slice Γ-U4).
+
+      Every other δ rule in this development binds `us` and then discards it, unfolding to
+      the *uninstantiated* body; that is the model's universe-blindness, and it is what
+      `delta_level_blind` below states and `SEnvConsistent.levels_collapse` costs. This
+      rule is the repair, and it is deliberately made *here* and not in the βζδ tower:
+      `SEvalDataι` is the relation every ι capstone runs on, it is the one whose subject
+      reduction reads the consistency premise directly (`SEvalDataι_defeq`, no forgetful
+      map to `SEvalβζδ`), and it is the only one with a `Γ` in scope to read the map from.
+
+      At `Γ.lparams n = []` — every `ErasureCtx` in the development, the field's default —
+      the instantiation is the identity **definitionally**, so this rule *is* the old one
+      there (`delta_mono`, `delta_level_blind`). -/
   | delta {n : Name} {us : List Level} {body r : Expr} :
-      E n = some body → SEvalDataι Γ ia E body r → SEvalDataι Γ ia E (.const n us) r
+      E n = some body →
+      SEvalDataι Γ ia E (body.instantiateLevelParams (Γ.lparams n) us) r →
+      SEvalDataι Γ ia E (.const n us) r
   | ctor_val {cn : Name} {us : List Level} {iid : InductiveId} {cidx ar : Nat}
       {args vs : List Expr}
       (hc : Γ.ctors cn = some (iid, cidx)) (har : Γ.ctorArities cn = some ar)
@@ -252,37 +269,65 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
   | lit {l : Literal} {r : Expr} :
       SEvalDataι Γ ia E l.toConstructor r → SEvalDataι Γ ia E (.lit l) r
 
-/-- **The δ rule is universe-blind** — slice Γ-U's guard, and the reason a universe
-relaxation of the *bundles* would be a change of model rather than a change of scope.
+/-- **The monomorphic degeneracy of the restated δ rule** (slice Γ-U4). At a constant the
+universe column declares monomorphic, `SEvalDataι.delta` is exactly the level-blind rule
+it replaced: `instantiateLevelParams [] us` is `body`, definitionally, whatever `us` is.
 
-Every δ rule in this development — `SEval.delta`, `SEvalβδ.delta`, `SEvalβζδ.delta`,
-`SEvalβζδι.delta`, `SEvalData.delta` and `SEvalDataι.delta` above — reads
-`E n = some body → … E body r → … E (.const n us) r`: the level arguments `us` are
-bound and then **discarded**, and the redex unfolds to the *uninstantiated* `body`.
-The kernel's δ step is `body.instantiateLevelParams ci.levelParams us`, so the two
-agree exactly when the instantiation is the identity, i.e. when `n` is universe-
-monomorphic (`ci.levelParams = []`, so `us = []` and `instantiateLevelParams` is `id`).
+This is the lemma every existing producer of a δ step goes through, and the reason the
+slice moved no discharge: `ErasureCtx.lparams` defaults to `fun _ => []`, so the
+hypothesis is `rfl` at every `Γ` in the development. -/
+theorem SEvalDataι.delta_mono {Γ : ErasureCtx} {ia : IotaArities} {E : SEnv}
+    {n : Name} {us : List Level} {body r : Expr}
+    (hlp : Γ.lparams n = []) (hunf : E n = some body) (h : SEvalDataι Γ ia E body r) :
+    SEvalDataι Γ ia E (.const n us) r :=
+  .delta hunf (by rw [hlp]; simpa using h)
 
-This theorem is the machine-checked form of "discarded": **one** body evaluation
-serves **every** level instantiation of the same constant. It is not a defect of the
-model at the fragment this development ships — `DeltaHyps.decl_run` pins every
-dependency at `ci.levelParams <+: Us` (an equation before slice Γ-U2) and the capstones
-run at `Us = []`, where a prefix of the empty scope is the empty scope, so the
-identity is still the only instantiation reachable — but it is what a Γ-U slice has to
-repair *before* relaxing the capstones' `Us = []`, and it is why relaxing that alone would
-move the fragment's vacuity from a named bundle field into an unnamed one
-(`SEnvConsistent`; see `SEnvConsistent.levels_collapse`).
+/-- **The δ rule is universe-blind — for every relation but `SEvalDataι`, and there only
+at a monomorphic constant.** Slice Γ-U's guard, restated at slice Γ-U4, which is where the
+one relation that matters stopped being blind.
 
-Since slice Γ-U3 this rule and `SEnvConsistent` are the **only** two things in the way:
-the erasure-side transport a Γ-U4 would need exists (`ErasesInstL.Erases.instL`, strict on
-the `max`-free non-recursive fragment), so the repair is now squarely a change of *model*
-— unfold at `body.instantiateLevelParams ci.levelParams us` here, and restate the
-consistency premise to match — and no longer partly a missing lemma. -/
+`SEval.delta`, `SEvalβδ.delta`, `SEvalβζδ.delta`, `SEvalβζδι.delta`, `SEvalData.delta` and
+`SEvalDataC.delta` all read `E n = some body → … E body r → … E (.const n us) r`: the
+level arguments `us` are bound and then **discarded**, and the redex unfolds to the
+*uninstantiated* `body`. The kernel's δ step is
+`body.instantiateLevelParams ci.levelParams us`, so those rules agree with the kernel
+exactly when the instantiation is the identity, i.e. when `n` is universe-monomorphic
+(`ci.levelParams = []`, whence `instantiateLevelParams` is `id`).
+
+`SEvalDataι.delta` is the exception since slice Γ-U4: it unfolds at
+`body.instantiateLevelParams (Γ.lparams n) us`, and this theorem now holds of it **only
+under `hlp`** — which is the content of the repair. One body evaluation still serves every
+instantiation of a *monomorphic* constant, and that is a true and harmless statement;
+what it no longer does is serve every instantiation of a polymorphic one
+(`delta_level_polymorphic` below is the refutation that makes the difference visible).
+
+Why the βζδ tower was left blind rather than repaired with it: those relations have no
+`Γ`, so the map has no home in them; they carry no ι rule, so no capstone runs on them;
+and their subject reduction consumes the *degenerate* consistency premise
+(`SubjectReductionFull.SEnvConsistent`, now defined as the `Ups = ⊥` instance of the
+corrected one), which is sound at exactly the fragment they are blind on. The scope is
+named rather than hidden, which is the whole point of the slice. -/
 theorem SEvalDataι.delta_level_blind {Γ : ErasureCtx} {ia : IotaArities} {E : SEnv}
-    {n : Name} {us us' : List Level} {body r : Expr}
+    {n : Name} {us us' : List Level} {body r : Expr} (hlp : Γ.lparams n = [])
     (hunf : E n = some body) (h : SEvalDataι Γ ia E body r) :
     SEvalDataι Γ ia E (.const n us) r ∧ SEvalDataι Γ ia E (.const n us') r :=
-  ⟨.delta hunf h, .delta hunf h⟩
+  ⟨.delta_mono hlp hunf h, .delta_mono hlp hunf h⟩
+
+/-- **…and at a polymorphic constant the two instantiations really do reduce to different
+things** (slice Γ-U4, the negative guard). The blind rule identified them; the restated one
+does not, and this exhibits the split at the smallest possible witness: the body `Sort u`
+of a `{u}`-declared constant unfolds to `Sort 0` at `us = [0]` and to `Sort 1` at
+`us = [1]`.
+
+This is what `delta_level_blind`'s `hlp` premise buys, and the reason the premise is not
+cosmetic: without it the *conjunction* above would force one evaluation to serve both
+reducts, i.e. exactly the collapse `SEnvConsistent.levels_collapse` states one layer up. -/
+theorem SEvalDataι.delta_level_polymorphic {u : Name} {body : Expr}
+    (hbody : body = .sort (.param u)) :
+    body.instantiateLevelParams [u] [.zero] ≠ body.instantiateLevelParams [u] [.succ .zero] := by
+  subst hbody
+  simp [Expr.instantiateLevelParams_eq, Expr.instantiateLevelParamsCore',
+    Level.substParams']
 
 /-- **`IotaConsistent`** — the source-level ι (`casesOn`/recursor) reduction respects
 lean4lean definitional equality: a `casesOn` spine's translation is defeq to the

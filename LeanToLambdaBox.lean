@@ -138,6 +138,13 @@ import LeanToLambdaBox.IotaBridge
 -- inversion (`Erases.cases_spine_inv`/`iota_redex_inv`), the reversal bridge, the
 -- `LBClosed` thread, the relevance guard `IotaRelevant` and the two Γ/`ia` coherence
 -- predicates.
+-- The δ record at the call site's universe instantiation (slice Γ-U4): the clause the
+-- restated δ case of the ι simulation consumes, its monomorphic degeneracy (which is why
+-- no existing discharge moved) and its universe-polymorphic implementation — the first
+-- consumer of `ErasesInstL.Erases.instL` outside that file's own guards. Also the
+-- coherence obligation `ErasureCtx.lparams` carries, `LparamsArity`, constructed and
+-- refuted.
+import LeanToLambdaBox.ErasesDeltaL
 import LeanToLambdaBox.ErasesCorrectIota
 -- The shipping eraser is correct on the data fragment (β+δ+saturated constructors)
 -- at MetaRocq's non-block `appliedFlags` (`shipping_visitExpr_correct_data`, A9), and

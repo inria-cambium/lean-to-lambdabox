@@ -107,6 +107,34 @@ structure ErasureCtx where
       `ErasureCtx` literal is unchanged and `Erases.proj`/`Supported.proj` are unusable at
       a `Γ` that registers no structure. (Projection round, slice P0.) -/
   projs : Name → Option (InductiveId × Nat) := fun _ => none
+  /-- For each source constant, its **declared universe parameters** — the
+      `ConstantInfo.levelParams` the kernel unfolds it at, and the list
+      `visitMutual` installs into the reader (`withReader (… lparams := ci.levelParams)`).
+
+      This is the `Ups` map the Γ-U analysis (`DeltaHyps`, §Γ-U, finding (b)) said a
+      universe-aware δ step has to be indexed by, and this column is its home. The
+      alternative homes were an `Esrc`-side pairing (`SEnv := Name → Option (List Name ×
+      Expr)`, which moves every `Esrc n = some body` site in the development) and a fresh
+      parameter of the evaluation relations (which moves every `SEvalDataι Γ ia E`
+      occurrence). `Γ` wins on two counts: it is already in scope at exactly the rules
+      that need the map — `SEvalDataι.delta` and the δ case of `erases_correct_dataι` —
+      and it is already the store for every other per-name kernel datum the *model* reads
+      but the erasure registry does not itself compute (`ctorArities`, `ctorFields`,
+      `casesDiscrPos`).
+
+      **Coherence.** Nothing here forces `Γ.lparams n` to be `n`'s real `levelParams`;
+      that is a fact about the walk, and it is stated where the walk is
+      (`DeltaHyps.LparamsAgree`, keyed on the same `getConstInfo` fetch `decl_run`'s
+      scope conjunct is keyed on). A `Γ` whose column lies makes the δ rule model a
+      different unfolding, exactly as a `Γ` whose `ctorArities` lies makes `ctor_val`
+      model a different saturation bound.
+
+      Defaulted to `fun _ => []` — *universe-monomorphic everywhere* — so every existing
+      `ErasureCtx` literal is byte-unchanged and, at that default,
+      `body.instantiateLevelParams (Γ.lparams n) us` is `body` **definitionally**
+      (`LeanToLambdaBox.instantiateLevelParams_nil`): the restated δ rule degenerates to
+      the level-blind one it replaces. (Slice Γ-U4.) -/
+  lparams : Name → List Name := fun _ => []
 
 /-- **The block-local context**: `Γ` with a fixvar map installed, and *nothing else*
 changed — the model of `visitMutual`'s
@@ -154,6 +182,13 @@ and `Erases.instFixvars`' `proj` arm is a `rfl` transport only because of this.
 @[simp] theorem ErasureCtx.withFixvars_projs (Γ : ErasureCtx) (fv : Name → Option FVarId) :
     (Γ.withFixvars fv).projs = Γ.projs := rfl
 
+/-- The universe-parameter column is `withFixvars`-invariant too. Landed `@[simp]` with
+the field, for the reason the `ctorArities`/`natPeano`/`inductives` trio records: the
+bridge's motives run at a block-local `Γ.withFixvars fv`, and the δ rule now reads
+`Γ.lparams` there. (Slice Γ-U4.) -/
+@[simp] theorem ErasureCtx.withFixvars_lparams (Γ : ErasureCtx) (fv : Name → Option FVarId) :
+    (Γ.withFixvars fv).lparams = Γ.lparams := rfl
+
 /-! ### The `Γ`-in-motives coherence equation
 
 The bridge induction's motives quantify their own `Γ` against a *fixed* ambient `Γ₀`, and
@@ -182,6 +217,28 @@ no-op — this is what makes the coherence equation `hΓ : Γ = Γ₀.withFixvar
 @[simp] theorem ErasureCtx.withFixvars_withFixvars (Γ : ErasureCtx)
     (fv fv' : Name → Option FVarId) :
     (Γ.withFixvars fv).withFixvars fv' = Γ.withFixvars fv' := rfl
+
+namespace LeanToLambdaBox
+
+/-- **Instantiating no parameters is the identity, definitionally.** `Lean.Expr`'s
+`instantiateLevelParams` short-circuits on `paramNames.isEmpty || lvls.isEmpty`, and the
+left disjunct reduces without looking at `lvls` — so this is `rfl`, at an arbitrary `us`.
+
+This one equation is what makes slice Γ-U4 cheap. The δ rule (`SEvalDataι.delta`) and the
+consistency premise (`SEnvConsistentL`) are restated at
+`body.instantiateLevelParams (Γ.lparams n) us`; the column's default is `fun _ => []`; so
+at every `ErasureCtx` the development actually builds, the restated forms *are* the old
+ones and no discharge had to move. (The mirror equation
+`e.instantiateLevelParams ps [] = e` is **not** `rfl` — `ps.isEmpty` blocks on a variable
+`ps` — which is why the degeneracy is keyed on the parameter list and not on the call
+site's levels.)
+
+It lives here, beside the column, rather than beside either consumer: `SourceEvalData` and
+`SubjectReductionFull` are siblings in the import graph and both need it. -/
+@[simp] theorem instantiateLevelParams_nil {e : Expr} {us : List Level} :
+    e.instantiateLevelParams [] us = e := rfl
+
+end LeanToLambdaBox
 
 /-- Convert a Lean `Name` to a `BinderName` exactly as `Erasure.fvar_to_name` does. -/
 def nameToBinder (n : Name) : BinderName :=

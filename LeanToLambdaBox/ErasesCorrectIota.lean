@@ -1,6 +1,7 @@
 import LeanToLambdaBox.SubjectReductionIota
 import LeanToLambdaBox.Closed
 import LeanToLambdaBox.IotaBridge
+import LeanToLambdaBox.ErasesDeltaL
 
 /-!
 # Erasure correctness for the ι (`casesOn`) fragment — the forward simulation
@@ -266,10 +267,13 @@ block is, and `defs[idx].body` is closed under `defs.length` binders). -/
 theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities}
     {Esrc : SEnv} {E : GlobalDeclarations}
-    (hcon : SEnvConsistent env Us Esrc)
+    (hcon : SEnvConsistentL env Us Γ.lparams Esrc)
     (hiota : IotaConsistent env Us Γ ia)
     (hproj : ProjConsistent env Us Γ)
     (hdelta : ErasesEnvDeltaData env Us Γ Esrc E)
+    (hdeltaL : ErasesEnvDeltaL env Us Γ Esrc E)
+    (hrecmono : ∀ {n : Name} {defs : List (@FixDef LBTerm)} {idx : Nat},
+      Γ.recBodies n = some (defs, idx) → Γ.lparams n = [])
     (hctorenv : ErasesEnvCtor Γ E)
     (hcasesenv : ErasesEnvCasesι Γ E)
     (hprojenv : ErasesEnvProjsι Γ E)
@@ -411,7 +415,12 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
       intro ve t htr her hnb hcl
       have hΓ : OnCtx Δ.toCtx (env.IsType Us.length) := hΔ.toCtx
       obtain ⟨bve, htrbody, hbdef⟩ := hcon hunf htr
-      obtain ⟨hnoctor, _, body', hlook, herbody, hnbbody⟩ := hdelta hunf
+      obtain ⟨hnoctor, _, -⟩ := hdelta (Δ := Δ) hunf
+      -- Slice Γ-U4: the recorded target body erases the *instantiated* source body, which
+      -- is what the restated δ rule recursed on. `ErasesEnvDeltaL` is that clause; at a
+      -- monomorphic column it is `ErasesEnvDeltaData` verbatim (`.toL`), and at a
+      -- polymorphic one it is `Erases.instL` (`.of_ownScope`).
+      obtain ⟨body', hlook, herbody, hnbbody⟩ := hdeltaL hunf htr
       rcases Erases.const_inv her with ⟨veb, htrb, herbox, rfl⟩
         | ⟨kn, hkn, rfl⟩ | ⟨iid, cidx, hctor, rfl⟩ | ⟨defs, fidx, hrecn, rfl⟩
         | ⟨x, hfx, rfl⟩
@@ -428,10 +437,17 @@ theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ 
       · rw [hnoctor] at hctor; exact absurd hctor (by simp)
       · -- `const_fix`: see `erases_correct_data`'s δ case — `RecEnvConsistent` turns
         -- the block back into the source body's erasure and the IH does the rest.
+        -- The *recursive* half of the fragment stays universe-monomorphic (`hrecmono`),
+        -- which is Γ-U3's named gap made a premise: `Erases.instL` refutes rather than
+        -- transports its two recursive arms, because `Erases.fix`'s `hbodies` is stated
+        -- `∀ Δf` while the instantiated bodies arrive only at contexts in the image of
+        -- `VLCtx.instL`. So there is no `.of_ownScope` for a recursive constant, and the
+        -- honest move is to say so here rather than to widen a record that cannot be built.
         obtain ⟨_, _, _, body₀, hunf₀, her₀⟩ := hrec.reg hrecn
         rw [hunf] at hunf₀
         obtain rfl : body₀ = body := by simpa using hunf₀.symm
-        exact ihbody htrbody her₀ hnb hcl
+        refine ihbody htrbody ?_ hnb hcl
+        rw [hrecmono hrecn]; simpa using her₀
       · -- `fixvar`: `hnfv` says `Γ` installs no fixvar map, so an in-block sibling
         -- reference cannot occur at a top-level evaluation.
         rw [hnfv] at hfx; exact absurd hfx (by simp)
