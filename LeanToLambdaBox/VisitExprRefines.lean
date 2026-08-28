@@ -2608,7 +2608,7 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       _ _ cctx ref _ hdi
     subst sa
     have hdiC := ((run_liftCoreM_ok _ _ cctx ref _).mp hdi).1
-    obtain ⟨hled, ci, mn, hci, hall, hstrip, hlp⟩ := (Hδ cctx ref).decl_run hkn hdiC
+    obtain ⟨hled, ci, hci, hknall, hnd, hnmem, hlp⟩ := (Hδ cctx ref).decl_run hkn hdiC
     have hdg : di.get! = ci := by rw [hci]; rfl
     rw [hdg] at hrun
     -- (2) getEnv, for the `@[inline]` attribute lookup.
@@ -2620,13 +2620,31 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
       NameGenerator.LE.trans hled ((Hδ cctx ref).env_run henv0)
     have hrc : RunConclδ env Us Γ₀ Esrc s s := RunConclδ.rfl' _
     clear hdi henv0
-    -- (3) the block is a single declaration (`decl_run`), so the prefix is entered. The
-    -- run's own test is `ci.all.length == 1`, which is why `decl_run` may name the
-    -- declaration `[mn]` rather than `[n]` (slice Γ-W2): the prefix does not care which
-    -- name it is, and the recursive exit's registration is under `remove_unsafe_rec mn`,
-    -- which `hstrip` identifies with the `n` the caller asked for.
+    -- (3) the run's own test, `ci.all.length == 1`, decides whether the axiom/inline
+    -- prefix is entered at all. Both arms are walked since slice Γ-W5: `decl_run` no
+    -- longer pins `ci.all` at one declaration, it pins the *block* against the fragment
+    -- (`hknall`/`hnd`/`hnmem`), which is what the recursive exit consumes either way.
     split at hrun
-    case isFalse hns => exact absurd (by simp [hall]) hns
+    case isFalse hns =>
+      -- (3b) **A GENUINE MUTUAL BLOCK** (slice Γ-W5). At `ci.all.length ≠ 1` the shipping
+      -- eraser skips the whole `@[inline]`/`value?`/`isExtern` prefix — `single_decl` is
+      -- the guard on all of it — and `nonrecursive`, being `single_decl && …`, is `false`
+      -- too. So the run goes straight to the block exit, and the path here is *shorter*
+      -- than the single-declaration one below: no inline prefix, no `getEnv`, no `logInfo`
+      -- world steps, no axiom exits to discharge. The walk is the same
+      -- `rec_exit_refines_erases` call as (6c), at the same three side conditions —
+      -- which is the whole content of the slice: the walk was arity-general already, and
+      -- what stood in the way was `decl_run`'s `ci.all = [m]`.
+      split at hrun
+      case isTrue hnr => exact absurd (Bool.and_eq_true .. |>.mp hnr).1 hns
+      case isFalse =>
+        have hinvr := (hinv.mono_state hrc.rc).mono hle
+        obtain ⟨hrcb, hleb, hdom⟩ :=
+          rec_exit_refines_erases H (Hδ cctx ref) (Hβ cctx ref) henv
+            (fun e s' ctx' w' t s'' w'' hr => ih1 e s' ctx' cctx ref w' t s'' w'' hr)
+            _hap1 hΓ hknall hnd hnmem hinvr
+            (Hreg cctx ref hknall hnd hinvr) hrun
+        exact ⟨hrc.trans hrcb, NameGenerator.LE.trans hle hleb, hdom⟩
     case isTrue =>
       -- (4) the `@[inline]` prefix: `inlinings` only, and one `logInfo` world step.
       obtain ⟨s₀, w₀, u₀, hpre, hrun⟩ := run_inline_prefix_decomp' hrun
@@ -2692,9 +2710,10 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                -- `BridgeInv.cfg` is what closes that, and `BridgeInv.consts`/`knames`
                -- close the registry half.
                --
-               -- The block is `ci.all`, which `decl_run` pins at `[mn]` and `hstrip`
-               -- identifies with the caller's `n` after stripping — so the fragment,
-               -- `Nodup` and membership side conditions are all read off `hall`/`hstrip`.
+               -- The block is `ci.all`, and the three side conditions the walk asks for
+               -- are `decl_run`'s own three conjuncts since slice Γ-W5 — no longer
+               -- derived from `ci.all = [mn]`, which is why the same four lines serve
+               -- this arm and the multi-declaration one above.
                --
                -- WHAT REMAINS, precisely, now that the branch is walked:
                --   * `hnorec` at the *capstones* — **paid at slice Γ-W4**, and so no
@@ -2702,29 +2721,17 @@ theorem visitExpr_refines_erases_core {env : VEnv} {Us : List Name}
                --     `ColdStartDelta.recEnvConsistent_of_deltaMem_walked`, this exit's
                --     `.fix` registration travels in the cold-start δ record, and the
                --     restriction is deleted (`ColdStart`'s `hrec`/`hcov` rows);
-               --   * the **single-declaration** scope, which is `DeltaHyps.decl_run`'s
-               --     (`ci.all = [m]`), not this branch's. Per Γ-W0's measurement that is
-               --     exactly the self-recursive arithmetic the §H benchmarks drag in;
-               --   * genuine **mutual blocks**, an independent slice: relax `decl_run` and
-               --     handle both arms of the `split` above. The walk and
-               --     `RecBlockAgreement` are already stated at an arbitrary `names`, and
-               --     the shipping eraser reaches this exit for multi-declaration blocks by
-               --     a *shorter* path (it skips the axiom/inline prefix), so nothing here
-               --     narrows to one sibling.
-               have hkn' : ∀ m ∈ ci.all, known (remove_unsafe_rec m) := by
-                 rw [hall]
-                 intro m hm
-                 obtain rfl : m = mn := by simpa using hm
-                 rw [hstrip]; exact hkn
-               have hnd : (ci.all.map remove_unsafe_rec).Nodup := by rw [hall]; simp
-               have hnmem : n ∈ ci.all.map remove_unsafe_rec := by
-                 rw [hall]; simp [hstrip]
+               --   * the **single-declaration** scope — **paid at slice Γ-W5**. It was
+               --     `DeltaHyps.decl_run`'s (`ci.all = [m]`), never this branch's, and the
+               --     relaxation is the block-membership closure condition in its place;
+               --   * nothing about arity. The walk and `RecBlockAgreement` were stated at
+               --     an arbitrary `names` from the start.
                have hinvr := (hinv.mono_state hrc.rc).mono hle
                obtain ⟨hrcb, hleb, hdom⟩ :=
                  rec_exit_refines_erases H (Hδ cctx ref) (Hβ cctx ref) henv
                    (fun e s' ctx' w' t s'' w'' hr => ih1 e s' ctx' cctx ref w' t s'' w'' hr)
-                   _hap1 hΓ hkn' hnd hnmem hinvr
-                   (Hreg cctx ref hkn' hnd hinvr) hrun
+                   _hap1 hΓ hknall hnd hnmem hinvr
+                   (Hreg cctx ref hknall hnd hinvr) hrun
                exact ⟨hrc.trans hrcb, NameGenerator.LE.trans hle hleb, hdom⟩
              case isTrue =>
                -- (6b) the non-recursive exit — the content arm.

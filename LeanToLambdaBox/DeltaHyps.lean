@@ -271,8 +271,10 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   `known = ⊥`. -/
   nofixvars : ∀ {n : Name}, known n → Γ.fixvars = fun _ => none
   /-- **The declaration fetch agrees with the fragment.** For a `known` name: the fetch is
-  generator-monotone, the block is a *single* declaration whose name strips to the one
-  asked for, and it is universe-monomorphic at the ambient `Us` (scope restriction 1).
+  generator-monotone, the *block* it answers with is one the fragment contains — every
+  member's stripped name is `known`, the stripped names are distinct, and the name asked
+  for is among them — and it is universe-monomorphic at the ambient `Us` (scope
+  restriction 1).
 
   It used to carry a fourth conjunct, `(Esrc n).isSome`. Slice D4a made it dead: naming
   *some* body is never enough at the point of use, which needs *this* run's body, and
@@ -288,7 +290,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   of the bridge, `VisitExprRefines.RecBlockAgreement`, and it is not a fragment
   restriction: a recursive fragment constant is now *in scope*.
 
-  **The single declaration is `[m]`, not `[n]`** (slice Γ-W2), and the difference is the
+  **The names are the block's, not the caller's** (slice Γ-W2), and the difference is the
   whole of what the fragment can contain. `Compiler.LCNF.getDeclInfo?` tries
   `n._unsafe_rec` *before* `n` — it prefers the original recursive definition over the
   elaborated one, which is `visitMutual`'s own comment ("possibly these are
@@ -297,19 +299,46 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   `Nat.ble`/`beq`, `List.length`/`append`/`map`/`foldl` all answer with
   `ci.all = [n._unsafe_rec]`. At `ci.all = [n]` the field was therefore *false* at exactly
   the names the fragment has to contain, and no amount of downstream work could repair
-  that. The relaxed conjunct is what the run itself tests and what it registers under: the
-  run's own test is `ci.all.length == 1`, so the single-declaration prefix is entered
-  either way, and the recursive exit registers under `ci.all.map remove_unsafe_rec`, which
-  the equation `remove_unsafe_rec m = n` identifies with the name the caller asked for.
-  See `rec_exit_registers_stripped_name` and its positive companion below.
+  that. What the field states instead is what the run itself registers under —
+  `ci.all.map remove_unsafe_rec` — and `hnmem` identifies the caller's `n` with a member
+  of that list. See `rec_exit_registers_stripped_name` and its positive companion below.
+
+  **And the block is no longer a *single* declaration** (slice Γ-W5). Until then the
+  conjunct read `ci.all = [m] ∧ remove_unsafe_rec m = n`, which is scope restriction 5':
+  self-recursion only, no genuine mutual block anywhere in the dependency cone. The three
+  conjuncts that replace it are exactly the three side conditions the recursive walk
+  consumes (`VisitExprRefines.rec_exit_refines_erases`' `hkn`/`hnd`/`hnmem`), and they are
+  *implied* by the old pair together with the field's own `known n` premise — so this is a
+  relaxation, not a trade: `gDeclRunMutual_of_single` checks the implication, and
+  `gDeclRunMutual` checks that the new form is inhabited by a genuine two-member block,
+  which the old one refutes (`gDeclRunSingle_mutual_refuted`).
+
+  What the three conjuncts *mean* is the block-scope closure condition the recursion
+  feature always had, now stated where it is used rather than assumed away:
+
+  * `∀ m ∈ ci.all, known (remove_unsafe_rec m)` — **the fragment is closed under block
+    membership.** `getDeclInfo?` answers for a *block*, and `visitMutual` erases and
+    registers all of it; a fragment containing one sibling and not the others would make
+    the walk register a constant outside its own scope. This is the honest reading of
+    "what does the fetch return for a member of a mutual block": `ci.all` lists *every*
+    member, so the fragment has to as well;
+  * `(ci.all.map remove_unsafe_rec).Nodup` — the block's own names are distinct after
+    stripping. Nothing in `ConstantInfo` says so (`all` is a plain `List Name`), and the
+    walk needs it twice: `mkDef`'s fold looks each sibling up in the block map, and the
+    registration `forIn` files one entry per stripped name;
+  * `n ∈ ci.all.map remove_unsafe_rec` — the caller's name is one the exit registers. At a
+    single declaration this is `remove_unsafe_rec m = n`, verbatim; at a mutual block it is
+    the same fact about whichever sibling was asked for.
 
   Stated at the `CoreM` layer, which is the layer `ColdStartRun.run_visitMutual_decomp`
   hands the fetch back at. -/
   decl_run : ∀ {n : Name} {w w₁ : Void IO.RealWorld} {r : Option ConstantInfo},
     known n →
     (Compiler.LCNF.getDeclInfo? n : CoreM (Option ConstantInfo)) cctx ref w = .ok r w₁ →
-    gw w ≤ gw w₁ ∧ ∃ (ci : ConstantInfo) (m : Name),
-      r = some ci ∧ ci.all = [m] ∧ remove_unsafe_rec m = n ∧ ci.levelParams = Us
+    gw w ≤ gw w₁ ∧ ∃ ci : ConstantInfo,
+      r = some ci ∧ (∀ m ∈ ci.all, known (remove_unsafe_rec m)) ∧
+      (ci.all.map remove_unsafe_rec).Nodup ∧ n ∈ ci.all.map remove_unsafe_rec ∧
+      ci.levelParams = Us
   /-- **The prepared dependency body is in the fragment.** Quantified over the
   `prepare_erasure` run that produces it, exactly as `ColdStartSubject.supported` is for the
   top-level subject: this is the *same* premise, generalised from "the subject" to "the
