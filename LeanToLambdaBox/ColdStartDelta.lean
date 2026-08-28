@@ -238,9 +238,11 @@ the shipping eraser, where it is not refuted — the motives carry `f ⊑ Erasur
 and `Erasure.run_rec_exit_siblings_le` transports the sibling loop's run — and at Γ-W3.6
 the remaining reader/state quantification was gated rather than removed: `BridgeInv.cfg`
 pins the config (Γ-W3.6a) and `RecBlockAgreement` states the premise over exactly the
-configurations the induction quantifies (Γ-W3.6b). Step 6's `case isFalse` is now the
-walk, and guard (iv'') is that composition with nothing left hypothetical but the run and
-the bundles.
+configurations the induction quantifies (Γ-W3.6b). Step 6's `nonrecursive` `case isFalse` is
+now the walk, and guard (iv'') is that composition with nothing left hypothetical but the
+run and the bundles. (Since Γ-W5 step 6 has a *second* walked `case isFalse`, the
+`single_decl` one — see `ColdStart`'s `hnorec` narrative — so the arm is named here rather
+than pointed at.)
 
 What *is* discharged from the run, and was before, is the registration half: the block
 really is in `gdecls`, under the canonical kername, at the sibling's own index. -/

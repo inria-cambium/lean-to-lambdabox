@@ -49,11 +49,21 @@ What this slice deliberately does **not** do: relax any bundle field (that is Γ
 the analysis records why it must not ship alone), prove `Erases.instL` (Γ-U3, the wall),
 or touch the δ rule's level blindness (Γ-U4, the content). It is a lemma kit, stated in
 the general `Us <+: Us'` form its consumer instantiates at `ci.levelParams <+: Us`.
+[**All three landed the same day, 2026-08-28.** `Erases.instL` exists and is strict
+(`ErasesInstL.lean`) — the wall was normalisation, not substitution — and the δ rule
+instantiates (`ErasesDeltaL.lean`, `SubjectReductionFull.SEnvConsistentL`). The paragraph
+is kept because it is what this file was written against.]
 
-**Consumed at Γ-U2** (2026-08-28), and not where the plan expected. The four scope pins
-relaxed to `<+: Us` with *no* proof repair at all — the reader's `lparams` reaches the
-bridge's proof only through the oracle's guard — so nothing in `VisitExprRefines` calls
-these lemmas. What they are actually for is **satisfiability**: `DeltaHyps.prepared` and
+**Consumed at Γ-U2** (2026-08-28), and not where the plan expected. The four scope pins —
+`BridgeInv.lparams`, `DeltaHyps.decl_run`, `BlockHyps.block_lparams` and
+`BridgeHyps.orc_run`'s guard — relaxed to `<+: Us` with no proof repair *in the bridge*:
+the reader's `lparams` reaches its proof only through the oracle's guard, so nothing in
+`VisitExprRefines` calls these lemmas. The oracle is where the repair did land, and it is
+Γ-U2's one cost rather than a use of this kit — `ResidualHyps.orc_refl` gained a
+`ctx.lparams = Us` conjunct and `toBridgeHyps` destructures it (`OracleDischarge.lean`),
+because `orc_run` is contravariant in `TrExprS` and covariant in `Erasable` and these
+lemmas transport upward only. What they are actually for is **satisfiability**:
+`DeltaHyps.prepared` and
 `esrc_shape` are stated at the ambient `Us`, and it is `TrExprS.prefix_weaken` that lets a
 producer discharge them from the dependency's own scope, which is the correction to the
 Γ-U analysis' finding (b) (`DeltaHyps.gPreparedAtPrefix`). The `Erases` half is the same
@@ -205,8 +215,11 @@ theorem TrExprS.prefix_weaken {env : VEnv} {Us Us' : List Name} (hp : Us <+: Us'
   | proj _ h2 ih => exact .proj ih (TrProj.uvars_mono hle h2)
 
 /-- The defeq-loose companion, free from the strict one: `TrExpr`'s residual
-`IsDefEqU` travels by universe-count monotonicity. Stated for the Γ-U2 consumer, which
-will meet `TrExpr` wherever an upstream `instL` has already been applied. -/
+`IsDefEqU` travels by universe-count monotonicity. Stated for the case where an upstream
+`instL` has already been applied and only a `TrExpr` survives; **Γ-U2 turned out not to
+need it** — it relaxed the four pins with no proof repair — and Γ-U3 removed the residue it
+was written for on the `max`/`imax`-free fragment, so at HEAD it has no consumer. Kept
+because it is free from the strict lemma and is the statement any *loose* transport wants. -/
 theorem TrExpr.prefix_weaken {env : VEnv} {Us Us' : List Name} (hp : Us <+: Us')
     {Δ : VLCtx} {e : Expr} {e' : VExpr} : TrExpr env Us Δ e e' → TrExpr env Us' Δ e e'
   | ⟨e₂, h1, h2⟩ =>
@@ -246,10 +259,14 @@ strictly along `Us <+: Us'`, so the derivation moves on the nose: same source, s
 target, same `VExpr` witnesses. `Γ`, `Δ` and the target are untouched, and there are no
 side conditions.
 
-This is *not* `Erases.instL`, which the Γ-U analysis identifies as the wall (Γ-U3).
-Level substitution would have to hand `box`/`lam`/`letE` a `TrExpr`, and those arms
-record strict `TrExprS`. A prefix extension substitutes nothing, so the strictness that
-kills `instL` costs nothing here. -/
+This is *not* `Erases.instL`, which the Γ-U analysis identified as the wall (Γ-U3):
+level substitution was expected to hand `box`/`lam`/`letE` a `TrExpr` where those arms
+record strict `TrExprS`. A prefix extension substitutes nothing, so that strictness costs
+nothing here. [**Corrected at slice Γ-U3, 2026-08-28**, as the same paragraph in
+`DeltaHyps` is: substitution is loose only because `Level.substParams'` **normalises**, so
+on the `max`/`imax`-free fragment `TrExprS.instL_strict` lands in `TrExprS` after all and
+`Erases.instL` exists. The two lemmas are still different — this one has no fragment
+condition and no recursive-arm restriction — but "the wall" is now history.] -/
 theorem Erases.prefix_weaken {env : VEnv} {Us Us' : List Name} (hp : Us <+: Us')
     {Γ : ErasureCtx} {Δ : VLCtx} {e : Expr} {t : LBTerm}
     (H : Erases env Us Γ Δ e t) : Erases env Us' Γ Δ e t := by

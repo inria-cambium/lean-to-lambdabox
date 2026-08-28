@@ -10,8 +10,10 @@ reported the same 648 entries across it that it had reported immediately before 
 at slice Γ-W3b. [Corrected in the coherence pass, 2026-08-27: that sentence used to
 read "the same 648 entries it did at `fee3ada`", which is false — at `fee3ada` this
 file reported **596** (commit `5069f9d`); 648 is the Γ-W3b/`7a5e96d` figure, and the
-596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown thirteen
-times since 648:
+596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown sixteen
+times since 648 [recount, coherence pass 2026-08-28: the sentence said "thirteen", which
+was right at Γ-U1 and went stale as Γ-U2, Γ-U3 and Γ-U4 appended entries to the list
+below without bumping the word]:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
@@ -81,8 +83,10 @@ generation. The round adds no axiom, no `sorry` and no `native_decide` of ours.
 
 **The Γ-XL wave, closed.** Γ-W0 → Γ-W4 took the recursion wall down from both sides: the
 bridge walks `visitMutual`'s recursive exit (Γ-W3.6b) and the capstones no longer exclude
-recursive programs (Γ-W4). Over the wave's measured tail — Γ-W3.5 through Γ-W4, 673 → 746
-entries — the crown four moved **once, and downward**, when the `trproj` re-pin took
+recursive programs (Γ-W4). Over the wave's measured tail — Γ-W3.5 through Γ-W4, 673 → 750
+entries [the figure read "746" from the day it was written, `9c185e5`; that commit's own
+message and the list above both say **750**, so it was a typo, corrected in the coherence
+pass 2026-08-28] — the crown four moved **once, and downward**, when the `trproj` re-pin took
 `sorryAx` out of the refinement half. No slice of the wave added an axiom, a `sorry` or a
 `native_decide`, and none changed a byte of the shipping eraser.)
 
@@ -2539,7 +2543,9 @@ open LeanToLambdaBox
 -- this is a repair, not a weakening. Nothing else moves: the run's own test is
 -- `ci.all.length == 1`, so the single-declaration prefix is entered either way and step
 -- 6's `isFalse` refutation is the same `simp [hall]`; only the `obtain` gains two
--- components.
+-- components. [As of slice Γ-W5 the last sentence is history: `hall` is gone, the
+-- `single_decl` `isFalse` is a walk rather than a refutation, and the entry at Γ-W5 below
+-- is the current reading.]
 --
 -- A δ-D8e PREDICTION, FALSIFIED. `rec_exit_registers_stripped_name` was read as buying a
 -- further FRAGMENT restriction, `remove_unsafe_rec n = n` for every `known n`, to be paid

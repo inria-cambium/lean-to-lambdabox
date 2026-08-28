@@ -62,7 +62,9 @@ import LeanToLambdaBox.ErasesUniform
 -- extension* `Us <+: Us'` of the level scope, with STRICT conclusions — the half of the
 -- Γ-U plan that `TrExprS.instL` (which lands in `TrExpr`) cannot supply. Carries the
 -- universe-count monotonicity of lean4lean's typing judgement, which is what discharges
--- the `Erasable` witness of `Erases.box`. A lemma kit for Γ-U2; nothing consumes it yet.
+-- the `Erasable` witness of `Erases.box`. Consumed at Γ-U2, for *satisfiability* rather
+-- than proof repair: `DeltaHyps.gPreparedAtPrefix`/`gErasesDepPrefix` discharge the
+-- ambient-`Us` bundle fields from a dependency's own scope.
 import LeanToLambdaBox.ErasesLevels
 -- Level *instantiation* (slice Γ-U3): `TrExprS`/`Erases` transported along
 -- `e.instantiateLevelParams ps ls`, STRICTLY, on the `max`/`imax`-free level fragment —

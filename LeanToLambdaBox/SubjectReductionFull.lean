@@ -159,7 +159,8 @@ theorem senvConsistent_iff_l {env : VEnv} {Us : List Name} {Esrc : SEnv} :
     SEnvConsistent env Us Esrc ↔ SEnvConsistentL env Us (fun _ => []) Esrc := Iff.rfl
 
 /-- **The monomorphic degeneracy, in the direction the simulations consume.** A `Γ` whose
-universe column is `⊥` — every `ErasureCtx` this development builds, the field's default —
+universe column is `⊥` — the field's default, hence every `ErasureCtx` on a capstone path,
+though no longer every one the development builds (`ErasesDeltaL.ΓPolyδ`) —
 turns the old premise into the corrected one at that column. One line, which is the
 requirement the Γ-U4 plan attached to the restatement: every current capstone stays green
 without a new obligation. -/

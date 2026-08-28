@@ -129,8 +129,9 @@ def ErasesEnvDeltaL (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
 
 /-- **The monomorphic degeneracy** — the line every current capstone takes.
 
-At a `Γ` whose universe column is `⊥` (every `ErasureCtx` in this development: the field's
-default) the instantiation is the identity definitionally, so the record the walk already
+At a `Γ` whose universe column is `⊥` — the field's default, hence every `ErasureCtx` on a
+capstone path; `ΓPolyδ` below is the one this slice builds that is *not* — the
+instantiation is the identity definitionally, so the record the walk already
 produces *is* the record the restated δ case wants. This is the condition the Γ-U4 plan
 attached to the restatement — that it must not cost a single existing discharge — and this
 is where it is met. -/

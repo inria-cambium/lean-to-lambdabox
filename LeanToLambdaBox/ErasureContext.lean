@@ -122,12 +122,15 @@ structure ErasureCtx where
       but the erasure registry does not itself compute (`ctorArities`, `ctorFields`,
       `casesDiscrPos`).
 
-      **Coherence.** Nothing here forces `Γ.lparams n` to be `n`'s real `levelParams`;
-      that is a fact about the walk, and it is stated where the walk is
-      (`DeltaHyps.LparamsAgree`, keyed on the same `getConstInfo` fetch `decl_run`'s
-      scope conjunct is keyed on). A `Γ` whose column lies makes the δ rule model a
-      different unfolding, exactly as a `Γ` whose `ctorArities` lies makes `ctor_val`
-      model a different saturation bound.
+      **Coherence.** Nothing here forces `Γ.lparams n` to be `n`'s real `levelParams`; a
+      `Γ` whose column lies makes the δ rule model a different unfolding, exactly as a `Γ`
+      whose `ctorArities` lies makes `ctor_val` model a different saturation bound. What
+      landed of that obligation is the *arity* half, `ErasesDeltaL.LparamsArity` — "the
+      column declares the constant at the arity the environment does", phrased through
+      `TrExprS.const` so its consumers need no `VEnv`-side plumbing, and constructed **and
+      refuted** at fixtures, since it is not free at this default. The remaining half —
+      the column agreeing with the *fetch* `decl_run`'s scope conjunct is keyed on — is
+      not stated anywhere yet, and is part of what a cold start at `Us ≠ []` would owe.
 
       Defaulted to `fun _ => []` — *universe-monomorphic everywhere* — so every existing
       `ErasureCtx` literal is byte-unchanged and, at that default,
@@ -227,8 +230,10 @@ left disjunct reduces without looking at `lvls` — so this is `rfl`, at an arbi
 This one equation is what makes slice Γ-U4 cheap. The δ rule (`SEvalDataι.delta`) and the
 consistency premise (`SEnvConsistentL`) are restated at
 `body.instantiateLevelParams (Γ.lparams n) us`; the column's default is `fun _ => []`; so
-at every `ErasureCtx` the development actually builds, the restated forms *are* the old
-ones and no discharge had to move. (The mirror equation
+at every `ErasureCtx` on a capstone path the restated forms *are* the old ones and no
+discharge had to move. (The guards' `ErasesDeltaL.ΓPolyδ` is the deliberate exception —
+the first context here whose column is not `⊥` — and it exists to show the restatement has
+content at all.) (The mirror equation
 `e.instantiateLevelParams ps [] = e` is **not** `rfl` — `ps.isEmpty` blocks on a variable
 `ps` — which is why the degeneracy is keyed on the parameter list and not on the call
 site's levels.)

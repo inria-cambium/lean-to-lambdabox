@@ -101,7 +101,8 @@ substitution of this kind is invisible downstream: `peregrine` sees a well-forme
 ## Gap to the benchmarks, per program
 
 Resolved for all five by the landed work and by this directory — except the last row, which
-was not on this list at all until Γ-U named it:
+was not on this list at all until Γ-U named it, and which the Γ-U campaign has since taken
+most of the way down:
 
 | Was a disqualifier | Status |
 |---|---|
@@ -112,7 +113,7 @@ was not on this list at all until Γ-U named it:
 | raw `Nat` literals | resolved (L1–L4: `Erases.lit` unfolds `.lit (.natVal n)` to the peano tower) |
 | machine `Nat` | pre-dodged — the originals already pass `nat := .peano` |
 | first-order result | holds — all five return `Nat` |
-| universe-polymorphic dependencies | **not resolved** — `hUs : Us = []`, and it is *doubly* pinned. The one scope restriction that still excludes all five outright; costed at Γ-U, plan of record Γ-U1–Γ-U4. See the reading below |
+| universe-polymorphic dependencies | **partly resolved** — Γ-U1–Γ-U4 (2026-08-28) unpinned both places: the four bundle pins read `ci.levelParams <+: Us` (Γ-U2) and the δ step is universe-aware (Γ-U4, `SEnvConsistentL`). `hUs : Us = []` survives at the capstones but now bounds the *subject* only; the dependency side is the separate `hlp : Γ.lparams = ⊥`. What is still out is a capstone at `Us ≠ []` with a polymorphic dependency. See the reading below |
 
 What remains, measured from the erased output rather than asserted:
 
@@ -152,7 +153,7 @@ Reading the table:
   `hcov` and the block-local bundle `Hβ` instead. The restriction that remains is *inside*
   a block rather than about the program: a walked block's bodies call only its own
   siblings, registered constructors and registered `casesOn`s.
-- **Mutual blocks are in scope since Γ-W5, and it moves none of these five.** Until then
+- **Mutual blocks are in the *fragment* since Γ-W5, and it moves none of these five.** Until then
   `DeltaHyps.decl_run` pinned `ci.all = [m]` — self-recursion only, anywhere in a
   dependency cone — a restriction that never appeared in this table because it lived
   inside a five-conjunct field rather than in a named ledger row. Measured on the erased
@@ -162,24 +163,35 @@ Reading the table:
   restriction removed rather than costed, and zero programs moved either way. It is worth
   having anyway, and for a reason this table cannot show: the restriction was on the whole
   *dependency cone*, so a single mutual pair anywhere below a program would have excluded
-  it outright, and nothing was checking.
-- **Universes are what blocks all five now — and it is the `tProj` column read again.**
-  Every class method in that column is universe-polymorphic, measured at this toolchain:
-  `OfNat.ofNat.{u}`, `Add.add.{u}`, `Max.max.{u}`, `BEq.beq.{u}`, `HAdd.hAdd.{u,v,w}`,
-  `HAppend.hAppend.{u,v,w}`, and beside them `List.filter.{u}`, `List.append.{u_1}`,
-  `Prod.mk.{u,v}`; of the constants these programs lean on, only `Nat.add` and
-  `instOfNatNat` come back with `levelParams = []`. The capstones take `hUs : Us = []`
-  and `DeltaHyps.decl_run` demands `ci.levelParams = Us` of every *dependency*, so a
-  polymorphic callee makes the bundle uninhabited — `Erases.proj` admits
-  `OfNat.ofNat`'s **body** while `decl_run` keeps its **declaration** out. Γ-U costed the
-  relaxation and found the restriction pinned in two independent places: `SEnvConsistent`
-  quantifies the call site's levels and its conclusion never mentions them, so at a
-  polymorphic constant it is a strictly stronger, *false* demand — it collapses the
-  constant's instantiations (`SEnvConsistent.levels_collapse`) — and the model's δ step is
-  universe-blind (`SEvalDataι.delta_level_blind`). Relaxing only the bundle would move the
-  vacuity into an unnamed capstone premise rather than remove it. Plan of record
-  Γ-U1–Γ-U4 (`LeanToLambdaBox/DeltaHyps.lean`), of which Γ-U3 (`Erases.instL`) is the risk
-  and Γ-U4 the content.
+  it outright, and nothing was checking. What Γ-W5 did **not** buy is a capstone at a mutual
+  `Γ`: `SEnvConsistent.siblings_collapse` shows the consistency premise forces a defeq
+  between a block's two members, because a sibling's body η-contracts to the *other*
+  constant — `levels_collapse`'s pattern a second time, in the same premise, found from the
+  other direction.
+- **Universes are down to their last mile, and the obstruction is no longer the pins.**
+  It is still the `tProj` column read again: every class method in that column is
+  universe-polymorphic, measured at this toolchain — `OfNat.ofNat.{u}`, `Add.add.{u}`,
+  `Max.max.{u}`, `BEq.beq.{u}`, `HAdd.hAdd.{u,v,w}`, `HAppend.hAppend.{u,v,w}`, and beside
+  them `List.filter.{u}`, `List.append.{u_1}`, `Prod.mk.{u,v}`; of the constants these
+  programs lean on, only `Nat.add` and `instOfNatNat` come back with `levelParams = []`.
+  Γ-U found the restriction pinned in two independent places — `SEnvConsistent` quantifies
+  the call site's levels and its conclusion never mentions them, so at a polymorphic
+  constant it collapses that constant's instantiations (`SEnvConsistent.levels_collapse`),
+  and the model's δ step discarded the levels it was handed
+  (`SEvalDataι.delta_level_blind`). **Γ-U1–Γ-U4 took both down** (2026-08-28): a strict
+  prefix weakening (`Erases.prefix_weaken`), the four bundle pins relaxed `= Us` → `<+: Us`,
+  a strict level instantiation (`Erases.instL`, on the `max`/`imax`-free non-recursive
+  fragment) and a δ rule at `body.instantiateLevelParams (Γ.lparams n) us` under
+  `SEnvConsistentL`. That buys closed subjects with monomorphic dependencies, and
+  polymorphic subjects at prefix scope. It does **not** buy a capstone at `Us ≠ []` with a
+  polymorphic dependency, and the reason is a *producer*, not a lemma: the walk builds its
+  δ record at the ambient scope rather than at each dependency's own, which is
+  `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope`'s missing input. Three scope restrictions
+  remain, all named: `NoMaxLevels` (measured, not assumed — 48 of the 52 constants with
+  values in two of these cones plus the dispatch heads are `max`-free, and none of the four
+  exceptions occurs in any committed `.ast`), `Γ.recBodies = ⊥` for the instantiation
+  transport plus the `hrecmono` premise it forces, and `hUs : Us = []` at the capstones —
+  which now bounds the subject only, the dependency side having moved to `hlp`.
 - **Nothing exotic is in the way.** No program touches `String`, `Int`, `Array`, `Float`,
   `UInt*`, well-founded recursion, `brecOn` residue or `sorry`. The *data* inductives in the
   erased environments are `Nat`, `List`, `Prod`, `Option`, `Bool`, `Decidable`, `PUnit`,
@@ -191,19 +203,21 @@ Reading the table:
   seen from the environment side: the classes are registered, and every class method erases
   to a projection out of one.
 
-Priority order, re-read after the Γ-XL wave, the projection round and the Γ-U analysis
-(2026-08-27). The two items that headed the 2026-08-26 list are **done**: the
-class-projection route landed as P0–P9, and the `Γ`-inside-the-motives generalisation as
-Γ-W0–Γ-W4. What is left, in order:
-(1) **the universe restriction** — with recursion and projections both inside, `hUs : Us =
-[]` is the one *scope* restriction that still excludes all five outright, and Γ-U measured
-rather than guessed what lifting it costs: two pinned places, four slices, `Erases.instL`
-the risk;
+Priority order, re-read after the Γ-XL wave, the projection round, the mutual slice and the
+Γ-U campaign (2026-08-28). Three items that headed earlier lists are **done**: the
+class-projection route landed as P0–P9, the `Γ`-inside-the-motives generalisation as
+Γ-W0–Γ-W4, mutual source blocks as Γ-W5, and the universe campaign's four slices as
+Γ-U1–Γ-U4. What is left, in order:
+(1) **the universe restriction's last mile** — the pins and the model pair are down, and
+what remains is a *producer*: the walk's δ record is built at the ambient scope rather than
+at each dependency's own, which is `ErasesEnvDeltaL.of_ownScope`'s missing input, and
+behind it the three named scope rows (`NoMaxLevels`, `Γ.recBodies = ⊥` + `hrecmono`,
+`hUs : Us = []` on the subject);
 (2) `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, the deferred proof the projection
-layer rests on (`../lean4lean/trproj-commission.md`), with `ProjCtorAgree` beside it — the
+layer rests on (`../lean4lean/upstream-round2.md`), with `ProjCtorAgree` beside it — the
 *trust* item, where (1) is the scope one. Note it is a **statement** correction before it
 is a proof: as written the lemma's two `ctorName`s are unrelated, so the standing
-`PROJ-TODO` should not be attempted against it (commission §4.5);
+`PROJ-TODO` should not be attempted against it (round 2, item 1);
 (3) the `visitCases` sparse-`casesOn` bug, which blocks `Quicksort` outright and is cheap
 only for the panic, not for the wrong output; (4) the per-program residue in the table —
 Fannkuch's `Eq.rec` axiom, and the fragment-scope bundles each program's dependency cone

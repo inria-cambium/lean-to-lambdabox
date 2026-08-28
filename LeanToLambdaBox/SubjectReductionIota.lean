@@ -245,8 +245,9 @@ general theorem above takes the universe-aware `SEnvConsistentL`; this one takes
 monomorphic `SEnvConsistent`, because `iotaConsistent_of_shape` δ-unfolds the `casesOn`
 head and then reasons about the *uninstantiated* value (`IotaShape.shape`'s `hunfold` is
 stated there). So the ι discharge route is available exactly on a universe-monomorphic
-`Γ` — which every `ErasureCtx` in this development is, the column's default, so `hlp` is
-`rfl` at every call site. Recorded here rather than buried: a `casesOn` is
+`Γ` — which every `ErasureCtx` on a capstone path is, the column's default, so `hlp` is
+`rfl` at every call site (`ErasesDeltaL.ΓPolyδ` is the one that is not, and it is a guard
+fixture rather than a capstone). Recorded here rather than buried: a `casesOn` is
 universe-polymorphic in the real kernel, and lifting this premise means restating
 `IotaShape` at the instantiated recursor value. -/
 theorem SEvalDataι_defeq_of_shape {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}

@@ -195,7 +195,8 @@ inductive SEvalDataι (Γ : ErasureCtx) (ia : IotaArities) (E : SEnv) : Expr →
       reduction reads the consistency premise directly (`SEvalDataι_defeq`, no forgetful
       map to `SEvalβζδ`), and it is the only one with a `Γ` in scope to read the map from.
 
-      At `Γ.lparams n = []` — every `ErasureCtx` in the development, the field's default —
+      At `Γ.lparams n = []` — every `ErasureCtx` on a capstone path, the field's default;
+      `ErasesDeltaL.ΓPolyδ` is the one that declares a constant at `{u}` —
       the instantiation is the identity **definitionally**, so this rule *is* the old one
       there (`delta_mono`, `delta_level_blind`). -/
   | delta {n : Name} {us : List Level} {body r : Expr} :

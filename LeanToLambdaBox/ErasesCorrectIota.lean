@@ -284,8 +284,9 @@ lines longer than it was:
   while `VLCtx.instL` is not surjective on contexts. So there is no `.of_ownScope` for a
   recursive constant and the `const_fix` branch says so.
 
-All three are `rfl`-cheap at every `ErasureCtx` in the development, whose `lparams` column
-is the default `fun _ => []`. -/
+All three are `rfl`-cheap at every `ErasureCtx` on a capstone path, whose `lparams` column
+is the default `fun _ => []`; `ErasesDeltaL.ΓPolyδ` is the deliberate exception, and it is
+what makes the universe-aware forms non-vacuous. -/
 theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities}
     {Esrc : SEnv} {E : GlobalDeclarations}

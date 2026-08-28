@@ -134,7 +134,8 @@ theorem shipping_erase_correct_firstorderι
     -- silent consequence of `hcon`'s vacuous `us` binder. It is what turns the
     -- monomorphic premises above into the universe-aware ones `erases_correct_dataι`
     -- consumes (`SEnvConsistentL`, `ErasesEnvDeltaL`), and it is `rfl` at every
-    -- `ErasureCtx` in this development, the column's default.
+    -- `ErasureCtx` on a capstone path, the column's default. (`ErasesDeltaL.ΓPolyδ`, built
+    -- by that slice's guards, is the one context here whose column is not `⊥`.)
     (hlp : Γ.lparams = fun _ => [])
     (hiota : IotaConsistent env Us Γ ia)
     (hproj : ProjConsistent env Us Γ)

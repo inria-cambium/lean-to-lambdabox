@@ -83,8 +83,12 @@ siblings, registered constructors and registered `casesOn`s.
    declared at a prefix of its scope — in particular every monomorphic dependency of a
    `{u}`-polymorphic caller, which the equation refused. What it still does not admit is a
    **polymorphic dependency of a closed subject** (`[u] <+: []` is false,
-   `gPrefixPin_no_polymorphic_dep`): that is the typeclass layer, it needs *instantiation*
-   rather than weakening, and it is what Γ-U3/Γ-U4 owe. It was once recorded here that
+   `gPrefixPin_no_polymorphic_dep`): that is the typeclass layer, and it needs
+   *instantiation* rather than weakening. Γ-U3 and Γ-U4 built that instantiation
+   (2026-08-28) — `ErasesInstL.Erases.instL` and `ErasesDeltaL.ErasesEnvDeltaL.of_ownScope`
+   — and this field still does not admit the case, because what is missing is a *producer*:
+   a cold start whose δ record is built at each dependency's own level scope. It was once
+   recorded here that
    this restriction "does not make any theorem *false*"; that is true of *this* bundle and
    false of the development — see the Γ-U analysis below, which is the correction.
 2. **No block-local fixvar map, on the fragment.** `Erasure.ErasureContext.fixvars` is
@@ -163,6 +167,13 @@ motives, gated by `BridgeInv env Us …`. That gating makes the generalisation *
 `Us` in a 4452-line file plus `BridgeHyps`/`RecBlockAgreement` at `∀ Us`. That is the Γ-W1
 pattern at Γ-W1 scale.
 
+[**Two readings in this finding are stale since Γ-U2, 2026-08-28.** Both `decl_run`'s
+conjunct and `BridgeInv.lparams` read `ci.levelParams <+: Us` now, not `= Us`, so the
+`lparams` slot is filled by a *prefix* and the "at most one `Us` satisfies the hypothesis"
+argument no longer holds as written — a longer scope satisfies it too. The finding's
+conclusion is untouched: what it costs to put `∀ Us` in eighteen motives is a count, not a
+consequence of the pin's shape, and no slice has paid it.]
+
 **(d) The record composes transitively, so it cannot stay `Us`-indexed.** `DeltaMem`
 (below) and `RunConclδ` carry `Us` as a parameter and are chained by `.trans` along the
 walk; under a `∀ Us` motive a sub-run at `Us'` cannot hand back a record at the outer
@@ -214,6 +225,15 @@ relaxed to that prefix, leaving the motives untouched; Γ-U3, `Erases.instL`; Γ
 rule instantiating and `SEnvConsistent` restated at
 `body.instantiateLevelParams (Ups n) us`. Γ-U3 is the risk and Γ-U4 is the content.
 
+[**All four landed, 2026-08-28**; the two subsections below are the record, and this
+paragraph is kept because three of its predictions were wrong in ways worth seeing. Γ-U2
+needed no per-constant `Ups` map — at a *prefix* a producer discharges `prepared`/
+`esrc_shape` from the dependency's own scope and weakens (finding (b), corrected below).
+Γ-U3's wall was **normalisation** rather than substitution, so `Erases.instL` is strict on
+the `max`/`imax`-free fragment instead of unreachable. And `Ups` landed as a defaulted
+column of `Γ` rather than as a bundle index, which is why finding (d)'s ripple never
+started. What the plan got right is its warning: Γ-U2 did not ship alone.]
+
 ### Γ-U1, Γ-U2 and Γ-U3, landed — and what they did *not* cost (2026-08-28)
 
 `ErasesLevels.lean` (Γ-U1) is the strict weakening kit, premise-free apart from the
@@ -240,8 +260,10 @@ and the last two are corrections to this analysis.
   was written for, and wrong here: at `Lp <+: Us` a producer proves those fields' natural
   own-scope form and `TrExprS.prefix_weaken` carries it to `Us` strictly
   (`gPreparedAtPrefix`). No `Ups` map, no per-constant indexing, and finding (d)'s ripple
-  through `DeltaMem`/`RunConclδ` never starts. Findings (c), (d) and (e) are untouched:
-  they are about instantiation and they still decide Γ-U3/Γ-U4.
+  through `DeltaMem`/`RunConclδ` never starts. Findings (c), (d) and (e) are untouched by
+  *this* slice: they are about instantiation, and they are what Γ-U3/Γ-U4 answered — (e)
+  correctly, (d) not at all (the ripple never started, because `Ups` landed in `Γ`), and
+  (c) only in the sense that nothing ever paid its price. See the Γ-U4 subsection below.
 * **Γ-U3 landed too, and it moved the wall rather than climbing it** (`ErasesInstL.lean`).
   `Erases.instL` exists, strictly, on the `max`/`imax`-free non-recursive fragment; the
   target LBTerm is unchanged, which is finding (a) proved rather than predicted. The
@@ -439,7 +461,8 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   of that list. See `rec_exit_registers_stripped_name` and its positive companion below.
 
   **And the block is no longer a *single* declaration** (slice Γ-W5). Until then the
-  conjunct read `ci.all = [m] ∧ remove_unsafe_rec m = n`, which is scope restriction 5':
+  conjunct read `ci.all = [m] ∧ remove_unsafe_rec m = n` — the *unnumbered* restriction
+  scope restriction 7 replaces, and the strictly stronger one:
   self-recursion only, no genuine mutual block anywhere in the dependency cone. The three
   conjuncts that replace it are exactly the three side conditions the recursive walk
   consumes (`VisitExprRefines.rec_exit_refines_erases`' `hkn`/`hnd`/`hnmem`), and they are
