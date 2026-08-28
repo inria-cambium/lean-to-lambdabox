@@ -33,6 +33,33 @@ defaultTargets = ["LeanToLambdaBox"]
 #       fallback — a written analysis — was delivered instead. `ErasableStrengthen`
 #       stays a named premise downstream (see `ErasesStrengthen.lean`).
 #
+# **Round 2** (`b6a5a38`, 2026-08-28) answers the three asks of `upstream-round2.md`.
+# It discharges no `sorry`, adds no `axiom` (71, identical list) and leaves the 15
+# `IOTA-TODO`/4 `PROJ-TODO` markers where they were. What it does deliver:
+#   1  `TrEnv.proj_defeq` is **re-stated** over a new upstream `TrProjCtor`, so its two
+#      constructor names finally coincide. This is the STATEMENT correction this repo
+#      escalated (the old statement was plausibly unprovable, not merely unproved), and
+#      it landed character-identical to the shape `ProjDefeqSpec.proj_defeq` states —
+#      so `ProjDefeqSpec.of_trEnv` is now a real one-liner and needs no `.toTrProj`.
+#      The PROOF is still `sorry` (`Verify/Environment/Lemmas.lean:652`), with the
+#      residual re-analysed and explicitly NOT `pat_uniq`: it is the structure-recursor
+#      shape (`(1,1,0)` is not recoverable from the ι pattern's sum), the ctor-arity
+#      threading, and a `safety` side condition. So `of_trEnv` carries `sorryAx` and the
+#      capstones keep `ProjDefeqSpec` as a named premise.
+#      ⚠️ Downstream cost: `TrProjCtor`, `TrProjCtor.toTrProj` and
+#      `TrProj.exists_ctorName` now exist UPSTREAM in `Lean4Lean`, where this repo had
+#      been carrying character-identical copies. The copies are deleted
+#      (`ProjPattern.lean`); the mirror is upstream's now.
+#   2  `TrEnv.pats_iota_inv` — the converse of `pats_iota'`, recovering the kernel
+#      recursor and its rule from a registered ι pattern. **Fully proved, `sorryAx`-free.**
+#      This is ask 2a; the 2b specialization (`pats_iota_ctor`, `cName ∈ ival.ctors`) was
+#      NOT landed — `VInductDecl.WF` does not pin the recursor↔inductive boundary — so
+#      the downstream takes the sanctioned 2a bridge: `ProjCtorAgree` is now a THEOREM
+#      (`ProjDischarge.projCtorAgree_of_trEnv`) from a `TrEnv` plus `ProjRecRules`, a
+#      `kenv`-side certificate of exactly the class `ProjShape` already carries.
+#   3  C1 (`IsDefEqU.weakN_iff` forward) again NOT discharged, as predicted. `hstr :
+#      ErasableStrengthen` stays the ledger's single class-R residue.
+#
 # The pin also carries the follow-up that makes `TrProj` a (near-)functional relation:
 # the motive is no longer existential. It is forced to the canonical constant motive
 # `.lam structTy fieldTy.lift`, with `structTy`/`fieldTy` pinned by two `HasType`
@@ -54,7 +81,7 @@ defaultTargets = ["LeanToLambdaBox"]
 [[require]]
 name = "lean4lean"
 git = "https://github.com/barabbs/lean4lean"
-rev = "7a5e96d7641b3848e92e4217fc2fa7b4ca1da823"
+rev = "b6a5a385a1334131b7a0a9718c8f332e29dddeb2"
 
 [[lean_lib]]
 name = "LeanToLambdaBox"

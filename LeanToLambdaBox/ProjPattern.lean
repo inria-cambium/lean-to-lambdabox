@@ -65,19 +65,24 @@ Since slice **P4** the file also carries the *interface* layer the round consume
 
 * `TrProjCtor` — `TrProj` with its constructor witness named, and the two conversions
   (`toTrProj`, `TrProj.exists_ctorName`) that make it a reparenthesisation rather than a
-  strengthening;
+  strengthening. **Since the `b6a5a38` re-pin these are upstream's**, adopted verbatim
+  from the copies this file used to carry;
 * `ProjDefeqSpec` — the projection-reduction rule as a **named premise**, stated over
-  `TrProjCtor` because the upstream `TrEnv.proj_defeq` is missing the agreement between
-  its two constructor names and is therefore likely unprovable as written (see §"Why the
-  upstream statement is not the one to plan on" below);
+  `TrProjCtor`. It was stated that way because the upstream `TrEnv.proj_defeq` was
+  missing the agreement between its two constructor names, and was therefore likely
+  unprovable as written; **upstream adopted the correction at `b6a5a38`** (see §"The
+  statement correction, and what it did and did not buy" below);
+* `ProjDefeqSpec.of_trEnv` — the injection point, landed at the re-pin. It is the one
+  declaration in this file that carries `sorryAx`, and it carries it because upstream's
+  corrected `proj_defeq` is still `sorry`;
 * `ProjShape` — the `rfl`-checkable per-structure certificate, and
-  `ProjShape.ctorAgreement`, the accessor that supplies `ProjDefeqSpec`'s missing
-  hypothesis locally;
+  `ProjShape.ctorAgreement`, the accessor that supplies the arity decomposition locally;
 * `TrExprS.proj_inv` / `proj_inv'` — total inversion at a `.proj` source.
 
-All `sorryAx`-free (audited in `scratch/final_audit.lean`). In particular
-`ProjDefeqSpec.of_trEnv` is deliberately **not** here: it would be one line, and it would
-be this development's only `sorryAx` provenance.
+Everything here is `sorryAx`-free **except `ProjDefeqSpec.of_trEnv`** (audited in
+`scratch/final_audit.lean`), and no capstone uses that one: the capstones keep
+`ProjDefeqSpec` as a premise, so the deferred upstream proof stays a named trust item
+rather than a silent inheritance.
 
 ## The recipe, for the slices that follow
 
@@ -642,43 +647,48 @@ theorem gEsrcShapeProj_noProj_refuted : ¬ NoProj ofNatBodyQ := fun h => h.2
 Above, `TrProj` was shown inhabited. Here it is turned into the *interface* the
 projection round consumes, in the `PatsIotaSpec` two-layer idiom: a named hypothesis
 structure stating the reduction rule the discharge needs, plus a `rfl`-checkable
-per-structure certificate. Neither is an axiom, and nothing below carries `sorryAx`.
+per-structure certificate. Neither is an axiom.
 
-### Why the upstream statement is not the one to plan on
+### The statement correction, and what it did and did not buy
 
-`TrEnv.proj_defeq` (`Verify/Environment/Lemmas.lean`) exists as a statement with a
-deferred proof (`PROJ-TODO`). Read its premises:
+**The finding, and the escalation.** `TrEnv.proj_defeq` used to read
 
 ```lean
     (hp : TrProj venv U Γ S i d e'')
     (hd : venv.IsDefEqU U Γ d ((VExpr.const ctorName cus).mkApps (params ++ fields)))
 ```
 
-`hp` carries its **own**, existentially bound constructor name — the one in the `env.pats`
-membership — while `hd` supplies a *different*, universally quantified `ctorName` for the
-spine `d` is defeq to. **Nothing in the premises ties the two together.** The PROJ-TODO's
-own sketch ("rewrite `d` by `hd` so the ι rule fires") silently assumes they coincide, and
-they must: `Pattern.Matches` on `SimplePattern.iota recName _ ctorName' _` requires the
-major premise to be a spine of `ctorName'`. Recovering `ctorName = ctorName'` from
-`TrEnv` plus `HasType` alone is a canonicity argument, not a rewrite. So as stated the
-theorem is plausibly **unprovable, not merely unproved**, and the downstream must not plan
-on the discharge arriving in the delivered shape.
+where `hp` carries its **own**, existentially bound constructor name — the one in the
+`env.pats` membership — while `hd` supplies a *different*, universally quantified
+`ctorName` for the spine `d` is defeq to. Nothing tied the two together. Since
+`Pattern.Matches` on `SimplePattern.iota recName _ ctorName' _` requires the major premise
+to be a spine of `ctorName'`, the reduction cannot fire without the agreement, and
+recovering it from `TrEnv` + `HasType` alone is a canonicity argument rather than a
+rewrite. So the statement was plausibly **unprovable, not merely unproved** — the disease
+`PatsIotaSpec` was created for, in a different field — and this round escalated it as a
+*statement* correction rather than a proof request.
 
-This is the disease `PatsIotaSpec` was created for — *the witness is existentially bound,
-so the upstream lemma cannot be instantiated* — in a different field. The cure is the
-same: expose the witness. `TrProjCtor` is `TrProj` with its `ctorName` named, and
-`ProjDefeqSpec` states `proj_defeq` over it.
+**Upstream adopted it** (`b6a5a38`). `TrProjCtor` is now upstream's, character-identical
+to the copy this file carried, and `proj_defeq` is re-stated over it, so its ι rule's
+constructor and its spine's head are the same name. The correction landed in exactly the
+shape `ProjDefeqSpec.proj_defeq` states it, which is why `of_trEnv` below is an eta
+expansion and does not even need `toTrProj` — the premise *is* a `TrProjCtor`.
 
-### What this slice does *not* do
+**What it did not buy: the proof.** `proj_defeq` is still `sorry`
+(`Verify/Environment/Lemmas.lean:652`), and upstream re-analysed the residual: it is
+**not** the ι `pat_uniq` gap. It is (a) a `safety` side condition, (b) the constructor
+arity bookkeeping `np + nf = rval.numParams + rule.nfields`, and (c) the fact that `rval`
+is a *structure* recursor — the ι pattern records only the sum
+`numMotives + numMinors + numIndices`, so `(1,1,0)` is not recoverable from it without
+recursor-application typing inversion. All three are the inductive-translation-boundary
+correspondence that `VInductDecl.WF` does not pin, which is the same wall that blocked the
+`pats_iota_ctor` ask.
 
-It does **not** ship `ProjDefeqSpec.of_trEnv`. That discharge is one line —
-`⟨fun hp hd hty hlen hflen hi => H.proj_defeq hp.toTrProj hd hty hlen hflen hi⟩`, and
-`TrProjCtor.toTrProj` below is exactly the piece it needs — but calling
-`TrEnv.proj_defeq` today injects the upstream `PROJ-TODO` `sorryAx`, and this slice is
-zero-new-`sorryAx`. `ProjDefeqSpec` therefore stays a **named premise**: a consumer that
-holds a `TrEnv` supplies it once upstream proves the lemma (or, better, once upstream
-corrects the *statement* to carry the agreement, at which point `toTrProj` is not even
-needed). That is a statement correction to escalate, not a proof request. -/
+So `of_trEnv` **is** landed here, and it carries `sorryAx`. It is the only declaration in
+this file that does, it is deliberately not used by any capstone, and its purpose is to
+*measure* the gap rather than to cross it: with it in the audit, exactly one printed axiom
+set says what accepting upstream's deferred proof would cost. `ProjDefeqSpec` stays a
+named premise everywhere it is consumed. -/
 
 end LeanToLambdaBox
 
@@ -686,42 +696,19 @@ namespace Lean4Lean
 
 open Lean LeanToLambdaBox
 
-/-- **`TrProj` with its constructor witness named.** Definitionally `TrProj` after one
-existential introduction: `TrProjCtor … c → TrProj …` is `⟨_, c, …⟩`
-(`TrProjCtor.toTrProj`) and `TrProj … → ∃ c, TrProjCtor … c` is one `obtain`
-(`TrProj.exists_ctorName`). The `c` is the constructor of `S`'s ι rule — the one the
-registered `SimplePattern.iota` pattern matches its major premise against — and naming it
-is what lets a reduction lemma relate it to the constructor heading the spine the
-discriminant is defeq to. -/
-def TrProjCtor (env : VEnv) (U : Nat) (Γ : List VExpr)
-    (S : Name) (i : Nat) (e e' : VExpr) (ctorName : Name) : Prop :=
-  ∃ (recName : Name) (us : List VLevel) (params fieldTys : List VExpr)
-    (np : Nat) (structTy fieldTy : VExpr)
-    (r : (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern.RHS ×
-         (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern.Check),
-    recName = mkRecName S ∧
-    env.pats (SimplePattern.iota recName (np+1+1+0) ctorName (np+fieldTys.length)).toPattern r ∧
-    params.length = np ∧ i < fieldTys.length ∧
-    env.HasType U Γ e structTy ∧
-    e' = (VExpr.const recName us).mkApps
-           (params ++ [.lam structTy fieldTy.lift, VExpr.fieldSelector fieldTys i, e]) ∧
-    env.HasType U Γ e' fieldTy
+/-! ### `TrProjCtor` — **now upstream's**
 
-/-- Forgetting the name gives `TrProj` back, on the nose. -/
-theorem TrProjCtor.toTrProj {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Name} {i : Nat}
-    {e e' : VExpr} {c : Name} (h : TrProjCtor env U Γ S i e e' c) :
-    TrProj env U Γ S i e e' := by
-  obtain ⟨recName, us, params, fieldTys, np, structTy, fieldTy, r, h⟩ := h
-  exact ⟨recName, c, us, params, fieldTys, np, structTy, fieldTy, r, h⟩
+`TrProjCtor` (`TrProj` with its constructor witness named), `TrProjCtor.toTrProj` and
+`TrProj.exists_ctorName` used to be *defined here*, in this namespace, because upstream
+had no such thing. At the `b6a5a38` re-pin they landed in `Lean4Lean`
+(`Verify/Typing/Expr.lean`) **character-identical to the copies this file carried** — the
+statement correction this round escalated, adopted verbatim — so the copies are deleted
+and the three names below resolve upstream. Nothing else in the file moved: the witnesses
+`trProjCtorP_bvar0` / `trProjCtorQ_bvar` construct the *same* nine-binder existential they
+constructed before, and `ProjDefeqSpec` states the reduction over the *same* predicate.
 
-/-- …and every `TrProj` names one. The two are interderivable, so `ProjDefeqSpec` is not
-a *stronger* interface than the upstream statement wants to be — it is the same content
-with one binder moved out, which is the whole point. -/
-theorem TrProj.exists_ctorName {env : VEnv} {U : Nat} {Γ : List VExpr} {S : Name} {i : Nat}
-    {e e' : VExpr} (h : TrProj env U Γ S i e e') :
-    ∃ c, TrProjCtor env U Γ S i e e' c := by
-  obtain ⟨recName, c, us, params, fieldTys, np, structTy, fieldTy, r, h⟩ := h
-  exact ⟨c, recName, us, params, fieldTys, np, structTy, fieldTy, r, h⟩
+That is the whole cost of the re-pin, and it is the shape a downstream mirror is supposed
+to have: when upstream adopts the statement, the mirror dies rather than diverging. -/
 
 /-! ### `TrExprS` inversion at a projection
 
@@ -772,6 +759,28 @@ structure ProjDefeqSpec (safety : DefinitionSafety) (kenv : Lean.Kernel.Environm
     venv.HasType U Γ d A →
     params.length = np → ∀ (hflen : fields.length = nf) (hi : i < nf),
     venv.IsDefEqU U Γ e'' (fields[i]'(hflen ▸ hi))
+
+/-- **The injection point.** Any `TrEnv` satisfies `ProjDefeqSpec`, by upstream's
+`TrEnv.proj_defeq` — which since `b6a5a38` states this field *verbatim*, over the same
+`TrProjCtor`, so the proof is the eta expansion and the `toTrProj` this discharge was
+predicted to need is not needed at all.
+
+⚠️ **This declaration carries `sorryAx`**, and it is the only one in this file that does.
+Upstream's `proj_defeq` has the corrected statement and a deferred proof
+(`PROJ-TODO(soundness)`, `Verify/Environment/Lemmas.lean:652`); the residual is the
+structure-recursor shape plus constructor-arity threading, *not* the ι `pat_uniq` gap.
+See the section docstring.
+
+It is landed anyway, and left **unused by every capstone**, for the reason the ledger
+gives: a named premise that no one can discharge is an unmeasured trust item, whereas a
+one-line discharge sitting beside it turns the gap into a printed axiom set. Consumers
+keep taking `ProjDefeqSpec` as a hypothesis (`projConsistent_of_coh`, the cold-start
+guards); this is what they will *apply* when the upstream `sorry` goes, and until then it
+is the honest price tag. Contrast `PatsIotaSpec.of_trEnv`, which is `sorryAx`-free and
+therefore does get used. -/
+theorem ProjDefeqSpec.of_trEnv {safety : DefinitionSafety} {kenv : Lean.Kernel.Environment}
+    {venv : VEnv} (H : TrEnv safety kenv venv) : ProjDefeqSpec safety kenv venv :=
+  ⟨fun hp hd hty hlen hflen hi => H.proj_defeq hp hd hty hlen hflen hi⟩
 
 /-- **Per-structure shape certificate** — `IotaShape`'s analogue, and much smaller: four
 kernel lookups and no `Expr` equation at all, because a projection's reduct is a *subterm*
