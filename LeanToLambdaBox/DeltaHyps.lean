@@ -192,6 +192,20 @@ this only because it transports a *closed* rhs at `Δ = []` and composes the res
 away with `IsDefEqU.mkApps_congr_head`; inside an induction over contexts there is no such
 composition point. So `Erases.instL` is not a corollary — it is the wall.
 
+[**Corrected at slice Γ-U3, 2026-08-28** — the paragraph's reasoning is right and its
+conclusion is too broad. `TrExprS.instL`'s residue is manufactured by *one* lemma
+(`substParams_wf`), which is strict at `zero`, `succ` and `param` and loose only at
+`max`/`imax` — and there only because `Level.substParams'` calls Lean's **normalising**
+smart constructors `mkLevelMax'`/`mkLevelIMax'`. Level substitution is defeq-loose because
+it normalises, not because it substitutes. On the `max`/`imax`-free level fragment
+(`ErasesInstL.NoMaxLevels`) the transport is strict, `Erases.instL` follows by a plain
+structural induction with no composition point needed at all, and the whole family is
+premise-light — no `VEnv.WF`, no `VLCtx.WF`, no `TrExprS.uniq`. That fragment contains the
+typeclass-dispatch layer this slice exists for. What is genuinely still out is the
+*recursive* arm, and for a different reason: `Erases.fix`'s `hbodies` is stated `∀ Δf`,
+while the induction hypothesis supplies instantiated bodies only at contexts in the image
+of `VLCtx.instL`.]
+
 **Plan of record, if the wall is taken.** Four slices, and Γ-U2 must not ship alone:
 Γ-U1, a *strict* `TrExprS` scope-weakening along `ci.levelParams <+: Us` (indices are
 preserved under a prefix extension, which is why this one can stay strict where `instL`
@@ -200,7 +214,7 @@ relaxed to that prefix, leaving the motives untouched; Γ-U3, `Erases.instL`; Γ
 rule instantiating and `SEnvConsistent` restated at
 `body.instantiateLevelParams (Ups n) us`. Γ-U3 is the risk and Γ-U4 is the content.
 
-### Γ-U1 and Γ-U2, landed — and what they did *not* cost (2026-08-28)
+### Γ-U1, Γ-U2 and Γ-U3, landed — and what they did *not* cost (2026-08-28)
 
 `ErasesLevels.lean` (Γ-U1) is the strict weakening kit, premise-free apart from the
 prefix; the four pins above now read `<+: Us` (Γ-U2). Four things are worth the ledger,
@@ -228,6 +242,23 @@ and the last two are corrections to this analysis.
   (`gPreparedAtPrefix`). No `Ups` map, no per-constant indexing, and finding (d)'s ripple
   through `DeltaMem`/`RunConclδ` never starts. Findings (c), (d) and (e) are untouched:
   they are about instantiation and they still decide Γ-U3/Γ-U4.
+* **Γ-U3 landed too, and it moved the wall rather than climbing it** (`ErasesInstL.lean`).
+  `Erases.instL` exists, strictly, on the `max`/`imax`-free non-recursive fragment; the
+  target LBTerm is unchanged, which is finding (a) proved rather than predicted. The
+  bracketed correction under the "does not compose" paragraph above says where the residue
+  actually lives. Two consequences for this plan: the transport Γ-U4 needs from the
+  *erasure* side is available for the typeclass layer, and the remaining Γ-U4 work is the
+  half findings (c)/(e) name — the δ rule's level-blindness and `SEnvConsistent`, which are
+  about the **model**, not about `Erases`. What Γ-U3 did *not* do: reach recursive fragment
+  constants (`Erases.fix`'s `∀ Δf` premise against `VLCtx.instL`'s non-surjectivity on
+  contexts), or touch a single bundle field — like Γ-U1 it is a lemma kit, and its consumer
+  is Γ-U4.
+* **The plan's route (b) is refuted, and the commission's hypothesis inside it confirmed.**
+  Route (b) proposed restricting to *closed* level instantiations on the guess that
+  `VLevel.ofLevel` then ignores the scope. It does (`ofLevel_param_free`) — and the
+  transport is still not strict, because normalisation fires on the shape of the *source*
+  level, not on the instantiation (`instL_closed_not_strict`, at the closed `max p 0 ↦ 0`).
+  Closedness is not the cut; `max`-freeness is, and the two are orthogonal.
 * **The one thing it costs is the oracle, and it is paid where it is visible.**
   `BridgeHyps.orc_run`'s soundness clause is contravariant in `TrExprS` and covariant in
   `Erasable`, so the Γ-U1 kit — which transports upward only — cannot move it in either

@@ -271,7 +271,13 @@ run at `Us = []`, where a prefix of the empty scope is the empty scope, so the
 identity is still the only instantiation reachable — but it is what a Γ-U slice has to
 repair *before* relaxing the capstones' `Us = []`, and it is why relaxing that alone would
 move the fragment's vacuity from a named bundle field into an unnamed one
-(`SEnvConsistent`; see `SEnvConsistent.levels_collapse`). -/
+(`SEnvConsistent`; see `SEnvConsistent.levels_collapse`).
+
+Since slice Γ-U3 this rule and `SEnvConsistent` are the **only** two things in the way:
+the erasure-side transport a Γ-U4 would need exists (`ErasesInstL.Erases.instL`, strict on
+the `max`-free non-recursive fragment), so the repair is now squarely a change of *model*
+— unfold at `body.instantiateLevelParams ci.levelParams us` here, and restate the
+consistency premise to match — and no longer partly a missing lemma. -/
 theorem SEvalDataι.delta_level_blind {Γ : ErasureCtx} {ia : IotaArities} {E : SEnv}
     {n : Name} {us us' : List Level} {body r : Expr}
     (hunf : E n = some body) (h : SEvalDataι Γ ia E body r) :

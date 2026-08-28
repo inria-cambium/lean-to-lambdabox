@@ -64,6 +64,14 @@ import LeanToLambdaBox.ErasesUniform
 -- universe-count monotonicity of lean4lean's typing judgement, which is what discharges
 -- the `Erasable` witness of `Erases.box`. A lemma kit for Γ-U2; nothing consumes it yet.
 import LeanToLambdaBox.ErasesLevels
+-- Level *instantiation* (slice Γ-U3): `TrExprS`/`Erases` transported along
+-- `e.instantiateLevelParams ps ls`, STRICTLY, on the `max`/`imax`-free level fragment —
+-- which is where upstream's `TrExprS.instL` residue comes from (Lean's normalising
+-- `mkLevelMax'`), and not from the substitution as such. Refutes the plan's route (b)
+-- (closed instantiations are not the cut) and carries the polymorphic-dependency fixture
+-- the typeclass layer needs. Recursive fragment constants are out of scope, for a reason
+-- named in the file.
+import LeanToLambdaBox.ErasesInstL
 import LeanToLambdaBox.ErasureRun
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).

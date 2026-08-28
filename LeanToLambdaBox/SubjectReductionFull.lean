@@ -82,6 +82,13 @@ an unnamed one, until now. Relaxing the former without repairing the latter (and
 widen the fragment; it would only move where the vacuity lives. See `DeltaHyps`' Γ-U
 analysis for the full accounting.
 
+**Of those three, the third is gone since slice Γ-U3**: `ErasesInstL.Erases.instL` is a
+strict level-instantiation transport for erasure on the `max`/`imax`-free non-recursive
+fragment — which contains the typeclass layer the relaxation is aimed at. So what stands
+between the bundles and a polymorphic dependency is now exactly the *model* pair: this
+predicate and `SEvalDataι.delta`'s level-blindness. That is Γ-U4, and it is where the
+content is.
+
 **Slice Γ-U2 relaxed the first place and this one still did not move**, which is worth
 recording because it is the case the warning above was written against. The relaxation is
 to a *prefix* — `ci.levelParams <+: Us` — and the cold-start capstones pin `Us = []`

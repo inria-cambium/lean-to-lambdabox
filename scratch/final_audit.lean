@@ -15,10 +15,10 @@ times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
-proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5, to 910 at slice Γ-U1 and to 923 at
-slice Γ-U2, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1 and Γ-U2 the whole
-inherited prefix is (800, 818, 850, 856, 886 and 910 entries respectively),
+proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5, to 910 at slice Γ-U1, to 923 at
+slice Γ-U2 and to 944 at slice Γ-U3, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1, Γ-U2 and Γ-U3 the whole
+inherited prefix is (800, 818, 850, 856, 886, 910 and 923 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
 Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
@@ -36,6 +36,13 @@ pins needed no proof repair anywhere. Its own thirteen entries include six guard
 cost is not visible as an axiom at all: the verified kernel branch of the oracle discharge
 now covers a strictly smaller set of readers (those at the ambient scope), which is a
 premise change and is recorded in `OracleDischarge`'s docstring rather than here.
+Γ-U3 earned it Γ-U1's way again — one new file (`ErasesInstL.lean`), one import line, no
+edited declaration — and its twenty-one entries are all `sorryAx`-free. Its axiom story is
+worth one line: the pure `VExpr`-side lemmas take nothing, the level layer takes
+`Lean.Level.hasParam_eq` (the model axiom for the opaque `Level.data` bit `substParams'`
+branches on), and the `Expr.instantiateLevelParams` wrappers inherit that function's
+`Expr`-model set, including the two `bv_decide` natives the lakefile already records
+against `TrExprS.instL`. No axiom of ours, no `sorry`, no `native_decide`.
 The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
@@ -4013,6 +4020,105 @@ open LeanToLambdaBox
 --     four signatures, one trust bundle and one discharge proof, and the 910-entry prefix
 --     came back UNCHANGED, verified by diffing a full run against a run at `256a047`.
 --     The capstones keep their eight and the bridge its seven.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-U3 — LEVEL INSTANTIATION, STRICTLY (THE FLAGGED RISK)
+-- ============================================================================
+--
+-- Γ-U named `Erases.instL` THE WALL: upstream's `TrExprS.instL` lands in `TrExpr`, not
+-- `TrExprS`, while `Erases.box`/`lam`/`letE` record strict witnesses and a defeq-loose
+-- binder type breaks the sub-derivation's context chain — "inside an induction over
+-- contexts there is no composition point".
+--
+-- THE REASONING WAS RIGHT AND THE CONCLUSION TOO BROAD. `TrExprS.instL`'s residue is
+-- manufactured by ONE lemma, `substParams_wf`, and that lemma is strict at three of its
+-- five arms: `zero` and `param` produce their `≈` by `rfl` and `succ` is a congruence.
+-- Every non-trivial residue comes from `max`/`imax`, and there ONLY because
+-- `Level.substParams'` calls Lean's NORMALISING smart constructors
+-- `mkLevelMax'`/`mkLevelIMax'`. Level substitution is defeq-loose because it NORMALISES,
+-- not because it substitutes. Exclude those two nodes — `NoMaxLevel` / `NoMaxLevels` —
+-- and the tower goes strict, `Erases.instL` follows by a plain structural induction, and
+-- no composition point is needed because there is no residue to compose.
+--
+-- The fragment is the intended one: `Sort u`, `Type u`, `List.{u}`, `Nat`, and
+-- `OfNat.ofNat.{u}`'s prepared body `fun α x self => self.1` — the typeclass-dispatch
+-- layer Γ-U exists to admit — are all `max`/`imax`-free.
+--
+-- (a) THE LEVEL LAYER — where the residue lives. `substParams_strict` is the strict twin
+--     of upstream's `substParams_wf`; `substParams_strict_list` is its spine form. Note
+--     the axiom sets: the level layer needs `Lean.Level.hasParam_eq` (lean4lean's model
+--     axiom for the opaque `Level.data` bit `substParams'` branches on) and nothing else.
+#print axioms Lean4Lean.mapM_ofLevel_getElem?
+#print axioms Lean4Lean.substParams_strict
+#print axioms Lean4Lean.substParams_strict_list
+--
+-- (b) THE `TrExprS` LAYER, STRICT — and PREMISE-LIGHT, which is the second finding.
+--     Upstream's `TrExprS.instL` needs `VEnv.WF env` and `VLCtx.WF env ls'.length Δ`, the
+--     latter to run the defeq-composing `TrExpr.*` smart constructors. The strict version
+--     needs NEITHER: every arm is the raw `TrExprS` constructor applied to
+--     `instL`-transported side premises. That matters beyond economy — `Erases.lam`
+--     carries a `TrExprS` for its binder type and not an `IsType`, so the extended
+--     context of its sub-derivation is NOT known to be `VLCtx.WF`, and a transport that
+--     demanded it could not have been threaded through `Erases` at all.
+#print axioms Lean4Lean.noMaxLevels_toConstructor
+#print axioms Lean4Lean.instCore_foldl_app
+#print axioms Lean4Lean.VLCtx.fvars_instL
+#print axioms Lean4Lean.TrExprS.instL_core
+#print axioms Lean4Lean.TrExprS.instL_strict
+--
+-- (c) THE BOX ARM's `VExpr` OBLIGATIONS — as at Γ-U1, no environment-side lift: `Erasable`
+--     is a `HasType` plus a `HasType`-or-`IsArityUpTo` disjunct and `instL` transports
+--     each. `sorryAx`-free and axiom-light (no `Expr` model involved at all).
+#print axioms LeanToLambdaBox.IsArity.instL
+#print axioms LeanToLambdaBox.IsArityUpTo.instL
+#print axioms LeanToLambdaBox.Erasable.instL
+--
+-- (d) `Erases.instL` — THE WALL, ON THE FRAGMENT. The target LBTerm is UNCHANGED, which is
+--     the Γ-U analysis' finding (a) proved rather than predicted. `instL_core` is the
+--     `instantiateLevelParamsCore'` form and carries the smaller axiom set; `instL` is the
+--     `Expr.instantiateLevelParams` wrapper and inherits the `Expr`-model axioms of
+--     `Expr.instantiateLevelParams_eq` (including the two `bv_decide` natives the lakefile
+--     already records). `Γ.recBodies = ⊥` scopes out the two recursive arms — see (f).
+#print axioms LeanToLambdaBox.Erases.instL_core
+#print axioms LeanToLambdaBox.Erases.instL
+--
+-- (e) THE POSITIVE GUARD — the shape Γ-U4 consumes, and the one the Γ-U analysis recorded
+--     as unavailable: a `{u}`-POLYMORPHIC dependency body, instantiated at a CLOSED level,
+--     landing as an `Erases` derivation at `Us = []` — the capstones' own scope. Same
+--     target, no residue, at an arbitrary `env` and any `Γ` without recursive constants.
+--     This is the half Γ-U2's prefix explicitly cannot reach (`[u] <+: []` is false).
+#print axioms LeanToLambdaBox.gInstLClosed
+#print axioms LeanToLambdaBox.gErasesInstLClosed
+--
+-- (f) THE NEGATIVE GUARDS — the plan's route (b), answered in both directions. The
+--     commission asked: does `VLevel.ofLevel` on a closed level ignore `Us`, and does the
+--     closed-instL transport therefore go strict? The first is YES and is
+--     `ofLevel_param_free`. The second is NO and `instL_closed_not_strict` is the
+--     counterexample: at `ps = [p]`, `ls = [0]` — as closed as an instantiation gets — the
+--     source level `max p 0` substitutes to `0`, while the strict conclusion demands
+--     `max 0 0`. Equivalent, not equal, exactly as `substParams_wf` says. Closedness is
+--     not the cut; `max`-freeness is, and the two are orthogonal.
+--     `mkLevelMax'_zero_zero` is the normalisation itself, proved through the
+--     `mkLevelMaxCore` if-chain (`Lean.Level.instLawfulBEqLevel`, already in the bridge's
+--     inherited set via `ResidualHyps.toBridgeHyps`).
+#print axioms LeanToLambdaBox.ofLevel_param_free
+#print axioms LeanToLambdaBox.mkLevelMax'_zero_zero
+#print axioms LeanToLambdaBox.instL_closed_not_strict
+--
+-- (g) WHAT IS STILL OUT, NAMED. The recursive arms, and not for the wall's reason:
+--     `Erases.fix`'s `hbodies` premise is `∀ Δf`, while the induction hypothesis supplies
+--     the instantiated body only at contexts in the IMAGE of `VLCtx.instL`, which is not
+--     every context. Closing it needs `erases_weak_any` and its premises (`Γ.fixvars = ⊥`,
+--     source closedness, target `LBClosed`) at each sibling body. That is the one place
+--     the analysis' "no composition point" instinct really does bite, and it is scoped out
+--     by a named premise rather than hidden.
+--
+-- (h) THE CROWN, UNMOVED — AND THE WHOLE INHERITED FILE AGAIN. Like Γ-U1, this slice adds
+--     one file and one import line and edits no existing declaration; unlike Γ-U1 it has
+--     the fixture its consumer will need. The 923-entry prefix comes back byte-identical.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
