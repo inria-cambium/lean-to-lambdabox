@@ -266,10 +266,11 @@ monomorphic (`ci.levelParams = []`, so `us = []` and `instantiateLevelParams` is
 This theorem is the machine-checked form of "discarded": **one** body evaluation
 serves **every** level instantiation of the same constant. It is not a defect of the
 model at the fragment this development ships — `DeltaHyps.decl_run` pins every
-dependency at `ci.levelParams = Us` and the capstones run at `Us = []`, so the
-identity is the only instantiation reachable — but it is what a Γ-U slice has to
-repair *before* relaxing that pin, and it is why relaxing the pin alone would move
-the fragment's vacuity from a named bundle field into an unnamed one
+dependency at `ci.levelParams <+: Us` (an equation before slice Γ-U2) and the capstones
+run at `Us = []`, where a prefix of the empty scope is the empty scope, so the
+identity is still the only instantiation reachable — but it is what a Γ-U slice has to
+repair *before* relaxing the capstones' `Us = []`, and it is why relaxing that alone would
+move the fragment's vacuity from a named bundle field into an unnamed one
 (`SEnvConsistent`; see `SEnvConsistent.levels_collapse`). -/
 theorem SEvalDataι.delta_level_blind {Γ : ErasureCtx} {ia : IotaArities} {E : SEnv}
     {n : Name} {us us' : List Level} {body r : Expr}

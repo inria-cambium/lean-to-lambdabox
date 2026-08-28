@@ -1,4 +1,5 @@
 import LeanToLambdaBox.Bridge
+import LeanToLambdaBox.ErasesLevels
 import LeanToLambdaBox.ErasesUniform
 import LeanToLambdaBox.ErasureRun
 import LeanToLambdaBox.SourceEval
@@ -72,13 +73,20 @@ recursion feature still restricts is one level in and is named at
 `RecBlockErasure.erases_rec_block_of_run`: a walked block's bodies call only its own
 siblings, registered constructors and registered `casesOn`s.
 
-1. **Universe monomorphism of the whole dependency cone.** `Erases` is indexed by a single
-   `Us`, while `visitMutual` erases a dependency's body under
+1. **The dependency cone's level scopes are prefixes of the subject's.** `Erases` is
+   indexed by a single `Us`, while `visitMutual` erases a dependency's body under
    `withReader (… lparams := ci.levelParams)`. `decl_run` therefore demands
-   `ci.levelParams = Us`: realistically `Us = []` and every dependency monomorphic. A
-   polymorphic dependency makes `DeltaHyps` uninhabited. It was once recorded here that it
-   "does not make any theorem *false*"; that is true of *this* bundle and false of the
-   development — see the Γ-U analysis below, which is the correction.
+   `ci.levelParams <+: Us` — **since slice Γ-U2**; before it, the equation
+   `ci.levelParams = Us`. At `Us = []`, which is where every capstone runs, the two are
+   the same restriction (`gPrefixPin_closed_subject`): universe monomorphism of the whole
+   cone. At `Us ≠ []` the prefix admits a *polymorphic subject* whose dependencies are
+   declared at a prefix of its scope — in particular every monomorphic dependency of a
+   `{u}`-polymorphic caller, which the equation refused. What it still does not admit is a
+   **polymorphic dependency of a closed subject** (`[u] <+: []` is false,
+   `gPrefixPin_no_polymorphic_dep`): that is the typeclass layer, it needs *instantiation*
+   rather than weakening, and it is what Γ-U3/Γ-U4 owe. It was once recorded here that
+   this restriction "does not make any theorem *false*"; that is true of *this* bundle and
+   false of the development — see the Γ-U analysis below, which is the correction.
 2. **No block-local fixvar map, on the fragment.** `Erasure.ErasureContext.fixvars` is
    installed per block while `Γ.fixvars` is a single global map, so one `Γ` cannot be both
    "outside every block" (what a top-level subject needs) and "inside this block" (what a
@@ -192,6 +200,43 @@ relaxed to that prefix, leaving the motives untouched; Γ-U3, `Erases.instL`; Γ
 rule instantiating and `SEnvConsistent` restated at
 `body.instantiateLevelParams (Ups n) us`. Γ-U3 is the risk and Γ-U4 is the content.
 
+### Γ-U1 and Γ-U2, landed — and what they did *not* cost (2026-08-28)
+
+`ErasesLevels.lean` (Γ-U1) is the strict weakening kit, premise-free apart from the
+prefix; the four pins above now read `<+: Us` (Γ-U2). Four things are worth the ledger,
+and the last two are corrections to this analysis.
+
+* **What it buys, exactly**: the *subject* side. At `Us ≠ []` a polymorphic subject may
+  call dependencies declared at a prefix of its scope — every monomorphic callee of a
+  `{u}`-polymorphic function, and every `{u}`-polymorphic one. What it does **not** buy is
+  the dependency side: `OfNat.ofNat.{u}` under a `Us = []` subject stays out, because
+  `[u] <+: []` is false. The five guards at the end of this file are that reading,
+  machine-checked, together with the refutation that makes it sharp
+  (`gEsrcShape_polymorphic_dep_refuted`: at `Us = []` a body mentioning `u` has no
+  `TrExprS` at all, so the exclusion is in the *relation*, not in the bundle).
+* **It is not a trade for vacuity**, which is the condition the plan attached to it. At
+  `Us = []` — every capstone here — `Lp <+: []` *is* `Lp = []` (`gPrefixPin_closed_subject`),
+  so no shipped instance weakened and no field became easier to satisfy. The relaxation is
+  invisible at the configuration the development ships and live only at one it does not
+  yet reach, which is the honest shape for a slice that widens a scope ahead of its
+  consumer.
+* **Finding (b) does not bite under the prefix reading — the correction.** It said two more
+  fields (`prepared`, `esrc_shape`) pin the same restriction at the ambient `Us`, so
+  relaxing `decl_run` alone is a no-op. That is right for the *instantiation* reading it
+  was written for, and wrong here: at `Lp <+: Us` a producer proves those fields' natural
+  own-scope form and `TrExprS.prefix_weaken` carries it to `Us` strictly
+  (`gPreparedAtPrefix`). No `Ups` map, no per-constant indexing, and finding (d)'s ripple
+  through `DeltaMem`/`RunConclδ` never starts. Findings (c), (d) and (e) are untouched:
+  they are about instantiation and they still decide Γ-U3/Γ-U4.
+* **The one thing it costs is the oracle, and it is paid where it is visible.**
+  `BridgeHyps.orc_run`'s soundness clause is contravariant in `TrExprS` and covariant in
+  `Erasable`, so the Γ-U1 kit — which transports upward only — cannot move it in either
+  direction; relaxing its guard to `<+: Us` is a strictly larger trust item. The cost is
+  localised in `OracleDischarge`: the *verified* kernel branch now carries
+  `ctx.lparams = Us` as a conjunct, and a strictly narrower reader falls to the assumed-sound
+  `Meta` fallback. At `Us = []` that conjunct is free, so the verified relevance check
+  covers exactly what it covered before.
+
 ## Two environments, deliberately: the fragment and the evaluation's
 
 `Esrc` here is a **scope** — the collection of prepared bodies the erased program is
@@ -284,8 +329,8 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
   /-- **The declaration fetch agrees with the fragment.** For a `known` name: the fetch is
   generator-monotone, the *block* it answers with is one the fragment contains — every
   member's stripped name is `known`, the stripped names are distinct, and the name asked
-  for is among them — and it is universe-monomorphic at the ambient `Us` (scope
-  restriction 1).
+  for is among them — and its level scope is a **prefix** of the ambient `Us` (scope
+  restriction 1, relaxed from `ci.levelParams = Us` at slice Γ-U2).
 
   It used to carry a fourth conjunct, `(Esrc n).isSome`. Slice D4a made it dead: naming
   *some* body is never enough at the point of use, which needs *this* run's body, and
@@ -349,7 +394,7 @@ structure DeltaHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ : 
     gw w ≤ gw w₁ ∧ ∃ ci : ConstantInfo,
       r = some ci ∧ (∀ m ∈ ci.all, known (remove_unsafe_rec m)) ∧
       (ci.all.map remove_unsafe_rec).Nodup ∧ n ∈ ci.all.map remove_unsafe_rec ∧
-      ci.levelParams = Us
+      ci.levelParams <+: Us
   /-- **The prepared dependency body is in the fragment.** Quantified over the
   `prepare_erasure` run that produces it, exactly as `ColdStartSubject.supported` is for the
   top-level subject: this is the *same* premise, generalised from "the subject" to "the
@@ -605,17 +650,20 @@ residue recorded at `RecBlockErasure.Erases.instFixvars`). -/
 structure BlockHyps (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ₀ : ErasureCtx)
     (cfg₀ : ErasureConfig) (Esrc : SEnv)
     (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) : Prop where
-  /-- **Universe monomorphism of the block**, at the loop's own fetch — scope restriction 1
-  for `getConstInfo` rather than `getDeclInfo?`. This is what feeds `BridgeInv.withFixvars`'
-  `hlp` slot when the per-sibling invariant is rebuilt: the exit's inner
-  `withReader (… lparams := ci.levelParams)` has to land back at the ambient `Us`.
-  `DeltaHyps.decl_run`'s own `ci.levelParams = Us` is about the *outer* fetch and says
-  nothing about the siblings'. -/
+  /-- **The block's level scope is a prefix of the ambient one**, at the loop's own fetch —
+  scope restriction 1 for `getConstInfo` rather than `getDeclInfo?`. This is what feeds
+  `BridgeInv.withFixvars`' `hlp` slot when the per-sibling invariant is rebuilt: the exit's
+  inner `withReader (… lparams := ci.levelParams)` has to land back inside the ambient `Us`.
+  `DeltaHyps.decl_run`'s own prefix conjunct is about the *outer* fetch and says nothing
+  about the siblings'.
+
+  **Relaxed from `ci.levelParams = Us` at slice Γ-U2**, in step with `decl_run` and
+  `BridgeInv.lparams`; at `Us = []` the two forms coincide. -/
   block_lparams : ∀ {m : Name} {ci : ConstantInfo} {s s' : ErasureState}
       {ctx : ErasureContext} {w w' : Void IO.RealWorld},
     known (remove_unsafe_rec m) →
     (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' →
-    ci.levelParams = Us
+    ci.levelParams <+: Us
   /-- **`Esrc` records the sibling's prepared body** — the block analogue of `prep_esrc`,
   keyed on the two runs a caller inside the loop actually holds, and landing at the
   *stripped* name because that is the one the fragment and the registration use.
@@ -1210,7 +1258,7 @@ theorem gBlockHyps (env : VEnv) (Us : List Name) (cfg₀ : ErasureConfig)
         {ctx : ErasureContext} {w w' : Void IO.RealWorld},
       (fun n => n = `f) (remove_unsafe_rec m) →
       (getConstInfo m : EraseM ConstantInfo) s ctx cctx ref w = .ok (ci, s') w' →
-      ci.levelParams = Us)
+      ci.levelParams <+: Us)
     (hesrc : ∀ {m : Name} {ci : ConstantInfo} {pe : Expr}
         {sc s s₁ : ErasureState} {ctx ctx' : ErasureContext}
         {wc wc' w w₁ : Void IO.RealWorld},
@@ -1250,6 +1298,81 @@ theorem gBlockLam_nonvacuous :
 disjunct). This is what δ-inclusion is *for*. -/
 theorem gDeltaSupported : Supported (fun n => n = `f) gΓδ (.const `f []) :=
   .const `f [] (Or.inl rfl) rfl rfl
+
+/-! ### The universe scope: what the prefix pin buys, and what it does not (slice Γ-U2)
+
+`decl_run`'s last conjunct, `BlockHyps.block_lparams`, `BridgeInv.lparams` and
+`BridgeHyps.orc_run`'s scope guard all read `<+: Us` since Γ-U2, where they read `= Us`.
+The plan of record (the Γ-U analysis above) warned that a Γ-U2 shipping alone would be a
+legibility regression *if* it traded a named restriction for vacuity. The five checks
+below are the machine-checked reason it does not, and they are also the honest statement
+of the slice's reach: it widens the **subject** side, not the dependency side. -/
+
+/-- **At a closed subject the prefix pin *is* the old pin.** Every capstone in this
+development runs at `Us = []`, and there `Lp <+: []` holds exactly when `Lp = []` — the
+universe monomorphism the field demanded before. So no shipped instantiation weakened, no
+producer's obligation got easier, and no field became vacuous: at the configuration the
+development actually uses, Γ-U2 is a *no-op*, which is the answer to "does it trade a
+restriction for vacuity". -/
+theorem gPrefixPin_closed_subject (Lp : List Name) : Lp <+: ([] : List Name) ↔ Lp = [] :=
+  List.prefix_nil
+
+/-- **…and at a polymorphic subject it genuinely widens.** At `Us = [u]` the old pin
+admitted exactly the dependencies declared `.{u}`; the prefix pin admits those *and* every
+monomorphic one — which is the common shape, a `{u}`-polymorphic function calling
+`Nat.add`. Nothing about this case was reachable before: the old field was false at it. -/
+theorem gPrefixPin_widens :
+    ([] : List Name) <+: [`u] ∧ ¬ ([] : List Name) = [`u] ∧ ([`u] : List Name) <+: [`u] :=
+  ⟨List.nil_prefix, by simp, List.prefix_refl _⟩
+
+/-- **What it does not buy: a polymorphic dependency of a closed subject.**
+`OfNat.ofNat` is `.{u}` and the capstones are at `Us = []`, so `[u] <+: []` is false and
+its declaration stays outside the fragment, exactly where it was before Γ-U2. That case
+needs *instantiation*, not weakening — it is what Γ-U3/Γ-U4 owe — and it is why this
+slice's ledger claim reads "polymorphic subjects with prefix-scoped dependencies" and not
+"polymorphic dependencies". -/
+theorem gPrefixPin_no_polymorphic_dep : ¬ ([`u] : List Name) <+: [] := by simp
+
+/-- **The two fields finding (b) named do not have to move** — and this is where the Γ-U1
+kit is consumed.
+
+`prepared` and `esrc_shape` state translatability at the **ambient** `Us`, and the Γ-U
+analysis read that as "relaxing `decl_run` alone is a no-op, because two more fields pin
+the same restriction". Under the *prefix* reading that conclusion is wrong, and this is
+the correction: a producer proves the natural fact at the dependency's own scope `Lp`, and
+`TrExprS.prefix_weaken` carries it to `Us` on the nose — same source, same `VExpr`, no
+`≈` residue. So the ambient-`Us` fields are *implied* by their own-scope forms and only
+the four scope pins had to move. (Finding (b) stays correct as stated, about the
+*instantiation* reading it was written for: there the transport is `TrExprS.instL`, which
+lands in `TrExpr`, and nothing carries a strict witness across.) -/
+theorem gPreparedAtPrefix {env : VEnv} {Lp Us : List Name} (hp : Lp <+: Us) {pe : Expr}
+    (h : ∀ Δ : VLCtx, ∃ ve, TrExprS env Lp Δ pe ve) :
+    ∀ Δ : VLCtx, ∃ ve, TrExprS env Us Δ pe ve :=
+  fun Δ => (h Δ).imp fun _ => TrExprS.prefix_weaken hp
+
+/-- **…while at a closed subject a polymorphic body is refuted outright, not merely
+unproven.** `esrc_shape` demands `TrExprS env Us [] pe ve`, and at `Us = []` there is no
+such derivation for a body mentioning `u`: `VLevel.ofLevel` resolves a parameter by its
+*position* in the scope, and the empty scope has none. This is the sharp form of "the
+prefix cannot reach the typeclass layer" — the obstruction is in the relation, one
+constructor deep, and no bundle-side relaxation can move it. -/
+theorem gEsrcShape_polymorphic_dep_refuted (env : VEnv) :
+    ¬ ∃ ve, TrExprS env [] [] (.sort (.param `u)) ve := by
+  rintro ⟨ve, h⟩
+  cases h with | sort h => simp [VLevel.ofLevel] at h
+
+/-- **The dependency's erasure lands in the subject's scope.** What makes the relaxed pins
+usable rather than merely stateable: a body erased at the reader `visitMutual` installs
+for a monomorphic dependency (`Lp = []`) is an `Erases` derivation at the polymorphic
+ambient scope `Us = [u]` the bridge's conclusion is stated at — same source, same target,
+no side condition (`ErasesLevels.Erases.prefix_weaken`, through the `lam` arm, which is
+one of the three that carry a strict `TrExprS`). Built at an arbitrary `env`/`Γ`, so what
+it checks is the scope and nothing else. -/
+theorem gErasesDepPrefix (env : VEnv) (Γ : ErasureCtx) (nm : Name) (bi : BinderInfo) :
+    Erases env [`u] Γ [] (.lam nm (.sort .zero) (.bvar 0) bi)
+      (.lambda (nameToBinder nm) (.bvar 0)) :=
+  Erases.prefix_weaken List.nil_prefix
+    (.lam (ty' := .sort .zero) (.sort rfl) (.bvar 0))
 
 /-- **Why the registry domain is load-bearing in `get_constant_kername`'s motive.**
 

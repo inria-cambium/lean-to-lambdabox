@@ -626,7 +626,7 @@ theorem gBridgeInv_nil (env : VEnv) (Us : List Name) (known : Name → Prop) (Γ
     (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
     BridgeInv env Us known Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
-  lparams := rfl
+  lparams := List.prefix_refl _
   cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv

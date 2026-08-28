@@ -193,7 +193,7 @@ example (Γ : ErasureCtx) (hΓrec : Γ.recBodies = fun _ => none)
     (recEnvConsistent_of_noRec (Γ := Γ) hΓrec) hΓfv
     H HD C P Hδ Hβ RecBlockAgreement.of_bot (known := fun _ => False) hrun
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := hcfg
       kfresh := fun _ h => nomatch h

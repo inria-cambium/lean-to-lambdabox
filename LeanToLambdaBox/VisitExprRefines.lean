@@ -781,6 +781,19 @@ role `OracleSound` played for `eraseCore`:
   oracle ran in (phrased over `MLCtx` rather than a bare `TrLCtx` so the kernel
   path can be discharged by `kernel_isErasable_sound`, `OracleDischarge.lean`).
   (State-preservation is not assumed: it is derivable via `run_liftMetaM_state`.)
+
+  **The scope guard is a prefix since slice Γ-U2**, and it is the one place that slice
+  costs anything. The soundness clause fires under `ctx.lparams <+: Us` where it used to
+  demand `ctx.lparams = Us`, because `BridgeInv.lparams` now carries the prefix and a
+  dependency's sub-run reads its own `ci.levelParams`. That is a *strictly larger* trust
+  item, and unlike the rest of Γ-U2 it is not served by the U1 kit: the clause is
+  contravariant in `TrExprS` and covariant in `Erasable`, so neither
+  `TrExprS.prefix_weaken` (which goes up) nor `Erasable.uvars_mono` (which also goes up)
+  can move it — a hypothesis at the ambient `Us` would have to be *strengthened* to the
+  run's own scope, and that direction is false in general. What it costs is measured
+  where it is paid: `OracleDischarge`'s kernel branch discharges the clause only at
+  `ctx.lparams = Us`, and the strict-prefix case falls to the assumed-sound fallback. At
+  `Us = []` — every capstone in this development — `<+:` *is* `=`, so nothing moved.
 * `fresh_run`: `mkFreshFVarId` returns a
   previously-unreserved id (both in the ghost measure `gw` and in the kernel's
   fixed `kernelNGen` — the latter because `CoreM`'s `mkFreshFVarId` mints
@@ -801,7 +814,7 @@ structure BridgeHyps (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
     Erasure.liftMetaM (Erasure.isErasable ctx.lparams e) s ctx cctx ref w = .ok (b, s₁) w₁ →
     gw w ≤ gw w₁ ∧
-    (b = true → ctx.lparams = Us → ∀ (m : MLCtx) (ve : VExpr), m.WF env Us → m.lctx = ctx.lctx →
+    (b = true → ctx.lparams <+: Us → ∀ (m : MLCtx) (ve : VExpr), m.WF env Us → m.lctx = ctx.lctx →
       (∀ fv ∈ m.vlctx.fvars, kernelNGen.Reserves fv) →
       TrExprS env Us m.vlctx e ve → Erasable env Us.length m.vlctx.toCtx ve)
   fresh_run : ∀ (s : ErasureState) (ctx : ErasureContext) (cctx : Core.Context)
@@ -826,7 +839,7 @@ The old `trlctx : TrLCtx env Us ctx.lctx Δ` field is *replaced* by the stronger
 `m.lctx`/`m.vlctx`), from which `trlctx` is re-derived below (`BridgeInv.trlctx`),
 so the ~20 downstream `hinv.trlctx` use-sites keep working. Two further fields
 carry what the oracle discharge needs (`OracleDischarge.lean`): `lparams` pins
-`ctx.lparams = Us`, and `kfresh` says every `Δ`-fvar is reserved by the kernel's
+`ctx.lparams <+: Us` (an equation until slice Γ-U2), and `kfresh` says every `Δ`-fvar is reserved by the kernel's
 fixed `kernelNGen` (so `kernel_isErasable_sound`'s freshness premise holds).
 
 ## The constant registry, after cold-start S2
@@ -877,7 +890,25 @@ structure BridgeInv (env : VEnv) (Us : List Name) (known : Name → Prop)
     (Γ : ErasureCtx) (cfg₀ : ErasureConfig) (gen : NameGenerator)
     (ctx : Erasure.ErasureContext) (s : Erasure.ErasureState) (Δ : VLCtx) : Prop where
   mlc : ∃ m : MLCtx, m.WF env Us ∧ m.lctx = ctx.lctx ∧ m.vlctx = Δ
-  lparams : ctx.lparams = Us
+  /-- **The reader's level scope is a prefix of the ambient one** (slice Γ-U2; it read
+  `ctx.lparams = Us` until then).
+
+  The ambient `Us` is a *parameter* of the bridge theorem and the conclusion `Erases env
+  Us …` is stated at it; the reader's `lparams` is what the run actually installs, and
+  `visitMutual`'s two `withReader`s move it to a dependency's / a sibling's own
+  `ci.levelParams`. Pinning the two equal is what made
+  `DeltaHyps.decl_run`/`BlockHyps.block_lparams` demand universe monomorphism of the whole
+  dependency cone. A *prefix* is all the run needs: along `ctx.lparams <+: Us` no level
+  index moves (`ErasesLevels.VLevel.ofLevel_prefix`), so every fact the sub-run produces
+  at its own scope transports to `Us` on the nose — `TrExprS.prefix_weaken`,
+  `Erases.prefix_weaken`, `Erasable.uvars_mono`.
+
+  At `Us = []` this **is** the old equation (`List.prefix_nil`), so no existing
+  instantiation weakened and nothing became vacuous; at `Us ≠ []` it admits a
+  prefix-scoped dependency of a polymorphic subject. It does *not* admit a polymorphic
+  dependency of a closed subject — `[u] <+: []` is false — which is the instantiation
+  story Γ-U3/Γ-U4 owe. -/
+  lparams : ctx.lparams <+: Us
   /-- **The run's config is the bridge's config** (recursion wall, slice Γ-W3.6a).
 
   The reader's `config` is a **run invariant**: of the five `withReader` sites in the
@@ -1035,7 +1066,7 @@ theorem BridgeInv.withFixvars {env : VEnv} {Us : List Name} {known known' : Name
     {s : ErasureState} {Δ : VLCtx} {fv : Name → Option FVarId}
     {fvmap : Std.HashMap Name FVarId}
     (h : BridgeInv env Us known Γ cfg₀ gen ctx s Δ)
-    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
+    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams <+: Us)
     (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
     (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
     (hfresh : ∀ (nm : Name) (x : FVarId), fv nm = some x → gen.Reserves x ∧ x ∉ Δ.fvars) :
@@ -3691,7 +3722,7 @@ theorem visitExpr_refines_erases_block {env : VEnv} {Us : List Name}
     {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
     {w w' : Void IO.RealWorld}
     (hinv : BridgeInv env Us known Γ cfg₀ gen ctx s Δ) (hgen : gen ≤ gw w)
-    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams = Us)
+    (hlctx : ctx'.lctx = ctx.lctx) (hlp : ctx'.lparams <+: Us)
     (hcfg : ctx'.config = ctx.config) (hfvm : ctx'.fixvars = some fvmap)
     (hagree : ∀ (nm : Name) (x : FVarId), fvmap[nm]? = some x ↔ fv nm = some x)
     (hfresh : ∀ (nm : Name) (x : FVarId), fv nm = some x →
@@ -3729,7 +3760,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (gen : NameGenerator)
     (cfg : ErasureConfig) (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
     BridgeInv env Us (fun _ => False) Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
-  lparams := rfl
+  lparams := List.prefix_refl _
   cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
@@ -3752,7 +3783,7 @@ example (env : VEnv) (Us : List Name) (gen : NameGenerator) (x : FVarId)
     BridgeInv env Us (fun _ => False) (ΓfixOpen x) cfg gen
       ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
-  lparams := rfl
+  lparams := List.prefix_refl _
   cfg := rfl
   natcfg := fun h => absurd h (by simp [ΓfixOpen])
   kfresh := fun _ hfv => nomatch hfv
@@ -3816,7 +3847,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
     (ctx' := ⟨{}, some ((∅ : Std.HashMap Name FVarId).insert `f x), Us, cfg⟩)
     (fvmap := (∅ : Std.HashMap Name FVarId).insert `f x)
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := fun h => absurd h (by simp [ΓfixRec])
       kfresh := fun _ hfv => nomatch hfv
@@ -3825,7 +3856,7 @@ example (env : VEnv) (Us : List Name) (cfg : ErasureConfig)
       reserved := fun _ hfv => nomatch hfv
       knames := fun _ => rfl
       consts := by intro n k hk; simp at hk }
-    NameGenerator.LE.rfl rfl rfl rfl rfl
+    NameGenerator.LE.rfl rfl (List.prefix_refl _) rfl rfl
     (by
       intro nm y
       rw [Std.HashMap.getElem?_insert]
@@ -4149,7 +4180,7 @@ example (env : VEnv) (Us : List Name) (Γ : ErasureCtx) (cfg : ErasureConfig)
       [(some (x, (Expr.sort .zero).fvarsList), .vlam (.sort .zero))] :=
     { mlc := ⟨(MLCtx.nil).vlam x nm (.sort .zero) (.sort .zero) bi,
         ⟨trivial, hfind, hty, hty'⟩, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := hcfg
       kfresh := by
@@ -4211,7 +4242,7 @@ example (cfg : ErasureConfig) (hcfg : cfg.nat = .peano)
   have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit cfg (gw w)
       ⟨{}, none, [], cfg⟩ {} [] :=
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := fun _ => hcfg
       kfresh := fun _ h => nomatch h
@@ -4249,7 +4280,7 @@ theorem bridgeInv_cold_any (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
     (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
     BridgeInv env Us known Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
-  lparams := rfl
+  lparams := List.prefix_refl _
   cfg := rfl
   natcfg := hcfg
   kfresh := fun _ hfv => nomatch hfv
@@ -4539,7 +4570,7 @@ example (cfg : ErasureConfig) (gw : Void IO.RealWorld → NameGenerator)
   visitExpr_refines_erases H HD C P Hδ Hβ RecBlockAgreement.of_bot henv
     _ _ _ _ _ _ _ _ _ hrun _
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := fun h => absurd h (by simp [ΓprojQ])
       kfresh := fun _ hfv => nomatch hfv

@@ -15,9 +15,10 @@ times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
-proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5 and to 910 at slice Γ-U1, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5 and Γ-U1 the whole
-inherited prefix is (800, 818, 850, 856 and 886 entries respectively),
+proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5, to 910 at slice Γ-U1 and to 923 at
+slice Γ-U2, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1 and Γ-U2 the whole
+inherited prefix is (800, 818, 850, 856, 886 and 910 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
 Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
@@ -27,6 +28,14 @@ commissioned to make would move the fragment's vacuity rather than remove it.
 (`ErasesLevels.lean`), with no consumer yet, so it edits no existing declaration at all —
 its twenty-one entries are all `sorryAx`-free, and the 886-entry prefix was checked by
 diffing a full run against a run of the same file with the new module stashed.
+Γ-U2 earned it the hard way and it is the more interesting case: it **does** edit
+signatures — four scope pins from `= Us` to `<+: Us`, plus the oracle discharge's kernel
+disjunct — and the 910-entry prefix still came back byte-identical, because relaxing those
+pins needed no proof repair anywhere. Its own thirteen entries include six guards, all
+`sorryAx`-free; `ResidualHyps.toBridgeHyps` keeps the set it had. The slice's one real
+cost is not visible as an axiom at all: the verified kernel branch of the oracle discharge
+now covers a strictly smaller set of readers (those at the ambient scope), which is a
+premise change and is recorded in `OracleDischarge`'s docstring rather than here.
 The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
@@ -3935,6 +3944,74 @@ open LeanToLambdaBox
 --     import line; it edits no existing declaration, no signature and no fixture. The
 --     entire inherited 886-entry prefix comes back BYTE-IDENTICAL, verified by diffing a
 --     full run against a run of the same file at `e0e2b16` with the new module stashed.
+--     The capstones keep their eight and the bridge its seven.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-U2 — THE PINS, IN PREFIX FORM
+-- ============================================================================
+--
+-- Γ-U1's kit had no consumer. This is it: the four scope pins the Γ-U plan of record
+-- names — `BridgeInv.lparams`, `DeltaHyps.decl_run`'s last conjunct,
+-- `BlockHyps.block_lparams`, and `BridgeHyps.orc_run`'s guard — now read
+-- `ci.levelParams <+: Us` where they read `= Us`.
+--
+-- THE SLICE'S OWN CONDITION, MET. The plan said Γ-U2 must not ship alone if it TRADES a
+-- named restriction for vacuity. It does not, and the reason is arithmetic: at `Us = []`
+-- — where every capstone runs, by `ColdStart`'s `hUs` row — `Lp <+: []` holds exactly
+-- when `Lp = []`, which IS the old pin. So no shipped instantiation weakened, no field
+-- became easier, and nothing moved to `SEnvConsistent`. The widening is real only at a
+-- polymorphic SUBJECT, and no capstone states one.
+--
+-- WHAT IT BUYS AND WHAT IT DOES NOT. Buys: a polymorphic subject calling dependencies
+-- declared at a prefix of its scope (every monomorphic callee of a `{u}`-polymorphic
+-- caller). Does not buy: a polymorphic dependency of a closed subject — `[u] <+: []` is
+-- false, and one constructor deeper the body has no `TrExprS` at `Us = []` at all. That
+-- is the typeclass layer, and it needs instantiation (Γ-U3/Γ-U4), not weakening.
+--
+-- (a) THE PINS' CONSUMERS. `BridgeInv.withFixvars` takes the prefix in its `hlp` slot;
+--     the bridge and the recursive exit consume it unchanged. Byte-identical sets: the
+--     relaxation needed NO proof repair, because the reader's `lparams` reaches the
+--     bridge's proof only through the oracle's guard.
+#print axioms LeanToLambdaBox.BridgeInv.withFixvars
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
+--
+-- (b) THE ORACLE DISCHARGE — the one place the slice costs anything, and it is paid in
+--     the open. `orc_run`'s soundness clause is CONTRAVARIANT in `TrExprS` and COVARIANT
+--     in `Erasable`, so the Γ-U1 kit (which transports upward only) cannot move it in
+--     either direction: relaxing its guard is a strictly larger trust item. So
+--     `ResidualHyps.orc_refl`'s KERNEL disjunct now carries `ctx.lparams = Us` as a
+--     conjunct — the verified relevance check covers a run at the ambient scope, and a
+--     strictly narrower reader falls to the assumed-sound `Meta` fallback. At `Us = []`
+--     the conjunct is free, so the verified branch covers exactly what it did before.
+#print axioms LeanToLambdaBox.ResidualHyps.toBridgeHyps
+--
+-- (c) THE ARITHMETIC GUARDS — the three that decide "relaxation, not vacuity". The
+--     degeneracy at the empty scope, the widening at a non-empty one, and the refutation
+--     that bounds the claim.
+#print axioms LeanToLambdaBox.gPrefixPin_closed_subject
+#print axioms LeanToLambdaBox.gPrefixPin_widens
+#print axioms LeanToLambdaBox.gPrefixPin_no_polymorphic_dep
+--
+-- (d) THE CONTENT GUARDS — and the correction to the Γ-U analysis' finding (b). That
+--     finding said `prepared`/`esrc_shape` pin the same restriction at the ambient `Us`,
+--     so relaxing `decl_run` alone is a no-op. True for the INSTANTIATION reading it was
+--     written for; false here — a producer proves the own-scope form and
+--     `TrExprS.prefix_weaken` carries it to `Us` STRICTLY. This is where Γ-U1 is actually
+--     consumed, and it is satisfiability, not proof repair. The negative twin is sharp:
+--     at `Us = []` a body mentioning `u` has no `TrExprS` at all, so the typeclass layer
+--     is excluded by the RELATION and not by the bundle. The `Erases`-layer guard is the
+--     same story one level up, at an arbitrary `env`/`Γ`.
+#print axioms LeanToLambdaBox.gPreparedAtPrefix
+#print axioms LeanToLambdaBox.gEsrcShape_polymorphic_dep_refuted
+#print axioms LeanToLambdaBox.gErasesDepPrefix
+--
+-- (e) THE CROWN, UNMOVED — AND THE WHOLE INHERITED FILE, BYTE-IDENTICAL. The slice edits
+--     four signatures, one trust bundle and one discharge proof, and the 910-entry prefix
+--     came back UNCHANGED, verified by diffing a full run against a run at `256a047`.
 --     The capstones keep their eight and the bridge its seven.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart

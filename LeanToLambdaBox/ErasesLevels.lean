@@ -47,9 +47,17 @@ of `TrExprS`, `Δ.toCtx` does not mention `Us`, and the `bvar`/`fvar` arms are p
 
 What this slice deliberately does **not** do: relax any bundle field (that is Γ-U2, and
 the analysis records why it must not ship alone), prove `Erases.instL` (Γ-U3, the wall),
-or touch the δ rule's level blindness (Γ-U4, the content). Nothing here is consumed yet;
-it is a lemma kit, stated in the general `Us <+: Us'` form its consumer will instantiate
-at `ci.levelParams <+: Us`.
+or touch the δ rule's level blindness (Γ-U4, the content). It is a lemma kit, stated in
+the general `Us <+: Us'` form its consumer instantiates at `ci.levelParams <+: Us`.
+
+**Consumed at Γ-U2** (2026-08-28), and not where the plan expected. The four scope pins
+relaxed to `<+: Us` with *no* proof repair at all — the reader's `lparams` reaches the
+bridge's proof only through the oracle's guard — so nothing in `VisitExprRefines` calls
+these lemmas. What they are actually for is **satisfiability**: `DeltaHyps.prepared` and
+`esrc_shape` are stated at the ambient `Us`, and it is `TrExprS.prefix_weaken` that lets a
+producer discharge them from the dependency's own scope, which is the correction to the
+Γ-U analysis' finding (b) (`DeltaHyps.gPreparedAtPrefix`). The `Erases` half is the same
+story one layer up (`DeltaHyps.gErasesDepPrefix`).
 -/
 
 namespace Lean4Lean

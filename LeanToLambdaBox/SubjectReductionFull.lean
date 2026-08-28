@@ -74,13 +74,23 @@ constant's instantiations to one another; `SEnvConsistent.levels_collapse` below
 states that collapse as a theorem.
 
 Consequence for scope, and it is the point of recording this: universe monomorphism
-is pinned in **two** independent places, not one. `DeltaHyps.decl_run`'s
-`ci.levelParams = Us` (scope restriction 1) makes the *bundle* uninhabited for a
-polymorphic dependency — a named, documented failure. This predicate makes the
-*simulation's premise* false for one — an unnamed one, until now. Relaxing the
-former without repairing the latter (and `SEvalDataι.delta`'s level-blindness, and
-`Erases`' lack of an `instL` transport) would not widen the fragment; it would only
-move where the vacuity lives. See `DeltaHyps`' Γ-U analysis for the full accounting. -/
+is pinned in **two** independent places, not one. `DeltaHyps.decl_run`'s scope conjunct
+(scope restriction 1) makes the *bundle* uninhabited for a polymorphic dependency — a
+named, documented failure. This predicate makes the *simulation's premise* false for one —
+an unnamed one, until now. Relaxing the former without repairing the latter (and
+`SEvalDataι.delta`'s level-blindness, and `Erases`' lack of an `instL` transport) would not
+widen the fragment; it would only move where the vacuity lives. See `DeltaHyps`' Γ-U
+analysis for the full accounting.
+
+**Slice Γ-U2 relaxed the first place and this one still did not move**, which is worth
+recording because it is the case the warning above was written against. The relaxation is
+to a *prefix* — `ci.levelParams <+: Us` — and the cold-start capstones pin `Us = []`
+(`ColdStart`'s `hUs` row), where a prefix of the empty scope is the empty scope. So the
+bundle is wider at a polymorphic subject, no capstone states one, and this predicate is
+asked for at exactly the constants it was asked for before. The moment a capstone *is*
+stated at `Us ≠ []`, this is the premise that has to be restated at
+`body.instantiateLevelParams (levelParams of n) us` — Γ-U4, and the reason Γ-U2 alone
+buys the bridge layer and not the theorem. -/
 def SEnvConsistent (env : VEnv) (Us : List Name) (Esrc : SEnv) : Prop :=
   ∀ {Δ : VLCtx} {n : Name} {us : List Level} {body : Expr} {cve : VExpr},
     Esrc n = some body →
@@ -104,7 +114,9 @@ instantiates both sides of the defining equation, so it relates `.const n us` to
 So this is the theorem behind the claim in `SEnvConsistent`'s docstring: a Γ-U slice
 that relaxed `DeltaHyps.decl_run` and `BlockHyps.block_lparams` alone would leave the
 capstones with a premise that is false at exactly the constants the relaxation was
-meant to admit. The repair is to restate the conclusion at
+meant to admit. Γ-U2 did relax those two — to a prefix — and escaped the conclusion
+only because the capstones still pin `Us = []`, where the relaxation is the identity.
+The theorem is therefore still the live obstruction and not a historical one. The repair is to restate the conclusion at
 `body.instantiateLevelParams (levelParams of n) us` — which forces the δ *rule* to
 unfold there too, since subject reduction hands `htrb` straight to the IH. -/
 theorem SEnvConsistent.levels_collapse {env : VEnv} (henv : env.WF) {Us : List Name}

@@ -160,9 +160,12 @@ reason; that gap is closed. (ii) It then read "`Erases` is projection-free by de
 the **projection round** falsified: `Erases.proj` landed at P1 over the `Γ.projs` column and
 the bridge reaches it from P8 via `Supported.proj` (`Erases.lean`'s own header records the
 same). What keeps the numeral out is now the **universe** restriction: `OfNat.ofNat` is
-`{u}`-polymorphic, `DeltaHyps.decl_run` demands `ci.levelParams = Us` of every dependency
+`{u}`-polymorphic, `DeltaHyps.decl_run` demands `ci.levelParams <+: Us` of every dependency
 and the capstones take `Us = []`, so its declaration is outside the fragment even though its
-body's projection is inside the relation (`DeltaHyps.lean`'s Γ-U analysis).] -/
+body's projection is inside the relation (`DeltaHyps.lean`'s Γ-U analysis). Slice Γ-U2's
+prefix does not reach it and cannot: `[u] <+: []` is false, and at `Us = []` the body has
+no `TrExprS` at all (`DeltaHyps.gEsrcShape_polymorphic_dep_refuted`). The numeral waits on
+instantiation — Γ-U3/Γ-U4 — not on weakening.] -/
 
 /-- `Nat : Sort 1` at `envNatT`. -/
 theorem envNatT_NatTypeSort1 :
@@ -226,7 +229,7 @@ example (harity : ¬ IsArityUpTo envNatT 0 [] (.const ``Nat []))
   have hinv : BridgeInv envNatT [] (fun _ => False) ΓnatLit cfg (gw w)
       ⟨{}, none, [], cfg⟩ {} [] :=
     { mlc := ⟨.nil, trivial, rfl, rfl⟩
-      lparams := rfl
+      lparams := List.prefix_refl _
       cfg := rfl
       natcfg := fun _ => hcfg
       kfresh := fun _ h => nomatch h

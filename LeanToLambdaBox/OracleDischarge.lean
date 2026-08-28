@@ -15,9 +15,9 @@ Concretely, `ResidualHyps.orc_refl` says a `true` verdict entails a *disjunction
 * **kernel reflection** — the outer, impure `liftMetaM (isErasable ctx.lparams e)`
   run reflects a *pure* `M.run … (isErasable e) = .ok true` at the *same* local
   context and level params, over a lean4lean-modelled environment
-  (`ves.WF env₀`). This is the residual assumption: only the reflection of impure
-  `CoreM`/`MetaM` plumbing onto the pure `M.run` — its **soundness is proved**,
-  via `kernel_isErasable_sound`; or
+  (`ves.WF env₀`), *and* that scope is the ambient one. This is the residual
+  assumption: only the reflection of impure `CoreM`/`MetaM` plumbing onto the pure
+  `M.run` — its **soundness is proved**, via `kernel_isErasable_sound`; or
 * **`Meta` fallback** — the elaborator-based `isErasableMeta` fallback fired, whose
   soundness is *still assumed* (it has no verified counterpart).
 
@@ -28,6 +28,27 @@ into** the bridge, not merely assumed alongside it.
 
 Trust boundary: `kernel_isErasable_sound`'s (lean4lean's) axioms; no new `axiom`
 or `sorry`.
+
+## Where the verified branch stops, and why (slice Γ-U2)
+
+`BridgeHyps.orc_run`'s scope guard is `ctx.lparams <+: Us` since Γ-U2, because
+`BridgeInv.lparams` carries a prefix and a dependency's sub-run reads its own
+`ci.levelParams`. The kernel branch **cannot** follow it there, and the reason is not a
+missing lemma. `kernel_isErasable_sound` concludes `Erasable env lparams.length …` from
+`m.WF env lparams` and `TrExprS env lparams m.vlctx e ve` — everything at the scope the
+checker ran in — while the box arm that consumes `orc_run` holds both at the *ambient*
+`Us`. Moving them down to `ctx.lparams` is a *strengthening*: a term that translates at
+`Us` need not translate at a proper prefix of it, since it may mention a parameter the
+prefix does not resolve. The Γ-U1 kit (`ErasesLevels`) transports in the other direction
+only, and here the two directions are needed at once — the clause is contravariant in
+`TrExprS` and covariant in `Erasable`.
+
+So `orc_refl`'s kernel disjunct carries `ctx.lparams = Us` as a conjunct, and a
+strict-prefix reader lands in the assumed-sound `Meta` fallback. That is the whole of
+what Γ-U2 costs on the oracle, stated where it is paid rather than hidden in the guard:
+**at `Us = []` nothing moved** (`<+:` is `=` there, `List.prefix_nil`), and at `Us ≠ []`
+the verified relevance check still covers every run at the subject's own scope — what it
+stops covering is a dependency erased at a *strictly* narrower one.
 -/
 
 namespace LeanToLambdaBox
@@ -48,10 +69,13 @@ structure ResidualHyps (env₀ : Lean.Kernel.Environment) (ves : VEnvs) (Us : Li
     (s₁ : ErasureState) (w₁ : Void IO.RealWorld),
     Erasure.liftMetaM (Erasure.isErasable ctx.lparams e) s ctx cctx ref w = .ok (b, s₁) w₁ →
     gw w ≤ gw w₁ ∧
-    (b = true → ctx.lparams = Us →
+    (b = true → ctx.lparams <+: Us →
       -- kernel reflection: the pure verified checker returned `true` at the same
-      -- local context / level params, over the modelled environment `env₀`.
-      (M.run env₀ .safe ctx.lctx ctx.lparams
+      -- local context / level params, over the modelled environment `env₀` — and the
+      -- run's level scope *is* the ambient one. The equation is not decoration: the
+      -- adequacy theorem concludes at the scope it ran in, and the consumer's `TrExprS`
+      -- witness lives at `Us` (slice Γ-U2's one cost; see the module docstring).
+      (ctx.lparams = Us ∧ M.run env₀ .safe ctx.lctx ctx.lparams
           (x := RecM.run (LeanToLambdaBox.isErasable e)) = .ok true)
       ∨
       -- `Meta` fallback: soundness assumed (no verified counterpart).
@@ -86,9 +110,9 @@ theorem ResidualHyps.toBridgeHyps {env₀ : Lean.Kernel.Environment} {ves : VEnv
   orc_run e s ctx cctx ref w b s₁ w₁ hrun := by
     obtain ⟨hmono, hsound⟩ := R.orc_refl e s ctx cctx ref w b s₁ w₁ hrun
     refine ⟨hmono, fun hb hlp m ve mwf hlctx hkf htr => ?_⟩
-    rcases hsound hb hlp with hker | hfb
+    rcases hsound hb hlp with ⟨heq, hker⟩ | hfb
     · -- kernel reflection ⟹ soundness, via the verified checker adequacy
-      subst hlp
+      subst heq
       exact kernel_isErasable_sound wf mwf hkf htr (by rw [hlctx]; exact hker)
     · -- `Meta` fallback: assumed sound
       exact hfb m ve mwf hlctx hkf htr
