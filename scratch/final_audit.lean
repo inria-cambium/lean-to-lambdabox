@@ -4,22 +4,27 @@ re-baselined 2026-08-10 for Lean v4.33.0-rc2 + the `barabbs/lean4lean` ι fork,
 re-pinned 2026-08-11 to the reviewed ι interface `1a1ebe8` — head of the fork's
 `iota` branch — and re-pinned again 2026-08-27 to `fee3ada` and then `7a5e96d`,
 head of the fork's `trproj` branch, which is where `TrProj` stops being a `sorry`
-and its motive gets pinned. The 7a5e96d step discharged no `sorry` and added no
+and its motive gets pinned, and once more on 2026-08-28 to `b6a5a38` — round 2 of the
+same branch, which corrects `TrEnv.proj_defeq`'s STATEMENT and adds the proved
+`TrEnv.pats_iota_inv`, discharging no `sorry` and adding no axiom (71, identical list).
+That re-pin moved NOTHING in this file: all 962 entries below came back byte-identical
+across it, including the three declarations it forced this repo to DELETE
+(`TrProjCtor` and its two conversions, adopted upstream character-identical). The 7a5e96d step discharged no `sorry` and added no
 axiom — lean4lean's own count holds at 143 across both revisions — and this file
 reported the same 648 entries across it that it had reported immediately before it,
 at slice Γ-W3b. [Corrected in the coherence pass, 2026-08-27: that sentence used to
 read "the same 648 entries it did at `fee3ada`", which is false — at `fee3ada` this
 file reported **596** (commit `5069f9d`); 648 is the Γ-W3b/`7a5e96d` figure, and the
-596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown sixteen
+596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown seventeen
 times since 648 [recount, coherence pass 2026-08-28: the sentence said "thirteen", which
 was right at Γ-U1 and went stale as Γ-U2, Γ-U3 and Γ-U4 appended entries to the list
-below without bumping the word]:
+below without bumping the word; bumped again at proj-R2]:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
 proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5, to 910 at slice Γ-U1, to 923 at
-slice Γ-U2, to 944 at slice Γ-U3 and to 962 at slice Γ-U4, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1, Γ-U2, Γ-U3 and Γ-U4 the whole
+slice Γ-U2, to 944 at slice Γ-U3, to 962 at slice Γ-U4 and to 975 at slice proj-R2,
+with every earlier entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5, Γ-U1, Γ-U2, Γ-U3 and Γ-U4 the whole
 inherited prefix is (800, 818, 850, 856, 886, 910, 923 and 944 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
@@ -4264,6 +4269,116 @@ open LeanToLambdaBox
 -- (i) THE CROWN, UNMOVED. The slice edits real signatures — the ι simulation's `hcon` and
 --     two new premises, the ι capstone's `hlp` row, `SEvalDataι`'s δ constructor — so the
 --     byte-identical prefix here is earned the Γ-U2 way and not the Γ-U1 way.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE proj-R2 — THE ROUND-2 RE-PIN: ONE GATE CLOSES, ONE GETS A PRICE TAG
+-- ============================================================================
+--
+-- The `b6a5a38` re-pin of `barabbs/lean4lean` (2026-08-28) answers `upstream-round2.md`.
+-- It discharges NO upstream `sorry`, adds NO `axiom` (71, identical list) and leaves the
+-- 15 `IOTA-TODO` / 4 `PROJ-TODO` markers where they were. Both upstream builds are green
+-- (`lake build`, `lake build Lean4Lean.Experimental`).
+--
+-- (a) THE PREFIX. Every one of the 962 entries above came back BYTE-IDENTICAL across the
+--     re-pin AND across this slice's discharges — the strongest form of the claim, and
+--     here it is earned the Γ-U1 way for the audit and the Γ-U2 way for the code: three
+--     declarations were DELETED from `ProjPattern.lean` (below), which is a real edit to a
+--     file the prefix measures, and nothing moved anyway. In particular
+--     `Lean4Lean.TrProjCtor.toTrProj` and `Lean4Lean.TrProj.exists_ctorName` still print
+--     `[propext]` — the same set — because they are now UPSTREAM's declarations with the
+--     same statements and equivalent proofs. The four crown theorems did not move.
+--
+-- (b) ASK 1 — THE STATEMENT CORRECTION LANDED; THE PROOF DID NOT.
+--     `TrEnv.proj_defeq` is re-stated over a new upstream `TrProjCtor`, so the ι rule's
+--     constructor and the spine's head are finally the same name. This is exactly what
+--     slice P4 escalated ("plausibly UNPROVABLE, not merely unproved") and upstream
+--     adopted the correction CHARACTER-IDENTICAL to the copy this repo carried — which is
+--     why `ProjPattern.lean`'s `TrProjCtor`, `TrProjCtor.toTrProj` and
+--     `TrProj.exists_ctorName` are deleted here: the mirror is upstream's now, and a
+--     downstream mirror that outlives its adoption is a duplicate-declaration error, which
+--     is precisely how the re-pin announced itself.
+--
+--     The PROOF is still `sorry` (`Verify/Environment/Lemmas.lean:652`). Upstream
+--     re-analysed the residual and it is NOT the ι `pat_uniq` gap: it is a `safety` side
+--     condition, the ctor-arity threading `np + nf = rval.numParams + rule.nfields`, and
+--     the fact that `rval` is a STRUCTURE recursor — the ι pattern records only the sum
+--     `numMotives + numMinors + numIndices`, so `(1,1,0)` is not recoverable from it.
+--     That is the inductive-translation-boundary correspondence `VInductDecl.WF` does not
+--     pin, and it is the same wall that blocked ask 2b.
+--
+--     So P4's `of_trEnv` IS LANDED, and it is this file's first and only `sorryAx`
+--     provenance from the projection round. It is landed to PRICE the deferral, not to
+--     cross it: no capstone uses it, `ProjDefeqSpec` stays a named premise everywhere, and
+--     the entry below is the whole cost of accepting upstream's deferred proof.
+#print axioms Lean4Lean.TrProjCtor.toTrProj
+#print axioms Lean4Lean.TrProj.exists_ctorName
+#print axioms Lean4Lean.TrEnv.proj_defeq
+#print axioms LeanToLambdaBox.ProjDefeqSpec.of_trEnv
+--
+-- (c) ASK 2 — DELIVERED AS 2a, AND IT IS ENOUGH. `TrEnv.pats_iota_inv`, the converse of
+--     `pats_iota'`, came back FULLY PROVED and `sorryAx`-FREE. Its set is `pats_iota'`'s
+--     three `PersistentHashMap` `ConstMap` modelling axioms plus the standard three, and
+--     `findAux_isSome` is NOT new to this development — it already occurs in the prefix
+--     above, so the re-pin widens the axiom surface by NOTHING.
+--
+--     The 2b specialization (`pats_iota_ctor`, `cName ∈ ival.ctors`) was NOT landed, for
+--     the wall in (b). The ask sanctioned the fallback in advance, and this is it:
+--     `ProjCtorAgree` is now a THEOREM, `projCtorAgree_of_trEnv`, from a `TrEnv` plus
+--     `ProjRecRules` — and it is `sorryAx`-free.
+--
+--     ⚠️ READ THE TRADE HONESTLY. The fact did not evaporate; it MOVED. Slice P6's finding
+--     was that the agreement is a fact about the `VEnv` that no downstream certificate can
+--     reach. It is now a fact about `kenv` — the class `ProjShape`'s `find?` conjuncts
+--     already are, in-logic unconstructible for the same documented reason and a kernel
+--     well-formedness triviality for a real structure (`S.rec` has one rule per
+--     constructor; a structure has one constructor). What the re-pin bought is that the
+--     obligation is now STATABLE where the development can see it, and FREE wherever the
+--     projection column is (`projRecRules_of_noProjs`) — which is what makes it a trade
+--     rather than a new assumption, the same measurement `ProjBridgeHyps.of_bot` earns.
+#print axioms Lean4Lean.TrEnv.pats_iota_inv
+#print axioms LeanToLambdaBox.ProjRecRules
+#print axioms LeanToLambdaBox.projCtorAgree_of_trEnv
+#print axioms LeanToLambdaBox.projConsistent_of_coh_trEnv
+#print axioms LeanToLambdaBox.projRecRules_of_noProjs
+--
+-- (d) ASK 3 — NOT DELIVERED, AS PREDICTED. `IsDefEqU.weakN_iff`'s forward direction is
+--     untouched (`UniqueTyping.lean:172`), and round 2's analysis agrees with round 1's:
+--     the `trans` case's middle term is not a lift, eliminating it needs confluence, and
+--     confluence sits downstream of `weakN_iff` both by module import and by a
+--     same-measure logical cycle. `hstr : ErasableStrengthen env Us` stays the ledger's
+--     single class-R residue. NOTHING to print: no declaration moved.
+--
+-- (e) THE GUARD, AND WHAT IT MEASURES. `gProjConsistentQ_of_trEnv` fires the new route at
+--     the round's own fixture: `ProjConsistent env [] ΓprojQ` from a `TrEnv`, the kernel
+--     certificate, and the CONSTRUCTED `ΓprojQ_projFieldsCoherent`, so the shrink is
+--     measured rather than asserted. The capstone guard at `ProjectionGuard` deliberately
+--     keeps `hagree` hypothetical — it is the general `VEnv`-level statement — which is
+--     why both guards exist.
+--
+--     ⚠️ READ THE TWO COMPOSED SETS CORRECTLY. `projConsistent_of_coh_trEnv` and this
+--     guard print `sorryAx`, and it is NOT `of_trEnv`'s — neither of them mentions
+--     `of_trEnv`, and both still take `ProjDefeqSpec` as a HYPOTHESIS. It is the
+--     PRE-EXISTING inherited unique-typing item that `projConsistent_of_arity` and
+--     `projConsistent_of_coh` have carried since slice P5 (their sets in the prefix above
+--     are `[propext, sorryAx, Classical.choice, Quot.sound]`, byte-identical and unmoved).
+--     What the new pair ADDS to that base is exactly the three `ConstMap` modelling
+--     axioms that arrive with `pats_iota_inv` — all three already in the prefix. So the
+--     discharge widens nothing: no new axiom, no new `sorry`, no new trust of any kind.
+#print axioms LeanToLambdaBox.gProjConsistentQ_of_trEnv
+--
+-- (f) THE LEDGER MOVEMENT, EXACTLY. `hproj`'s row goes from TWO upstream-gated items to
+--     ONE. It does NOT die, and it is not demoted: `projConsistent_of_coh` still needs
+--     `ProjDefeqSpec`, whose implementation is still `sorry`, so removing `hproj` from the
+--     ι cold-start capstone would bury a deferred upstream proof inside the crown instead
+--     of naming it. That is the `hnoprojs` precedent read correctly — `hnoprojs` died
+--     because the walk DERIVED what it stood in for, and nothing derives `proj_defeq`.
+--     Class-R count is unchanged at one (`hstr`).
+--
+-- (g) THE CROWN, UNMOVED — and this time the byte-identical prefix covers a re-pin, three
+--     deleted declarations and six new ones.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
