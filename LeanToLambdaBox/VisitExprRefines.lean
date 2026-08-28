@@ -4235,12 +4235,19 @@ At the entry configuration the state is the empty one (`ColdStartRun.run_eq`:
 invariant is `known`-blind, so the same configuration carries it at `known = (· = n)` —
 and, with `gDeltaSupported` (`DeltaHyps.lean`) exhibiting `Supported known Γ (.const n [])`
 at such a fragment, the two premises `visitExpr_refines_erases` needs at a δ-reference are
-jointly satisfiable at the cold-start entry. That is δ-inclusion, at the invariant. -/
-theorem bridgeInv_cold_known (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+jointly satisfiable at the cold-start entry. That is δ-inclusion, at the invariant.
+
+**The fragment is not mentioned in the proof, and that is worth stating separately**
+(slice Γ-W5): `BridgeInv` takes `known` as a parameter but no field of it mentions the
+fragment, so the cold-start instance holds at *any* `known` and the one-name form below is
+a specialisation. The general form is what a **mutual** fragment needs — a two-member
+block is `known` at two names, and `fun m => m = n` cannot say so. -/
+theorem bridgeInv_cold_any (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (known : Name → Prop)
     (hkn : ∀ m : Name, Γ.constants m = toKername m) (hfv : Γ.fixvars = fun _ => none)
     (gen : NameGenerator) (cfg : ErasureConfig)
-    (hcfg : Γ.natPeano = true → cfg.nat = .peano) (n : Name) :
-    BridgeInv env Us (fun m => m = n) Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano) :
+    BridgeInv env Us known Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] where
   mlc := ⟨.nil, trivial, rfl, rfl⟩
   lparams := rfl
   cfg := rfl
@@ -4251,6 +4258,14 @@ theorem bridgeInv_cold_known (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
   reserved := fun _ hfv => nomatch hfv
   knames := hkn
   consts := by intro m k hk; simp at hk
+
+/-- The one-name specialisation, and the form every pre-Γ-W5 consumer takes. -/
+theorem bridgeInv_cold_known (env : VEnv) (Us : List Name) (Γ : ErasureCtx)
+    (hkn : ∀ m : Name, Γ.constants m = toKername m) (hfv : Γ.fixvars = fun _ => none)
+    (gen : NameGenerator) (cfg : ErasureConfig)
+    (hcfg : Γ.natPeano = true → cfg.nat = .peano) (n : Name) :
+    BridgeInv env Us (fun m => m = n) Γ cfg gen ⟨{}, none, Us, cfg⟩ {} [] :=
+  bridgeInv_cold_any env Us Γ _ hkn hfv gen cfg hcfg
 
 /-- (iv') **Why the deleted field could not simply be weakened** — the negative guard,
 kept so that the reason `BridgeInv.known_dom` died stays on the record.
@@ -4344,6 +4359,119 @@ theorem gRecAgreement {env : VEnv} {Us : List Name} {cfg : ErasureConfig}
     (by simp)
     (bridgeInv_cold_known env Us ΓfixRec (fun _ => rfl) rfl gen cfg
       (by simp [ΓfixRec]) `f)
+
+/-! ### (iv'''') The same three, at a genuine **mutual** block (slice Γ-W5)
+
+`gRecAgreement` and every recursion guard before it stand on `ΓfixRec` — a *one*-definition
+block, which is all `DeltaHyps.decl_run` admitted until Γ-W5. The three guards below are
+their two-member twins, on `Erases.lean`'s `ΓfixMut` (`def f a := g a` / `def g a := f a`)
+and `DeltaHyps.gMutualNames` (`[f._unsafe_rec, g._unsafe_rec]`, the measured fetch shape).
+
+What they add over the single-block ones is *index* content: at arity one every ordering
+convention agrees, so `hreg`, `closeFix` and `fixSubst` cannot be observed to disagree.
+Here they can — `f`'s body erases to a call of `.fix fixMutDefs 1` and `g`'s to a call of
+`.fix fixMutDefs 0` — and the registration has to line the fetched names up with the block
+*in order*. -/
+
+/-- **The registration conclusion, computed on the two-member block.** This is what
+`RecBlockRegistered` delivers, at `ΓfixMut` and the fetched `gMutualNames`: each index of
+the block is registered under the matching stripped name. Nothing is assumed — the
+agreement is a premise about a *run*, but its conclusion is a `Γ`-side fact, and this is
+that fact, true and non-degenerate at arity two. -/
+theorem gRecBlockRegisteredMutual (j : Nat) (h : j < fixMutDefs.length) :
+    ∃ h' : j < (gMutualNames.map remove_unsafe_rec).length,
+      ΓfixMut.recBodies ((gMutualNames.map remove_unsafe_rec)[j]'h')
+        = some (fixMutDefs, j) := by
+  rw [gMutualNames_stripped]
+  exact ⟨by simpa [fixMutNames, fixMutDefs] using h, ΓfixMut_recBodies j h⟩
+
+/-- **…and the agreement's gate is inhabited at a two-name fragment**, so
+`RecBlockAgreement` really delivers a `RecBlockRegistered` for the mutual block rather than
+being true because nothing satisfies its hypotheses — `gRecAgreement`'s claim, at the arity
+the old `decl_run` forbade.
+
+The two fragment-side premises are the ones `DeltaHyps.gDeclRunMutual` checks: both
+siblings are `known` at their stripped names, and the stripped names are `Nodup`. The
+`BridgeInv` gate is the cold-start entry configuration at the *mutual* fragment, which is
+what `bridgeInv_cold_any` is for — `bridgeInv_cold_known`'s `fun m => m = n` cannot express
+a two-name fragment, and that limitation was invisible while the fragment could only ever
+hold one recursive name at a time. -/
+theorem gRecAgreementMutual {env : VEnv} {Us : List Name} {cfg : ErasureConfig}
+    (Hreg : RecBlockAgreement env Us knownMutual ΓfixMut cfg)
+    (cctx : Core.Context) (ref : ST.Ref IO.RealWorld Core.State) (gen : NameGenerator) :
+    RecBlockRegistered ΓfixMut cctx ref gMutualNames ⟨{}, none, Us, cfg⟩ {} :=
+  Hreg cctx ref
+    (fun m hm => by
+      simp only [gMutualNames, List.mem_cons, List.not_mem_nil, or_false] at hm
+      rcases hm with rfl | rfl
+      · exact Or.inl (by decide)
+      · exact Or.inr (by decide))
+    (by rw [gMutualNames_stripped]; simp [fixMutNames])
+    (bridgeInv_cold_any env Us ΓfixMut knownMutual (fun _ => rfl) rfl gen cfg
+      (by simp [ΓfixMut]))
+
+/-- **(iv'''') The walk itself, at the mutual block, asked for the *second* sibling.**
+
+Everything the walk needs on the fragment side is discharged concretely: the block is
+`gMutualNames`, both members are `known` at their stripped names, the stripped names are
+distinct, and the name the caller asked for is `` `g `` — the sibling at index **1**, which
+no single-declaration fixture can even name. What stays hypothetical is exactly what stays
+hypothetical in guard (iv''): the run, the trust bundles and the registration agreement,
+all for reasons that predate this slice and none of them arity-related.
+
+Read with `gRecAgreementMutual` and `DeltaHyps.gDeclRunMutual`, this is the whole
+non-vacuity story for the mutual slice: the fetch's report is satisfiable at a two-member
+block, the agreement's gate is inhabited there, and the walk composes. -/
+example {env : VEnv} {Us : List Name} {Esrc : SEnv} {cfg : ErasureConfig}
+    {gw : Void IO.RealWorld → NameGenerator}
+    {cctx : Core.Context} {ref : ST.Ref IO.RealWorld Core.State}
+    (H : BridgeHyps env Us ΓfixMut gw)
+    (Hδ : DeltaHyps env Us knownMutual ΓfixMut cfg Esrc gw cctx ref)
+    (Hβ : BlockHyps env Us knownMutual ΓfixMut cfg Esrc cctx ref)
+    (henv : env.Ordered)
+    {vE : Expr → EraseM LBTerm}
+    (ih1 : (∀ (e : Expr) (s : ErasureState) (ctx' : ErasureContext)
+          (w' : Void IO.RealWorld) (t : LBTerm) (s' : ErasureState) (w'' : Void IO.RealWorld),
+        vE e s ctx' cctx ref w' = .ok (t, s') w'' →
+        ∀ (Γ' : ErasureCtx), Γ' = ΓfixMut.withFixvars Γ'.fixvars →
+        ∀ (Δ' : VLCtx), BridgeInv env Us knownMutual Γ' cfg (gw w') ctx' s Δ' →
+        Supported knownMutual Γ' e → (∃ ve, TrExprS env Us Δ' e ve) →
+        Erases env Us Γ' Δ' e t ∧ RunConclδ env Us ΓfixMut Esrc s s' ∧ gw w' ≤ gw w'') ∧
+      vE ⊑ Erasure.visitExpr)
+    (Hreg : RecBlockAgreement env Us knownMutual ΓfixMut cfg)
+    {ctx : ErasureContext} {s₀ s₁ : ErasureState} {Δ : VLCtx}
+    {w w₁ : Void IO.RealWorld} {u₀ : Unit}
+    (hinv : BridgeInv env Us knownMutual ΓfixMut cfg (gw w) ctx s₀ Δ)
+    (hrun : (do
+        let ids ← gMutualNames.mapM (fun _ => (mkFreshFVarId : EraseM FVarId))
+        withReader
+            (fun e => { e with
+              fixvars := some
+                (Std.HashMap.ofList ((gMutualNames.map remove_unsafe_rec).zip ids)) }) (do
+          let defs ← gMutualNames.mapM (fun m => do
+            let cim ← getConstInfo m
+            let t ← withReader (fun e => { e with lparams := cim.levelParams })
+              (do let pe ← prepare_erasure (cim.value! (allowOpaque := true)); vE pe)
+            mkDef (remove_unsafe_rec m) (gMutualNames.map remove_unsafe_rec) t)
+          for p in (gMutualNames.map remove_unsafe_rec).zipIdx do
+            modify (fun st => { st with
+                constants := st.constants.insert p.1 (toKername p.1),
+                gdecls := (toKername p.1, .constantDecl ⟨some (.fix defs p.2)⟩) :: st.gdecls })
+          pure ()) : EraseM Unit) s₀ ctx cctx ref w = .ok (u₀, s₁) w₁) :
+    RunConclδ env Us ΓfixMut Esrc s₀ s₁ ∧ gw w ≤ gw w₁ ∧
+      (s₁.constants.get? `g).isSome := by
+  have hkn : ∀ m ∈ gMutualNames, knownMutual (remove_unsafe_rec m) := fun m hm => by
+    simp only [gMutualNames, List.mem_cons, List.not_mem_nil, or_false] at hm
+    rcases hm with rfl | rfl
+    · exact Or.inl (by decide)
+    · exact Or.inr (by decide)
+  have hnd : (gMutualNames.map remove_unsafe_rec).Nodup := by
+    rw [gMutualNames_stripped]; simp [fixMutNames]
+  have hnmem : `g ∈ gMutualNames.map remove_unsafe_rec := by
+    rw [gMutualNames_stripped]; simp [fixMutNames]
+  exact rec_exit_refines_erases H Hδ Hβ henv
+    (fun e s ctx' w' t s' w'' hr => ih1.1 e s ctx' w' t s' w'' hr)
+    ih1.2 rfl hkn hnd hnmem hinv (Hreg cctx ref hkn hnd hinv) hrun
 
 /-! ### (v) The projection fragment, end to end (projection round, slice P8) -/
 

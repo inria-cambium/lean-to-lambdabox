@@ -15,9 +15,9 @@ times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
-proj-P9 and to 856 at slice Γ-U, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9 and Γ-U the whole
-inherited prefix is (800, 818 and 850 entries respectively),
+proj-P9, to 856 at slice Γ-U and to 881 at slice Γ-W5, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U and Γ-W5 the whole
+inherited prefix is (800, 818, 850 and 856 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
 Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
@@ -3686,6 +3686,103 @@ open LeanToLambdaBox
 --     moved, no fixture was touched; the slice is two theorems and four docstrings. The
 --     capstones keep their eight and the bridge its seven, and the entire inherited
 --     850-entry prefix comes back byte-identical.
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-W5 — MUTUAL BLOCKS: THE LAST SINGLE-DECLARATION RESTRICTION, LIFTED
+-- ============================================================================
+--
+-- Γ-W3.6b made the bridge WALK `visitMutual`'s recursive exit and Γ-W4 stopped the
+-- capstones excluding recursion, but both stood on one clause of
+-- `DeltaHyps.decl_run`: `ci.all = [m] ∧ remove_unsafe_rec m = n`. Self-recursion only.
+-- Every genuine mutual block — in the subject or anywhere in its dependency cone — made
+-- the bundle UNINHABITED, the same failure mode Γ-W2 found one level in when the field
+-- still read `ci.all = [n]`.
+--
+-- The relaxed field states the three facts the walk actually consumes:
+--
+--     (∀ m ∈ ci.all, known (remove_unsafe_rec m)) ∧
+--     (ci.all.map remove_unsafe_rec).Nodup ∧
+--     n ∈ ci.all.map remove_unsafe_rec
+--
+-- and they are a RELAXATION, not a trade: the old pair implies them given the field's
+-- own `known n` premise. `gDeclRunMutual_of_single` is that implication; the other two
+-- guards are the halves that make it worth having. Twenty entries, all clean.
+--
+-- (a) THE FIELD. The old conjunct is FALSE at a two-member block, and the new one is
+--     inhabited there — including the run's own `single_decl` test coming back `false`,
+--     which is what sends such a block down the branch step 6 now walks. `gMutualNames`
+--     is the measured fetch shape (`[f._unsafe_rec, g._unsafe_rec]`), so this is the
+--     Γ-W0 measurement at arity two.
+#print axioms LeanToLambdaBox.gDeclRunMutual_of_single
+#print axioms LeanToLambdaBox.gDeclRunSingle_mutual_refuted
+#print axioms LeanToLambdaBox.gDeclRunMutual
+#print axioms LeanToLambdaBox.gMutualNames_stripped
+#print axioms LeanToLambdaBox.gRecExitRegistersBoth
+--
+-- (b) THE MUTUAL TWIN OF THE `ΓfixRec` FIXTURE, and the reason it had to be built rather
+--     than reused. A one-definition block observes NO ordering convention: `defs[0]` is
+--     the only def, `fixSubst` has one entry and its reversal is invisible, `closeFix`'s
+--     last-sibling-innermost rule has nothing to be last of, and `hreg` has one row. At
+--     arity two all four become checkable at once, and `fixMutDefs_unfold_f`/`_g` are
+--     where they meet: `f`'s body unfolds to a call of `.fix fixMutDefs 1` and `g`'s to
+--     `.fix fixMutDefs 0`, both by `rfl`. Get either convention off by one and those two
+--     stop being `rfl`. The block is `def f (a : Prop) := g a` / `def g (a : Prop) := f a`
+--     — genuinely mutual, each sibling calling the OTHER, which is the cross-reference
+--     `ΓfixRec`'s self-loop cannot exhibit.
+#print axioms LeanToLambdaBox.ΓfixMut_recBodies_f
+#print axioms LeanToLambdaBox.ΓfixMut_recBodies_g
+#print axioms LeanToLambdaBox.ΓfixMut_recBodies
+#print axioms LeanToLambdaBox.fixMutDefs_shift
+#print axioms LeanToLambdaBox.fixMutDefs_subst
+#print axioms LeanToLambdaBox.fixMutDefs_toBvar
+#print axioms LeanToLambdaBox.fixMutDefs_unfold_f
+#print axioms LeanToLambdaBox.fixMutDefs_unfold_g
+#print axioms LeanToLambdaBox.erases_const_fixMut_f
+#print axioms LeanToLambdaBox.erases_const_fixMut_g
+#print axioms LeanToLambdaBox.erases_fixMut_f
+#print axioms LeanToLambdaBox.erases_fixMut_g
+--
+-- (c) THE WALK, AT THE MUTUAL BLOCK. `rec_exit_refines_erases` and `RecBlockAgreement`
+--     were arity-general from the start — that is the whole reason this slice is small —
+--     so what had to be shown is that their fragment-side gates are inhabited at two
+--     names rather than one. One limitation only became visible here:
+--     `bridgeInv_cold_known` is stated at `known = (fun m => m = n)` and cannot express a
+--     two-name fragment. It is a specialisation of `bridgeInv_cold_any`, because NO field
+--     of `BridgeInv` mentions the fragment at all — the general form is the one a mutual
+--     fragment needs, and the old statement is unchanged.
+#print axioms LeanToLambdaBox.bridgeInv_cold_any
+#print axioms LeanToLambdaBox.gRecBlockRegisteredMutual
+#print axioms LeanToLambdaBox.gRecAgreementMutual
+--
+-- (d) WHAT THE SLICE DID NOT COST. The multi-declaration arm of step 6 is TEN LINES, and
+--     the reason is the shipping eraser's own control flow: at `ci.all.length ≠ 1` the
+--     `single_decl` guard skips the whole `@[inline]`/`value?`/`isExtern` prefix, and
+--     `nonrecursive` — being `single_decl && …` — is `false` with it, so the run goes
+--     straight to the block exit. No inline prefix, no second `getEnv`, no `logInfo`
+--     world steps, no axiom exits: the mutual path is SHORTER than the self-recursive
+--     one. The single-declaration arm got shorter too, losing the three `have`s that
+--     built `hkn'`/`hnd`/`hnmem` out of `ci.all = [mn]`.
+--
+-- (e) WHAT IT DID NOT BUY, stated so the ledger stays honest. `hcon : SEnvConsistent` and
+--     `hUs : Us = []` are untouched, so the §H benchmarks are no closer: their blocker is
+--     universe polymorphism (Γ-U), not arity. What this slice removes is a restriction
+--     that was invisible in the ledgers precisely because it was inside a five-conjunct
+--     field — the same reason δ-D8e split `nonrecursive` out before trading it.
+--
+-- (f) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. Twenty new declarations plus five
+--     crown re-prints (856 → 881), and every one of the twenty measures
+--     `[propext, Classical.choice, Quot.sound]` or a subset — two of them only `propext`;
+--     the capstones keep their eight, `visitExpr_refines_erases` its seven and
+--     `rec_exit_refines_erases` its six; and the entire inherited 856-entry prefix comes
+--     back byte-identical. One
+--     signature was generalised (`bridgeInv_cold_any` beside `bridgeInv_cold_known`) and
+--     one field relaxed; no axiom, `sorry` or `native_decide` added, and not a byte of
+--     the shipping eraser touched.
+#print axioms LeanToLambdaBox.visitExpr_refines_erases
+#print axioms LeanToLambdaBox.rec_exit_refines_erases
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

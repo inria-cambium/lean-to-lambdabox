@@ -1180,6 +1180,147 @@ theorem erases_fixRec (env : VEnv) (Us : List Name) (Δ : VLCtx) :
     exact .lam (ty' := .sort .zero) (.sort rfl)
       (.app (erases_const_fixRec env Us _ []) (.bvar 0))
 
+/-! ### The mutual twin of that fixture (slice Γ-W5)
+
+`fixRecDefs` is a **one**-definition block, so it exercises none of what a block node does
+with its index: `defs[0]` is the only def, `fixSubst` has one entry and the order it is
+built in cannot be observed, and `hreg` has one row. Until Γ-W5 that was the whole of what
+the development could reach — `DeltaHyps.decl_run` pinned `ci.all = [m]` — so the fixture
+matched the scope. It no longer does, and this is the twin:
+
+    def f (a : Prop) := g a
+    def g (a : Prop) := f a
+
+    fixMutDefs = [ f ↦ λa. #1 #0 ,  g ↦ λa. #2 #0 ]
+
+The two indices are the content. `mkDef`'s `closeFix` sends the **last** sibling to the
+innermost fix binder, so under the λ the reference to `g` closes to `#1` and the reference
+to `f` to `#2`; and `fixSubst` is built in **reverse** (`[fix defs 1, fix defs 0]`), which
+is what makes those two indices unfold back to the right siblings. Get either convention
+wrong and `fixMutDefs_unfold_f`/`_g` below stop being `rfl` — which is exactly the check a
+one-definition block cannot perform, since there both conventions agree. -/
+
+/-- The emitted block for the mutual pair above: `f` at index 0, `g` at index 1. -/
+def fixMutDefs : List (@FixDef LBTerm) :=
+  [{ name := .named "f", body := .lambda (nameToBinder `a) (.app (.bvar 1) (.bvar 0)) },
+   { name := .named "g", body := .lambda (nameToBinder `a) (.app (.bvar 2) (.bvar 0)) }]
+
+/-- The block's own names, in `defs` order — `Erases.fix`'s `nms`. -/
+def fixMutNames : List Name := [`f, `g]
+
+/-- `f`'s source body: `fun (a : Prop) => g a`. It calls its **sibling**, not itself. -/
+def fixMutSrcF : Expr := .lam `a (.sort .zero) (.app (.const `g []) (.bvar 0)) .default
+
+/-- `g`'s source body: `fun (a : Prop) => f a`. -/
+def fixMutSrcG : Expr := .lam `a (.sort .zero) (.app (.const `f []) (.bvar 0)) .default
+
+/-- A concrete `Γ` registering the two-def block under **both** its names, at the indices
+the block stores them at. This is what `Erases.fix`'s `hreg` asks for, and at arity two it
+has something to get wrong. -/
+def ΓfixMut : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  recBodies := fun n =>
+    if n = `f then some (fixMutDefs, 0) else if n = `g then some (fixMutDefs, 1) else none
+
+theorem ΓfixMut_recBodies_f : ΓfixMut.recBodies `f = some (fixMutDefs, 0) := by
+  simp [ΓfixMut]
+
+theorem ΓfixMut_recBodies_g : ΓfixMut.recBodies `g = some (fixMutDefs, 1) := by
+  simp [ΓfixMut, show ¬ (`g : Name) = `f by decide]
+
+/-- `hreg` in the form the rule takes it: every index of the block is registered under the
+matching name. -/
+theorem ΓfixMut_recBodies (j : Nat) (h : j < fixMutDefs.length) :
+    ΓfixMut.recBodies (fixMutNames[j]'(by
+      simpa [fixMutNames, fixMutDefs] using h)) = some (fixMutDefs, j) := by
+  obtain rfl | rfl : j = 0 ∨ j = 1 := by
+    simp only [fixMutDefs, List.length_cons, List.length_nil] at h; omega
+  · exact ΓfixMut_recBodies_f
+  · exact ΓfixMut_recBodies_g
+
+/-- The block is inert under every de Bruijn operation, at **either** index — the two-def
+version of `fixRecDefs_shift`/`_subst`/`_toBvar`. Both bodies are closed under the block's
+own two binders, so `shift`'s cutoff and `subst`'s depth both clear the largest index. -/
+theorem fixMutDefs_shift (idx d c : Nat) :
+    LBTerm.shift d c (.fix fixMutDefs idx) = .fix fixMutDefs idx := by
+  simp only [fixMutDefs, LBTerm.shift, LBTerm.shiftDefs, List.length_cons, List.length_nil]
+  rw [if_neg (by omega), if_neg (by omega), if_neg (by omega)]
+
+theorem fixMutDefs_subst (idx : Nat) (s : LBTerm) (d : Nat) :
+    LBTerm.subst s d (.fix fixMutDefs idx) = .fix fixMutDefs idx := by
+  simp only [fixMutDefs, LBTerm.subst, LBTerm.substDefs, List.length_cons, List.length_nil]
+  rw [if_pos (by omega), if_pos (by omega), if_pos (by omega)]
+
+theorem fixMutDefs_toBvar (idx : Nat) (x : FVarId) (l : Nat) :
+    toBvar x l (.fix fixMutDefs idx) = .fix fixMutDefs idx := rfl
+
+/-- **Non-vacuity (`Erases.const_fix`) at a mutual block**: each of the two registered
+names relates to *its own* index of the shared block. -/
+theorem erases_const_fixMut_f (env : VEnv) (Us : List Name) (Δ : VLCtx) (us : List Level) :
+    Erases env Us ΓfixMut Δ (.const `f us) (.fix fixMutDefs 0) :=
+  .const_fix `f us ΓfixMut_recBodies_f (by simp [ΓfixMut]) (by simp [ΓfixMut])
+    (fixMutDefs_shift 0) (fixMutDefs_subst 0) (fixMutDefs_toBvar 0)
+
+theorem erases_const_fixMut_g (env : VEnv) (Us : List Name) (Δ : VLCtx) (us : List Level) :
+    Erases env Us ΓfixMut Δ (.const `g us) (.fix fixMutDefs 1) :=
+  .const_fix `g us ΓfixMut_recBodies_g (by simp [ΓfixMut]) (by simp [ΓfixMut])
+    (fixMutDefs_shift 1) (fixMutDefs_subst 1) (fixMutDefs_toBvar 1)
+
+/-- **The unfoldings, computed — and this is where the two conventions meet.** `f`'s body
+unfolds to a call of `.fix fixMutDefs 1` (its sibling `g`), and `g`'s to a call of
+`.fix fixMutDefs 0` (its sibling `f`). Both are `rfl`, and both would fail were `closeFix`'s
+last-sibling-innermost order or `fixSubst`'s reversal off by one. -/
+theorem fixMutDefs_unfold_f :
+    LBTerm.substList (LBTerm.fixSubst fixMutDefs) (fixMutDefs[0]'(by simp [fixMutDefs])).body
+      = .lambda (nameToBinder `a) (.app (.fix fixMutDefs 1) (.bvar 0)) := rfl
+
+theorem fixMutDefs_unfold_g :
+    LBTerm.substList (LBTerm.fixSubst fixMutDefs) (fixMutDefs[1]'(by simp [fixMutDefs])).body
+      = .lambda (nameToBinder `a) (.app (.fix fixMutDefs 0) (.bvar 0)) := rfl
+
+/-- **Non-vacuity (`Erases.fix`) at a genuine mutual block** (slice Γ-W5): `fun a => g a`
+erases to `fix f. …` — index **0** of the two-def block — at the registering `Γ`, at any
+`Δ`. The `hbodies` premise is discharged for *both* siblings, each through the other's
+`const_fix` leaf, which is the cross-reference a one-definition block cannot exhibit.
+
+The companion below does the same at index 1, so neither index is the special one. -/
+theorem erases_fixMut_f (env : VEnv) (Us : List Name) (Δ : VLCtx) :
+    Erases env Us ΓfixMut Δ fixMutSrcF (.fix fixMutDefs 0) := by
+  refine .fix 0 (nms := fixMutNames) (srcs := [fixMutSrcF, fixMutSrcG])
+    (by simp [fixMutDefs]) (by simp [fixMutNames, fixMutDefs]) (by simp [fixMutDefs])
+    rfl ΓfixMut_recBodies (fun d hd => ?_)
+    (fun s d => rfl) (fun e₀ d => rfl) (fun v d => rfl)
+    (fixMutDefs_shift 0) (fixMutDefs_subst 0) (fixMutDefs_toBvar 0) (fun j h Δf => ?_)
+  · simp only [fixMutDefs, List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with rfl | rfl <;> rfl
+  · obtain rfl | rfl : j = 0 ∨ j = 1 := by
+      simp only [fixMutDefs, List.length_cons, List.length_nil] at h; omega
+    · rw [fixMutDefs_unfold_f]
+      exact .lam (ty' := .sort .zero) (.sort rfl)
+        (.app (erases_const_fixMut_g env Us _ []) (.bvar 0))
+    · rw [fixMutDefs_unfold_g]
+      exact .lam (ty' := .sort .zero) (.sort rfl)
+        (.app (erases_const_fixMut_f env Us _ []) (.bvar 0))
+
+theorem erases_fixMut_g (env : VEnv) (Us : List Name) (Δ : VLCtx) :
+    Erases env Us ΓfixMut Δ fixMutSrcG (.fix fixMutDefs 1) := by
+  refine .fix 1 (nms := fixMutNames) (srcs := [fixMutSrcF, fixMutSrcG])
+    (by simp [fixMutDefs]) (by simp [fixMutNames, fixMutDefs]) (by simp [fixMutDefs])
+    rfl ΓfixMut_recBodies (fun d hd => ?_)
+    (fun s d => rfl) (fun e₀ d => rfl) (fun v d => rfl)
+    (fixMutDefs_shift 1) (fixMutDefs_subst 1) (fixMutDefs_toBvar 1) (fun j h Δf => ?_)
+  · simp only [fixMutDefs, List.mem_cons, List.not_mem_nil, or_false] at hd
+    rcases hd with rfl | rfl <;> rfl
+  · obtain rfl | rfl : j = 0 ∨ j = 1 := by
+      simp only [fixMutDefs, List.length_cons, List.length_nil] at h; omega
+    · rw [fixMutDefs_unfold_f]
+      exact .lam (ty' := .sort .zero) (.sort rfl)
+        (.app (erases_const_fixMut_g env Us _ []) (.bvar 0))
+    · rw [fixMutDefs_unfold_g]
+      exact .lam (ty' := .sort .zero) (.sort rfl)
+        (.app (erases_const_fixMut_f env Us _ []) (.bvar 0))
+
 /-! ### Non-vacuity guards for `Erases.fixvar` (W3.1)
 
 The fixvar leaf is the *other half* of the same fixture: while `visitMutual` is erasing

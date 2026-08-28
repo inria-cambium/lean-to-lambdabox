@@ -1062,6 +1062,104 @@ theorem rec_exit_registers_name (defs : List (@FixDef LBTerm)) :
   refine ⟨by decide, ?_⟩
   simp [recConstState, show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide]
 
+/-! ### The mutual block: what `decl_run`'s relaxation buys, and what it costs (Γ-W5)
+
+The fixture is the two-declaration twin of `rec_exit_registers_name`'s: a block whose
+`ci.all` is `[f._unsafe_rec, g._unsafe_rec]` — the `._unsafe_rec` shape slice Γ-W0 measured
+`getDeclInfo?` to answer with, at the arity the old field forbade. Three things are checked
+on it: that the relaxed conjuncts hold, that the *old* conjunct is refuted, and that the
+run's own `single_decl` test sends this block down the branch step 6 now walks. -/
+
+/-- The block's names, as `getDeclInfo?` hands them back: two siblings, both suffixed. -/
+def gMutualNames : List Name := [`f ++ `_unsafe_rec, `g ++ `_unsafe_rec]
+
+/-- The fragment that contains them, keyed the way `decl_run` reads them — at the
+*stripped* names, which is what the caller asks for and what the exit registers under. -/
+def knownMutual : Name → Prop := fun n => n = `f ∨ n = `g
+
+/-- **The relaxation is a relaxation.** The three conjuncts the field states since Γ-W5 are
+*implied* by the pair it stated before (`ci.all = [m]`, `remove_unsafe_rec m = n`) together
+with the field's own `known n` premise — so no producer that could satisfy the old field
+fails the new one, and no consumer of the old field lost anything it was using. Step 6's
+single-declaration arm reads them back exactly here. -/
+theorem gDeclRunMutual_of_single {known : Name → Prop} {n m : Name} {ci : ConstantInfo}
+    (hkn : known n) (hall : ci.all = [m]) (hstrip : remove_unsafe_rec m = n) :
+    (∀ m' ∈ ci.all, known (remove_unsafe_rec m')) ∧
+      (ci.all.map remove_unsafe_rec).Nodup ∧ n ∈ ci.all.map remove_unsafe_rec := by
+  refine ⟨?_, ?_, ?_⟩ <;> rw [hall]
+  · intro m' hm'
+    obtain rfl : m' = m := by simpa using hm'
+    rw [hstrip]; exact hkn
+  · simp
+  · simp [hstrip]
+
+/-- **…and it is not a cosmetic one: the old conjunct is *false* at a genuine mutual
+block.** `ci.all = [m]` says the fetched declaration is alone in its block, which is
+exactly what a two-member block is not. So the pair the field used to state was
+unsatisfiable at every mutual declaration in a dependency cone, and no downstream work
+could have repaired that — the same shape of finding as Γ-W2's, one level out. -/
+theorem gDeclRunSingle_mutual_refuted : ¬ ∃ m : Name, gMutualNames = [m] := by
+  rintro ⟨m, hm⟩
+  simp [gMutualNames] at hm
+
+/-- **The relaxed field is inhabited by a genuine two-member block**, and the block takes
+the branch the slice walks.
+
+Four checks, in the order step 6 consumes them: the fragment contains both siblings at
+their stripped names; the stripped names are distinct (the `Nodup` `mkDef`'s fold and the
+registration `forIn` both need, and which nothing in `ConstantInfo` supplies); *either*
+sibling the caller asks for is among them; and the run's own test `ci.all.length == 1`
+comes back **false**, so `visitMutual` skips the `@[inline]`/`value?`/`isExtern` prefix
+entirely and `nonrecursive` — being `single_decl && …` — is `false` with it. That last
+conjunct is why the multi-declaration arm of step 6 is the *shorter* path. -/
+theorem gDeclRunMutual :
+    (∀ m ∈ gMutualNames, knownMutual (remove_unsafe_rec m)) ∧
+      (gMutualNames.map remove_unsafe_rec).Nodup ∧
+      `f ∈ gMutualNames.map remove_unsafe_rec ∧
+      `g ∈ gMutualNames.map remove_unsafe_rec ∧
+      (gMutualNames.length == 1) = false := by
+  refine ⟨?_, ?_, ?_, ?_, by decide⟩
+  · intro m hm
+    simp only [gMutualNames, List.mem_cons, List.not_mem_nil, or_false] at hm
+    rcases hm with rfl | rfl
+    · exact Or.inl (by decide)
+    · exact Or.inr (by decide)
+  · simp only [gMutualNames, List.map_cons, List.map_nil]
+    rw [show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide,
+      show remove_unsafe_rec (`g ++ `_unsafe_rec) = `g by decide]
+    decide
+  · simp only [gMutualNames, List.map_cons, List.map_nil]
+    rw [show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide]
+    simp
+  · simp only [gMutualNames, List.map_cons, List.map_nil]
+    rw [show remove_unsafe_rec (`g ++ `_unsafe_rec) = `g by decide]
+    simp
+
+/-- **The fetched block strips to the block `Γ` registers.** `getDeclInfo?` answers with
+`._unsafe_rec` names and `visitMutual` registers under `names.map remove_unsafe_rec`; at
+arity two this is where the two lists have to line up *in order*, since `Erases.fix`'s
+`hreg` reads the `j`-th name against the `j`-th definition. `Erases.lean`'s `fixMutNames`
+is that stripped list, and `ΓfixMut` registers along it. -/
+theorem gMutualNames_stripped : gMutualNames.map remove_unsafe_rec = fixMutNames := by
+  simp only [gMutualNames, fixMutNames, List.map_cons, List.map_nil]
+  rw [show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide,
+    show remove_unsafe_rec (`g ++ `_unsafe_rec) = `g by decide]
+
+/-- **And the exit registers *both* siblings**, so motive 6's conclusion
+`(s₁.constants.get? n).isSome` holds at whichever of the two the caller asked for — the
+arity-2 twin of `rec_exit_registers_name`, on the same `._unsafe_rec` shape. Under the old
+field only one of these two rows could ever be reached, because the block it admitted had
+one row. -/
+theorem gRecExitRegistersBoth (defs : List (@FixDef LBTerm)) :
+    ((recConstState (gMutualNames.map remove_unsafe_rec) defs {}).constants.get? `f).isSome ∧
+      ((recConstState (gMutualNames.map remove_unsafe_rec) defs {}).constants.get?
+        `g).isSome := by
+  simp only [gMutualNames, List.map_cons, List.map_nil]
+  rw [show remove_unsafe_rec (`f ++ `_unsafe_rec) = `f by decide,
+    show remove_unsafe_rec (`g ++ `_unsafe_rec) = `g by decide]
+  refine ⟨?_, ?_⟩ <;>
+    simp [recConstState, show ¬ (`g : Name) = `f by decide, show ¬ (`f : Name) = `g by decide]
+
 /-- **`BlockHyps`' keying is load-bearing** (slice Γ-W2), on the measured data.
 
 The block loop's `m` ranges over `ci.all`, which slice Γ-W0 measured to be `._unsafe_rec`
