@@ -10,19 +10,23 @@ reported the same 648 entries across it that it had reported immediately before 
 at slice Γ-W3b. [Corrected in the coherence pass, 2026-08-27: that sentence used to
 read "the same 648 entries it did at `fee3ada`", which is false — at `fee3ada` this
 file reported **596** (commit `5069f9d`); 648 is the Γ-W3b/`7a5e96d` figure, and the
-596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown eleven
+596 → 648 growth is the Γ-W0…Γ-W3b slices, not a no-op re-pin.] It has grown thirteen
 times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
-proj-P9, to 856 at slice Γ-U and to 886 at slice Γ-W5, with every earlier
-entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U and Γ-W5 the whole
-inherited prefix is (800, 818, 850 and 856 entries respectively),
+proj-P9, to 856 at slice Γ-U, to 886 at slice Γ-W5 and to 910 at slice Γ-U1, with every earlier
+entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U, Γ-W5 and Γ-U1 the whole
+inherited prefix is (800, 818, 850, 856 and 886 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
 a premise to 33 signatures, and a slice growing the registry invariant, had to earn.
 Γ-U earned it the easy way: it is an **analysis** slice — it changed no signature and
 added only two guard theorems, because its finding is that the relaxation it was
 commissioned to make would move the fragment's vacuity rather than remove it.
+Γ-U1 earned it the same way, one step further: it is a pure lemma kit in one new file
+(`ErasesLevels.lean`), with no consumer yet, so it edits no existing declaration at all —
+its twenty-one entries are all `sorryAx`-free, and the 886-entry prefix was checked by
+diffing a full run against a run of the same file with the new module stashed.
 The projection round's model-layer entries are **all
 `sorryAx`-free** bar one — proj-P2's
 `Erases.strengthen_fvlift_binders`, which is the defeq-route strengthening and inherits the
@@ -3822,6 +3826,116 @@ open LeanToLambdaBox
 --     the shipping eraser touched.
 #print axioms LeanToLambdaBox.visitExpr_refines_erases
 #print axioms LeanToLambdaBox.rec_exit_refines_erases
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
+#print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart
+
+-- ============================================================================
+-- SLICE Γ-U1 — THE STRICT HALF: WEAKENING ALONG A PREFIX EXTENSION
+-- ============================================================================
+--
+-- Γ-U stopped at analysis and left a four-slice plan of record. This is its first
+-- slice, and the one the analysis singled out as provable where the plan's own
+-- transport is not: `TrExprS` (and `Erases`) weakened along a PREFIX EXTENSION
+-- `Us <+: Us'` of the level scope, with STRICT conclusions.
+--
+-- THE ASYMMETRY IS THE WHOLE POINT. `TrExprS.instL` — level SUBSTITUTION — lands in
+-- `TrExpr`: it re-derives sort and const levels only up to `≈`, and `Erases.box`/`lam`/
+-- `letE` record strict `TrExprS` witnesses, so it is the wall (Γ-U3). A prefix EXTENSION
+-- substitutes nothing. `VLevel.ofLevel` resolves a parameter by `List.idxOf`, which
+-- returns the FIRST occurrence, and a first occurrence inside the prefix does not move
+-- when the list grows on the right (`List.findIdx_append`, positive branch). The very
+-- same `VLevel` comes back, the derivation transports on the nose, and the conclusion is
+-- a `TrExprS`.
+--
+-- The slice is a lemma kit in ONE NEW FILE, `ErasesLevels.lean`. It relaxes no bundle
+-- field, edits no signature, and has no consumer yet — Γ-U2 is what consumes it, and the
+-- Γ-U analysis records why Γ-U2 must not ship alone. Everything below is `sorryAx`-free.
+--
+-- (a) INDEX STABILITY — the prefix-specific half. `ofLevel` succeeds at `Us'` wherever it
+--     succeeded at `Us`, WITH THE SAME `VLevel`. The `<` premise of the `param` arm is
+--     `ofLevel`'s own membership test, which is why the append lemma is stated with it
+--     rather than with `n ∈ l`.
+#print axioms Lean4Lean.List.idxOf_append_of_lt
+#print axioms Lean4Lean.VLevel.ofLevel_prefix
+#print axioms Lean4Lean.VLevel.mapM_ofLevel_prefix
+--
+-- (b) UNIVERSE-COUNT MONOTONICITY — the half with nothing to do with prefixes, and the
+--     one that was not in the plan at all. `TrExprS` carries `env.HasType Us.length …`
+--     and `env.IsType Us.length …` side premises and a `TrProj env Us.length …` arm, so
+--     the transport needs the typing judgement to survive a LONGER scope. It does:
+--     `IsDefEq` mentions its `uvars` argument at exactly three constructors — `sortDF`,
+--     `constDF`, `extra` — and in each only as `VLevel.WF uvars`, which is a conjunction
+--     of `i < n` conditions on `param` leaves. Every other rule is `uvars`-blind, so the
+--     induction is structural and premise-free: no `env.WF`, no `Ordered`, no `OnCtx`.
+#print axioms Lean4Lean.VLevel.WF.uvars_mono
+#print axioms Lean4Lean.VEnv.IsDefEq.uvars_mono
+#print axioms Lean4Lean.VEnv.HasType.uvars_mono
+#print axioms Lean4Lean.VEnv.IsType.uvars_mono
+#print axioms Lean4Lean.VEnv.IsDefEqU.uvars_mono
+#print axioms Lean4Lean.TrProj.uvars_mono
+--
+-- (c) THE BOX ARM, RESOLVED HERE AND NOT AT Γ-U3 — the timeboxed risk, which did not
+--     materialise. The commission flagged `Erases.box`'s `Erasable env Us.length Δ.toCtx
+--     ve` as the place a `VExpr`-side wall might live, and asked for the gap to be stated
+--     precisely if it appeared. There is no gap. Unfolded, `Erasable` is a `HasType`
+--     together with a `HasType`-or-`IsArityUpTo` disjunct, and all three are `IsDefEq` at
+--     `U`; `IsArity` itself never mentions `U`. So `Erasable.uvars_mono` is a corollary
+--     of (b) with NO environment-side lift and NO context condition — the answer to
+--     "does `Erasable` weaken along more levels?" is yes, unconditionally.
+#print axioms LeanToLambdaBox.IsArityUpTo.uvars_mono
+#print axioms LeanToLambdaBox.Erasable.uvars_mono
+--
+-- (d) THE TWO CONCLUSIONS. `TrExprS.prefix_weaken` is the lemma the slice was
+--     commissioned for, and it is STRICT — `TrExprS` in, `TrExprS` out. `TrExpr` follows
+--     for free (its residual `IsDefEqU` travels by (b)), and is stated for the Γ-U2
+--     consumer, which meets `TrExpr` wherever an upstream `instL` has already fired.
+--
+--     THE `VLCtx` SIDE NEVER ENTERS. `Us` and `Δ` are orthogonal parameters of `TrExprS`;
+--     `Δ.toCtx` does not mention `Us`, and the `bvar`/`fvar` arms are pure `VLCtx.find?`
+--     lookups. So the family carries no `VLCtx.WF`, no closedness and no freshness
+--     premise — which is what distinguishes it from every other transport in the
+--     development (`weakBV`, `weakFV`, `abstract`, `instL_weak` all need one).
+#print axioms Lean4Lean.TrExprS.prefix_weaken
+#print axioms Lean4Lean.TrExpr.prefix_weaken
+--
+-- (e) `Erases` ITSELF, confirming the Γ-U analysis's finding (a) by construction. The
+--     relation mentions `Us` at exactly three constructors and the target `t` never, so
+--     the induction is fifteen structural arms plus the three transports above. Same
+--     source, same target, same `VExpr` witnesses, no side conditions.
+--
+--     This is NOT `Erases.instL`. That one is still the wall, and still Γ-U3.
+#print axioms LeanToLambdaBox.Erases.prefix_weaken
+--
+-- (f) THE GUARDS, POSITIVE — a real scope extension through the real lemma, at every
+--     layer. `[u]` extended to `[u, v]`: the parameter resolves to `VLevel.param 0` on
+--     BOTH sides (index stability, decided); the `TrExprS` fixture is a sort, which is
+--     the constructor that pins the `VLevel` on the nose; the `Erases` fixture is a `lam`
+--     whose binder type is that sort, which is one of the three arms that carry a strict
+--     `TrExprS`. Both fixtures are built at an ARBITRARY `env`/`Γ`/`Δ`, so what they
+--     check is the level scope and nothing else.
+#print axioms LeanToLambdaBox.guard_uv_prefix
+#print axioms LeanToLambdaBox.ofLevel_prefix_index_stable
+#print axioms LeanToLambdaBox.trExprS_sort_prefix_weaken_guard
+#print axioms LeanToLambdaBox.erases_lam_prefix_weaken_guard
+--
+-- (g) THE GUARDS, NEGATIVE — the hypothesis is not slack. The commission asked for the
+--     non-prefix case as a comment "or a refutation if cheap". It is cheap, so it is a
+--     refutation. A PERMUTATION preserves the parameter set AND the scope length — it
+--     satisfies everything (b) needs — and still breaks the lemma, because `idxOf`
+--     returns a position and not a name: `u` sits at `0` in `[u, v]` and at `1` in
+--     `[v, u]`. Two refutations, at the level layer and at the `TrExprS` layer, the
+--     second at EVERY environment. They are the machine-checked reason
+--     `VLevel.ofLevel_prefix` says `<+:` and not "same names".
+#print axioms LeanToLambdaBox.ofLevel_perm_index_shifts
+#print axioms LeanToLambdaBox.not_ofLevel_weaken_of_perm
+#print axioms LeanToLambdaBox.not_trExprS_weaken_of_perm
+--
+-- (h) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. The slice adds one file and one
+--     import line; it edits no existing declaration, no signature and no fixture. The
+--     entire inherited 886-entry prefix comes back BYTE-IDENTICAL, verified by diffing a
+--     full run against a run of the same file at `e0e2b16` with the new module stashed.
+--     The capstones keep their eight and the bridge its seven.
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorder_coldstart
 #print axioms LeanToLambdaBox.shipping_erase_correct_firstorderι_coldstart

@@ -58,6 +58,12 @@ import LeanToLambdaBox.ErasesStrengthen
 -- modulo the one commissioned VExpr-level obligation `ErasableStrengthen`, composed with
 -- `ErasesStrengthen`'s weakening — the two-sided transport `DeltaHyps.uniform` asked for.
 import LeanToLambdaBox.ErasesUniform
+-- Level-scope weakening (slice Γ-U1): `TrExprS`/`Erases` transported along a *prefix
+-- extension* `Us <+: Us'` of the level scope, with STRICT conclusions — the half of the
+-- Γ-U plan that `TrExprS.instL` (which lands in `TrExpr`) cannot supply. Carries the
+-- universe-count monotonicity of lean4lean's typing judgement, which is what discharges
+-- the `Erasable` witness of `Erases.box`. A lemma kit for Γ-U2; nothing consumes it yet.
+import LeanToLambdaBox.ErasesLevels
 import LeanToLambdaBox.ErasureRun
 -- Relevance-oracle soundness via lean4lean's verified checker (discharges the
 -- `isProp`/proof disjunct of `OracleSound` with no axiom of ours).
