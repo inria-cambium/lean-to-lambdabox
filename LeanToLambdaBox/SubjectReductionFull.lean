@@ -122,6 +122,46 @@ theorem SEnvConsistent.levels_collapse {env : VEnv} (henv : env.WF) {Us : List N
   exact VEnv.IsDefEqU.trans henv hΔ.toCtx hd
     (VEnv.IsDefEqU.trans henv hΔ.toCtx huniq (VEnv.IsDefEqU.symm hd'))
 
+/-- **`SEnvConsistent` collapses a mutual block's two members** (slice Γ-W5) — the
+sibling-side twin of `levels_collapse`, and the fact that stops the mutual cold-start guard
+where `ColdStart`'s `MutualGuard` section stops it.
+
+A mutual block's source is `def f a := g a` / `def g a := f a`: each member's recorded body
+is the *other* member's η-expansion. Feed that to `SEnvConsistent` and the premise no
+longer says "this constant equals its own body" — it says
+`.const f [] ≡ .const g []`, a defeq **between the two siblings**. Two distinct axioms do
+not satisfy it, so an environment that discharges `hcon` at a mutual block has to identify
+the block's members (declare one as a kernel definition of the other, the `envδ`/`addDefEq`
+pattern), which degenerates the source side of the very fixture the guard exists to build.
+
+That is why the row's two existing discharges do not generalise. `envδ_senvConsistent` uses
+the kernel's own defining equation, which a recursive constant does not have;
+`envRec_senvConsistent` uses **η**, and η contracts `fun a => g a` to `g`, not to `f`. The
+premise is *not* thereby false — it is a trust item about the elaborator, and at a mutual
+block it is one relating two constants rather than one — but it is stronger than the
+per-constant reading `SEnvConsistent`'s docstring gives, exactly as `levels_collapse` shows
+it is stronger than the kernel fact at a polymorphic constant.
+
+The body's translation is stipulated at the shape `TrExprS.lam`/`app`/`const` forces
+(`ColdStart.envRec_trFixRecSrc` builds precisely it for the self-loop fixture), and `hty`
+is the sibling's Pi typing, which any declared block member has. Everything else is
+`levels_collapse`'s proof: `hcon`, `TrExprS.uniq`, and one `VEnv.IsDefEq.eta`. -/
+theorem SEnvConsistent.siblings_collapse {env : VEnv} (henv : env.WF) {Us : List Name}
+    {Esrc : SEnv} (h : SEnvConsistent env Us Esrc)
+    {Δ : VLCtx} (hΔ : VLCtx.WF env Us.length Δ)
+    {m m' : Name} {nm : Name} {ty : Expr} {bi : BinderInfo} {A B : VExpr} {cve : VExpr}
+    (hb : Esrc m = some (.lam nm ty (.app (.const m' []) (.bvar 0)) bi))
+    (htr : TrExprS env Us Δ (.const m []) cve)
+    (htrb : TrExprS env Us Δ (.lam nm ty (.app (.const m' []) (.bvar 0)) bi)
+      (.lam A (.app (.const m' []) (.bvar 0))))
+    (hty : env.HasType Us.length Δ.toCtx (.const m' []) (.forallE A B)) :
+    env.IsDefEqU Us.length Δ.toCtx cve (.const m' []) := by
+  obtain ⟨bve, htrb₀, hd⟩ := h hb htr
+  have huniq : env.IsDefEqU Us.length Δ.toCtx bve (.lam A (.app (.const m' []) (.bvar 0))) :=
+    TrExprS.uniq henv (VLCtx.IsDefEq.refl henv.ordered hΔ) htrb₀ htrb
+  exact VEnv.IsDefEqU.trans henv hΔ.toCtx hd
+    (VEnv.IsDefEqU.trans henv hΔ.toCtx huniq ⟨_, VEnv.IsDefEq.eta hty⟩)
+
 /-- The head of a translated application spine itself translates. -/
 theorem TrExprS_spine_head {env : VEnv} {Us : List Name} {Δ : VLCtx} :
     ∀ (args : List Expr) {head : Expr} {ve : VExpr},

@@ -99,7 +99,7 @@ Four classes, and nothing falls outside them:
 | `hcov : … → RecCovered Γ Esrc sf` | H, and S in one conjunct | **the recursion coverage agreement** (Γ-W4), and what the deleted `hnorec : Γ.recBodies = ⊥` traded for. Every constant `Γ` records as recursive is in `Esrc` (that conjunct is S — a fragment-domain condition) and has *its* block stored under its kername in the run's final environment (that one is H — a run-keyed registration agreement, `BridgeInv.knames`-class). It is the **converse** of `Hreg` below and neither derives the other: `RecBlockAgreement` says the block a run builds is the block `Γ` records; this says every block `Γ` records was built. A `Γ` naming a block for a constant the program never calls satisfies the first and not the second. At `Γ.recBodies = ⊥` it is a **theorem** (`ColdStartDelta.RecCovered.of_noRec`), which is how the two `known = ⊥` guards and the δ guard pick it up unchanged. Suppliability: `ColdStartDelta.gRecCoveredD8` and `gRecCoveredFO` compute it on the self-referential fixture at the state a walked recursive exit produces, so the premise is not satisfiable-only-vacuously — the S1d/S1e failure mode. Stated about the run because the final state is what it speaks of, exactly like `hev` |
 | `hnat : Γ.natPeano → cfg.nat = .peano` | C | `by simp [Γ…]`; pins the run's config against `Γ`, which is what `Supported.natLit` cashes in |
 | `Hr : RegBridgeHyps Γ` | H, and `knames` is C | after S1e it carries only: the naming convention (C), the `Γ`-agreement for a *cold* `register_inductive` (H — the cold branch reads the environment, so no run of it is constructible; the *hit* branch is, which is why the guard is load-bearing: `regShapeHyps_regCtors_refuted`), registration completeness, and the `prepare_erasure` trust item. Registry-invariant preservation is **no longer here** — it is the theorem `ColdStartInduction.visitExpr_regInvShape` |
-| `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec`. **A second scope conjunct, unnamed until Γ-U**: the predicate quantifies the call site's levels `us` and its conclusion never mentions them, while a `VEnv`'s defining equation (`VEnv.IsDefEq.extra`) instantiates *both* sides. So at a polymorphic constant this row is not the kernel fact but a strictly stronger, false one — it collapses the constant's instantiations (`SEnvConsistent.levels_collapse`). It is sound exactly where `hUs` already puts us, which is why nothing moved; but it means the universe restriction is pinned in two places, and a Γ-U that relaxed only the bundle would move the vacuity here |
+| `hcon : SEnvConsistent env Us Esrc` | H (`PrepareHyps` class), C at both δ guards | "the prepared body is defeq to the kernel's value for the constant" — a fact about the *elaborator*, not about the walk, so it is deliberately not derived. Discharged at `envδ` from `VEnv`'s own defining equation (`envδ_senvConsistent`), the first non-vacuous instance in this development, and again at the *recursive* guard (`envRec_senvConsistent`) — there by **η**, since that fixture's body is its constant's η-expansion. The second discharge is a property of the fixture, not of recursion: a well-formed `VEnv` cannot carry a self-referential defining equation at all (`VDecl.def` types a constant's value *before* the constant is added), so for a general recursive constant this row is a trust item about a constant whose only kernel form is `_unsafe_rec`. **A second scope conjunct, unnamed until Γ-U**: the predicate quantifies the call site's levels `us` and its conclusion never mentions them, while a `VEnv`'s defining equation (`VEnv.IsDefEq.extra`) instantiates *both* sides. So at a polymorphic constant this row is not the kernel fact but a strictly stronger, false one — it collapses the constant's instantiations (`SEnvConsistent.levels_collapse`). It is sound exactly where `hUs` already puts us, which is why nothing moved; but it means the universe restriction is pinned in two places, and a Γ-U that relaxed only the bundle would move the vacuity here. **A third conjunct, unnamed until Γ-W5**: at a *mutual* block each member's recorded body is the **other** member's η-expansion, so the predicate forces the two siblings' constants definitionally equal (`SEnvConsistent.siblings_collapse`). Neither existing discharge reaches that — the `envδ` route needs a defining equation a recursive constant has not got, and the `envRec` η route contracts `fun a => g a` to `g`, not to `f` — so an environment satisfying this row at a mutual block has to identify the block's members. That is why `MutualGuard` constructs `hcov` and stops before the capstone |
 | `H : BridgeHyps` / `HD : DataBridgeHyps` / `C : CasesBridgeHyps` | H | the three original bundles, unchanged |
 | `P : ProjBridgeHyps` | H | the fourth bundle (proj-P8), two clauses for `visitProj`'s two calls. Both are Γ↔environment *registration* agreements and both are `env`/`Us`-free, so **the projection round adds no typing assumption** — it is the same class as `CasesBridgeHyps`, one call site smaller. At `Γ.projs = ⊥` it is a **theorem** (`ProjBridgeHyps.of_bot`), which is what makes threading it through the pre-projection cone cost nothing: at every `Γ` predating the round the bundle is derivable, so the premise adds no assumption to any statement that had none. [Corrected in the coherence pass, 2026-08-27: this row used to say "the eight pre-projection call sites *instantiate* it rather than assuming it". They do not — the cone threads `P` as a hypothesis like the other three bundles, and `of_bot` is applied at exactly one place, the guard at `ProjBridgeHyps.lean`. The claim that cost nothing is *derivability*, not inlining; the guard is what measures it, and `ProjectionGuard` below is where `of_bot` stops applying.] |
 | `hproj : ProjConsistent env Us Γ` (ι) | H | the projection interface premise, `hiota`'s exact analogue: the source-side ι rule for `.proj`, stated about `env`. `ProjDischarge.projConsistent_of_coh` discharges it from `ProjDefeqSpec` — upstream's `TrEnv.proj_defeq`, a real statement with a **deferred proof** (commission item A2), so this row is *upstream-gated* in the same sense `PatsIotaSpec` was before `of_trEnv` — plus `ProjCtorAgree`, the `env.pats`↔`Γ.ctors` constructor agreement that `ProjShape` provably cannot supply (`ProjDischarge.lean`'s module docstring), plus the `ProjFieldsCoherent` this capstone now derives from the walk. At `Γ.projs = ⊥` it is `projConsistent_of_noProjs`, which is how both `known = ⊥` guards pick it up unchanged. **Not an axiom** at any point: `ProjDefeqSpec` and `ProjCtorAgree` are `Prop` hypotheses |
@@ -1675,6 +1675,150 @@ example (harity : ¬ IsArityUpTo envRec 0 [] (.const `I []))
     (envRec_foC harity) hrun
 
 end RecursiveGuard
+
+section MutualGuard
+
+/-! ## The mutual guard: the capstone's recursion premise at a two-member block (Γ-W5)
+
+`RecursiveGuard` above stands at `ΓfixRec` — a *self*-referential block of one definition,
+which is all `DeltaHyps.decl_run` admitted before Γ-W5. This section carries what the same
+premises look like at `Erases.lean`'s `ΓfixMut` (`def f a := g a` / `def g a := f a`), and
+it stops where the fixture stops being constructible, which is the point of the section.
+
+### What is constructed, and why it is the interesting half
+
+`hcov : RecCovered Γ Esrc sf` is the premise that replaced `hnorec` at Γ-W4, and it is
+`env`-free: a statement about `Γ`, `Esrc` and a state. So it can be *computed* at a genuine
+two-member registration, and `gMutCoveredFO` is that computation — the mutual twin of
+`gRecCoveredFO`, at the state a walked mutual exit produces. Two things it checks that the
+one-block version cannot: the registration is looked up **once per sibling**, at the
+*matching* index (`f ↦ (fixMutDefs, 0)`, `g ↦ (fixMutDefs, 1)` — swap them and
+`recConstState_envLookup`'s membership premise fails), and the final environment holds
+**three** distinct keys rather than two, so the block entries do not shadow each other or
+the inductive one (`gMutKeysFO`).
+
+### Where it stops: `hcon`, and why η does not reach a mutual pair
+
+The full capstone instantiation needs an `env` declaring both names, and there the
+`RecursiveGuard`'s one piece of luck runs out. `envRec_senvConsistent` discharges
+`hcon : SEnvConsistent` **by η**: the self-referential fixture's body `fun a => f a` is its
+own constant's η-expansion, so `VEnv.IsDefEq.eta` closes it. At a mutual pair the body of
+`f` is `fun a => g a`, whose η-contraction is `g` and not `f` — so the premise forces
+`env.IsDefEqU 0 [] (.const f []) (.const g [])`, a defeq **between the two siblings**.
+
+That is stated as a theorem rather than asserted here:
+`SubjectReductionFull.SEnvConsistent.siblings_collapse`, the sibling-side twin of Γ-U's
+`SEnvConsistent.levels_collapse` and proved the same way (`hcon`, `TrExprS.uniq`, one
+`VEnv.IsDefEq.eta`). Two distinct axioms do not satisfy its conclusion, so an `envMut` that
+discharges `hcon` has to make the two members definitionally equal — concretely, declare
+`g` as a kernel *definition* `g := f` (the `envδ`/`addDefEq` pattern) rather than as a
+second axiom. That is constructible, and it is a fixture in which the block's two members
+are the same function: the cross-references in `fixMutDefs` stay genuinely mutual on the
+**target** side, which is where this slice's content is, but the source side degenerates.
+Recorded rather than built, because a guard whose environment has to identify the two names
+it exists to distinguish is worth naming before it is worth having, and because the general
+reading is what matters:
+
+> `hcon` at a mutual block is a demand about the block's members *jointly*, not a
+> per-constant defining equation. The ledger row for `hcon` says it is "a fact about the
+> elaborator, not about the walk"; at a mutual block it is a fact about the elaborator
+> relating **two** constants, and neither the `envδ` defining-equation discharge nor the
+> `envRec` η discharge generalises to it.
+
+It lands in the same place as Γ-U's finding: the premise is stronger than the kernel fact
+exactly where the fragment was being widened. Unlike Γ-U it does **not** block the slice —
+`hcon` is a capstone premise, not a bundle field, so a mutual block is in scope for the
+bridge and for `DeltaHyps` either way; what is not yet exhibited is one end-to-end capstone
+at a mutual `Γ`. -/
+
+/-- The mutual guard's `Γ`: `ΓFOd`'s nullary constructor `c`, plus `Erases.lean`'s
+two-member block registered under **both** its names, at the indices it stores them at. -/
+def ΓFOmut : ErasureCtx where
+  inductives := fun _ => none
+  constants := toKername
+  ctors := fun n => if n = `c then some (⟨toKername `I, 0⟩, 0) else none
+  ctorArities := fun n => if n = `c then some 0 else none
+  casesOns := fun _ => none
+  recBodies := fun n =>
+    if n = `f then some (fixMutDefs, 0) else if n = `g then some (fixMutDefs, 1) else none
+
+/-- **The deleted premise is refuted here too**, and by *two* names rather than one. -/
+theorem ΓFOmut_norec_refuted : ΓFOmut.recBodies ≠ fun _ => none := by
+  intro h
+  have := congrFun h `g
+  simp [ΓFOmut, show ¬ (`g : Name) = `f by decide] at this
+
+/-- The fragment: **both** members of the block. A fragment holding only one of them
+violates `DeltaHyps.decl_run`'s block-membership closure (restriction 7), which is the
+condition slice Γ-W5 put in place of `ci.all = [m]`. -/
+def knownMut : Name → Prop := fun n => n = `f ∨ n = `g
+
+/-- The source environment: each member unfolds to its own body — which calls the *other*.
+That is what makes this fixture mutual rather than two self-loops side by side. -/
+def EsrcMut : SEnv :=
+  fun n => if n = `f then some fixMutSrcF else if n = `g then some fixMutSrcG else none
+
+@[simp] theorem EsrcMut_f : EsrcMut `f = some fixMutSrcF := by simp [EsrcMut]
+@[simp] theorem EsrcMut_g : EsrcMut `g = some fixMutSrcG := by
+  simp [EsrcMut, show ¬ (`g : Name) = `f by decide]
+
+/-- **Three distinct keys, not two.** The mutual exit files one `gdecls` entry per sibling,
+so the guard's final environment holds `I`, `f` and `g`; without distinctness the two block
+entries would shadow each other and `envLookup` would answer for the wrong index. -/
+theorem gMutKeysFO : KeysDistinct (recConstState [`f, `g] fixMutDefs sIrec).gdecls := by
+  simp only [recConstState, sIrec, EFOd, KeysDistinct, List.zipIdx, List.foldl_cons,
+    List.foldl_nil]
+  decide
+
+/-- **The coverage agreement, computed at a two-member registration** (slice Γ-W5) — the
+mutual twin of `gRecCoveredFO`, and the capstone premise that replaced `hnorec`.
+
+Both rows are checked, each at *its own* index: `f` against `(fixMutDefs, 0)` and `g`
+against `(fixMutDefs, 1)`. At arity one this pairing cannot be got wrong; here it can, and
+`recConstState_envLookup`'s membership premise is where it would fail. -/
+theorem gMutCoveredFO :
+    RecCovered ΓFOmut EsrcMut (recConstState [`f, `g] fixMutDefs sIrec) where
+  cov := by
+    intro n defs idx hrec
+    by_cases hf : n = `f
+    · subst hf
+      obtain ⟨rfl, rfl⟩ : defs = fixMutDefs ∧ idx = 0 := by
+        have h := (by simpa [ΓFOmut] using hrec : fixMutDefs = defs ∧ 0 = idx)
+        exact ⟨h.1.symm, h.2.symm⟩
+      refine ⟨by simp, ?_⟩
+      show LBTerm.envLookup _ (toKername `f) = _
+      exact recConstState_envLookup (by simp) gMutKeysFO
+    · by_cases hg : n = `g
+      · subst hg
+        obtain ⟨rfl, rfl⟩ : defs = fixMutDefs ∧ idx = 1 := by
+          have h := (by
+            simpa [ΓFOmut, show ¬ (`g : Name) = `f by decide] using hrec :
+              fixMutDefs = defs ∧ 1 = idx)
+          exact ⟨h.1.symm, h.2.symm⟩
+        refine ⟨by simp, ?_⟩
+        show LBTerm.envLookup _ (toKername `g) = _
+        exact recConstState_envLookup (by simp) gMutKeysFO
+      · simp [ΓFOmut, hf, hg] at hrec
+
+/-- **The bundle's fragment-scope fields at the mutual fixture** — `gRecScope`'s twin, and
+the check that `knownMut` is a *two*-name fragment the scope fields really speak about
+(neither row is true because the fragment is empty, and both names are covered). -/
+theorem gMutScope :
+    (∀ {n : Name}, (EsrcMut n).isSome → knownMut n) ∧
+    (∀ {n : Name}, knownMut n → ΓFOmut.ctors n = none ∧ ΓFOmut.casesOns n = none) ∧
+    (∀ {n : Name}, knownMut n → ΓFOmut.fixvars = fun _ => none) := by
+  refine ⟨?_, ?_, fun _ => rfl⟩
+  · intro n hn
+    by_cases h : n = `f
+    · exact Or.inl h
+    · by_cases h' : n = `g
+      · exact Or.inr h'
+      · simp [EsrcMut, h, h'] at hn
+  · rintro n (rfl | rfl)
+    · exact ⟨by simp [ΓFOmut, show ¬ (`f : Name) = `c by decide], rfl⟩
+    · exact ⟨by simp [ΓFOmut, show ¬ (`g : Name) = `c by decide], rfl⟩
+
+end MutualGuard
 
 section ProjectionGuard
 

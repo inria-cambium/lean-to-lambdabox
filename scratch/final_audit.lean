@@ -15,7 +15,7 @@ times since 648:
 to 660 at slice proj-P3, to 673 at slice Γ-W3.5, to 691 at slice Γ-W3.6a, to 707 at
 slice Γ-W3.6b, to 730 at slices proj-P0/P1/P4, to 750 at slice Γ-W4, to 772 at slice
 proj-P2, to 800 at slices proj-P5/P6/P7, to 818 at slice proj-P8, to 850 at slice
-proj-P9, to 856 at slice Γ-U and to 881 at slice Γ-W5, with every earlier
+proj-P9, to 856 at slice Γ-U and to 886 at slice Γ-W5, with every earlier
 entry's output byte-identical at each step — at proj-P8, proj-P9, Γ-U and Γ-W5 the whole
 inherited prefix is (800, 818, 850 and 856 entries respectively),
 which is the strongest form of that claim the file can make and the one a slice adding
@@ -3757,7 +3757,33 @@ open LeanToLambdaBox
 #print axioms LeanToLambdaBox.gRecBlockRegisteredMutual
 #print axioms LeanToLambdaBox.gRecAgreementMutual
 --
--- (d) WHAT THE SLICE DID NOT COST. The multi-declaration arm of step 6 is TEN LINES, and
+-- (d) THE CAPSTONE SIDE, AS FAR AS IT IS CONSTRUCTIBLE — and where it stops, which is the
+--     finding. `hcov : RecCovered` is the premise that replaced `hnorec` at Γ-W4 and it is
+--     `env`-free, so it can be COMPUTED at a two-member registration: `gMutCoveredFO`
+--     checks both rows at their OWN indices (`f ↦ (fixMutDefs, 0)`, `g ↦ (fixMutDefs, 1)`
+--     — swap them and `recConstState_envLookup`'s membership premise fails), over an
+--     environment holding THREE distinct keys rather than two (`gMutKeysFO`).
+--     `gMutScope` is the fragment-scope half at a two-name `known`.
+--
+--     What is NOT constructed is the end-to-end capstone, and the obstruction is
+--     `hcon : SEnvConsistent`. `envRec_senvConsistent` discharges it by η, because a
+--     self-loop's body IS its own constant's η-expansion. A mutual block's is the OTHER
+--     member's, so the premise forces `.const f [] ≡ .const g []` — a defeq BETWEEN THE
+--     SIBLINGS, stated as a theorem here rather than asserted. It is the sibling-side twin
+--     of Γ-U's `levels_collapse`, proved the same way and carrying `sorryAx` from the same
+--     single place (`TrExprS.uniq`, which the whole simulation layer has consumed since
+--     long before either slice). An `envMut` discharging `hcon` therefore has to declare
+--     one member as a kernel definition of the other, degenerating the source side of the
+--     fixture; recorded rather than built. It does NOT block the slice: `hcon` is a
+--     capstone premise, not a bundle field, so mutual blocks are in scope for the bridge
+--     and for `DeltaHyps` either way.
+#print axioms LeanToLambdaBox.ΓFOmut_norec_refuted
+#print axioms LeanToLambdaBox.gMutKeysFO
+#print axioms LeanToLambdaBox.gMutCoveredFO
+#print axioms LeanToLambdaBox.gMutScope
+#print axioms LeanToLambdaBox.SEnvConsistent.siblings_collapse
+--
+-- (d') WHAT THE SLICE DID NOT COST. The multi-declaration arm of step 6 is TEN LINES, and
 --     the reason is the shipping eraser's own control flow: at `ci.all.length ≠ 1` the
 --     `single_decl` guard skips the whole `@[inline]`/`value?`/`isExtern` prefix, and
 --     `nonrecursive` — being `single_decl && …` — is `false` with it, so the run goes
@@ -3782,10 +3808,13 @@ open LeanToLambdaBox
 --     inside a five-conjunct field — the same reason δ-D8e split `nonrecursive` out
 --     before trading it.
 --
--- (f) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. Twenty new declarations plus five
---     crown re-prints (856 → 881), and every one of the twenty measures
---     `[propext, Classical.choice, Quot.sound]` or a subset — two of them only `propext`;
---     the capstones keep their eight, `visitExpr_refines_erases` its seven and
+-- (f) THE CROWN, UNMOVED — AND THE WHOLE FILE AGAIN. Twenty-five new declarations plus
+--     five crown re-prints (856 → 886), and twenty-four of the twenty-five measure
+--     `[propext, Classical.choice, Quot.sound]` or a subset — two of them only `propext`.
+--     The twenty-fifth is `SEnvConsistent.siblings_collapse`, which carries `sorryAx` from
+--     exactly one place, `TrExprS.uniq`, byte-identically to its Γ-U twin
+--     `levels_collapse`: a consumer of an item paid for long ago, not a new frontier.
+--     The capstones keep their eight, `visitExpr_refines_erases` its seven and
 --     `rec_exit_refines_erases` its six; and the entire inherited 856-entry prefix comes
 --     back byte-identical. One
 --     signature was generalised (`bridgeInv_cold_any` beside `bridgeInv_cold_known`) and
