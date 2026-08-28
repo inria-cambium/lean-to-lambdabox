@@ -263,7 +263,29 @@ recursive head goes through `erases_lam_head_step` at
 `P := fun x => NoBlock x ∧ LBClosed x 0`, whose two chain-preservation instances are
 `FixUnfoldChain.noBlock` and `FixUnfoldChain.lbClosed` — the latter is why the closedness
 thread survives a fix unfolding (each entry of `fixSubst defs` is closed exactly when the
-block is, and `defs[idx].body` is closed under `defs.length` binders). -/
+block is, and `defs[idx].body` is closed under `defs.length` binders).
+
+**Universes (slice Γ-U4).** `SEvalDataι.delta` unfolds at
+`body.instantiateLevelParams (Γ.lparams n) us`, so the δ case's two inputs are asked for at
+that expression and not at `body`. Three premises carry it, and the δ case itself is four
+lines longer than it was:
+
+* `hcon` is the universe-aware `SEnvConsistentL env Us Γ.lparams Esrc` — the fact a real
+  `VEnv` supplies, `VEnv.IsDefEq.extra` instantiating both sides of the defining equation.
+  A caller holding the monomorphic `SEnvConsistent` passes `hcon.toL hlp`;
+* `hdeltaL : ErasesEnvDeltaL` is the erasure-side twin, additive beside `hdelta` rather
+  than replacing it — `hdelta`'s registration conjuncts are still consumed where no
+  translation is in scope (`hnf`). `ErasesEnvDeltaData.toL` and
+  `ErasesEnvDeltaL.of_ownScope` are its two implementations, the second through
+  `Erases.instL`;
+* `hrecmono` says a `Γ`-**recursive** fragment constant is universe-monomorphic. This is
+  Γ-U3's named gap made a premise rather than a silence: `Erases.instL` refutes rather than
+  transports its two recursive arms, because `Erases.fix`'s `hbodies` is stated `∀ Δf`
+  while `VLCtx.instL` is not surjective on contexts. So there is no `.of_ownScope` for a
+  recursive constant and the `const_fix` branch says so.
+
+All three are `rfl`-cheap at every `ErasureCtx` in the development, whose `lparams` column
+is the default `fun _ => []`. -/
 theorem erases_correct_dataι {env : VEnv} (henv : env.WF) {Us : List Name} {Δ : VLCtx}
     (hΔ : VLCtx.WF env Us.length Δ) {Γ : ErasureCtx} {ia : IotaArities}
     {Esrc : SEnv} {E : GlobalDeclarations}
